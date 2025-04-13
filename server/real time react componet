@@ -1,0 +1,52 @@
+import React, { useState, useEffect } from 'react';
+import io from 'socket.io-client';
+
+const socket = io('http://localhost:5000');
+
+function Feed() {
+  const [posts, setPosts] = useState([]);
+
+  useEffect(() => {
+    const handleNewPost = (post) => {
+      setPosts((prevPosts) => [...prevPosts, post]);
+    };
+
+    socket.on('newPost', handleNewPost);
+
+    // Cleanup the listener on component unmount
+    return () => {
+      socket.off('newPost', handleNewPost);
+    };
+  }, []);
+
+    return (
+      <div>
+        {/* Add content here */}
+      </div>
+    );
+  }
+  
+  import React, { useState } from 'react';
+import { login } from './api/auth';
+
+    function LoginForm() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    const res = await login({ email, password });
+    localStorage.setItem('token', res.data.token);
+      alert('Logged in successfully!');
+    };
+  return (
+    <form onSubmit={handleLogin}>
+      <input type="email" placeholder="Email" onChange={e => setEmail(e.target.value)} />
+      <input type="password" placeholder="Password" onChange={e => setPassword(e.target.value)} />
+      <button type="submit">Log In</button>
+    </form>
+  );
+    }
+    
+      export { Feed };
+      export { LoginForm };

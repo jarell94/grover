@@ -1,0 +1,140 @@
+/* General Styles */
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: linear-gradient(to right, #4267B2, #0F9D58);
+    color: #333;
+  }
+  
+  header {
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 10px;
+    text-align: center;
+  }
+  
+  nav button {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1em;
+    margin: 5px;
+    cursor: pointer;
+  }
+  
+  /* Tab Styles */
+  .tab {
+    display: none;
+    padding: 20px;
+    background-color: #ffffffb3;
+    border-radius: 10px;
+    margin: 10px;
+  }
+  
+  .tab.active {
+    display: block;
+  }
+  /* General reset and font */
+body, h1, h2, nav, button, section {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+  }
+  
+  /* Background with a linear gradient */
+  body {
+    background: linear-gradient(to bottom right, #6a11cb, #2575fc);
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  /* Header styling */
+  header {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  
+  header h1 {
+    font-size: 2rem;
+    margin-bottom: 10px;
+  }
+  
+  /* Navigation buttons */
+  nav {
+    display: flex;
+    gap: 10px;
+  }
+  
+  nav button {
+    background-color: #fff;
+    color: #6a11cb;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1rem;
+  }
+  
+  nav button:hover {
+    background-color: #ddd;
+  }
+  
+  /* Tabs */
+  .tab {
+    display: none;
+    padding: 20px;
+    text-align: center;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    width: 90%;
+    margin: auto;
+  }
+  
+  .tab.active {
+    display: block;
+  }
+  @media (max-width: 600px) {
+    nav {
+      flex-direction: column;
+    }
+  }
+  .modal {
+    display: none;
+    position: fixed;
+    z-index: 999;
+    padding-top: 60px;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: rgba(0,0,0,0.7);
+  }
+  
+  .modal-content {
+    background: #fff;
+    margin: auto;
+    padding: 20px;
+    width: 90%;
+    max-width: 400px;
+    color: #333;
+    border-radius: 10px;
+    position: relative;
+  }
+  
+  .close {
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    color: #aaa;
+    font-size: 28px;
+    cursor: pointer;
+  }
+  
+  button {
+    margin-top: 10px;
+  }
+  

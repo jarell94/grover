@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Social Media App</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Social Connect</h1>
+    <nav>
+      <button onclick="showTab('profile')">Profile</button>
+      <button onclick="showTab('photos')">Photos</button>
+      <button onclick="showTab('music')">Music</button>
+      <button onclick="showTab('videos')">Videos</button>
+      <button onclick="showTab('feed')">Feed</button>
+      <button onclick="showTab('store')">Store</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Upload Modal -->
+<div id="uploadModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="toggleModal('uploadModal')">&times;</span>
+      <h3>Upload Content</h3>
+      <form id="uploadForm">
+        <label>Select Type:</label>
+        <select id="contentType">
+          <option value="photo">Photo</option>
+          <option value="music">Music</option>
+          <option value="video">Video</option>
+        </select>
+  
+        <input type="file" id="fileInput" accept="image/*,audio/*,video/*" required />
+        <input type="text" placeholder="Title" id="contentTitle" required />
+        <button type="submit">Upload</button>
+
+      </form>
+    </div>
+  </div>
+  <!-- Cart Modal -->
+<div id="cartModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="toggleModal('cartModal')">&times;</span>
+      <h3>Your Cart</h3>
+      <ul id="cartItems"></ul>
+      <button onclick="checkout()">Checkout</button>
+    </div>
+  </div>
+  
+    <!-- Profile Tab -->
+    <section id="profile" class="tab">
+      <h2>User Profile</h2>
+      <button onclick="togglePrivacy()">Make Profile Private</button>
+    </section>
+
+    <!-- Photos Tab -->
+    <section id="photos" class="tab" style="display:none;">
+      <h2>Photos</h2>
+    </section>
+
+    <!-- Music Tab -->
+    <section id="music" class="tab" style="display:none;">
+      <h2>Music</h2>
+    </section>
+
+    <!-- Videos Tab -->
+    <section id="videos" class="tab" style="display:none;">
+      <h2>Long-form Videos</h2>
+    </section>
+
+    <!-- Feed Tab -->
+    <section id="feed" class="tab" style="display:none;">
+      <h2>Feed</h2>
+      <div id="contentFeed"></div>
+    </section>
+
+    <!-- Store Tab -->
+    <section id="store" class="tab" style="display:none;">
+      <h2>Online Store</h2>
+    
+    <button onclick="toggleModal('cartModal')">View Cart</button>
+   
+    <button onclick="toggleModal('uploadModal')">Upload Product</button>
+    <div>
+        <p>Custom T-Shirt - $25</p>
+        <button onclick="addToCart('Custom T-Shirt')">Add to Cart</button>
+      </div>
+      
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
