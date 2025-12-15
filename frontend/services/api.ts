@@ -258,4 +258,9 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ amount, message }),
   }),
+
+  // For You Feed & Discovery
+  getForYouFeed: () => apiRequest('/posts/for-you'),
+  getTrending: () => apiRequest('/posts/trending'),
+  getCategories: () => apiRequest('/categories'),
 };
