@@ -420,6 +420,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
         user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
         post["user"] = user
         
+        # If this is a repost, get original post data
+        if post.get("is_repost") and post.get("original_post_id"):
+            original_post = await db.posts.find_one(
+                {"post_id": post["original_post_id"]},
+                {"_id": 0}
+            )
+            if original_post:
+                original_user = await db.users.find_one(
+                    {"user_id": original_post["user_id"]},
+                    {"_id": 0}
+                )
+                original_post["user"] = original_user
+                post["original_post"] = original_post
+        
         liked = await db.likes.find_one({
             "user_id": current_user.user_id,
             "post_id": post["post_id"]
@@ -439,6 +453,14 @@ async def get_explore(current_user: User = Depends(require_auth)):
             "post_id": post["post_id"]
         })
         post["saved"] = saved is not None
+        
+        # Check if current user reposted this
+        reposted = await db.posts.find_one({
+            "user_id": current_user.user_id,
+            "is_repost": True,
+            "original_post_id": post["post_id"]
+        })
+        post["reposted"] = reposted is not None
     
     return posts
 
