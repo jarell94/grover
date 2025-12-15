@@ -28,22 +28,41 @@ interface Post {
 }
 
 export default function ExploreScreen() {
+  const [activeTab, setActiveTab] = useState('foryou'); // 'foryou', 'trending', 'categories'
   const [posts, setPosts] = useState<Post[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [trendingData, setTrendingData] = useState({ trending_posts: [], rising_creators: [] });
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    loadExplore();
-  }, []);
+    loadContent();
+    loadCategories();
+  }, [activeTab]);
 
-  const loadExplore = async () => {
+  const loadContent = async () => {
     try {
-      const data = await api.getExplore();
-      setPosts(data);
+      if (activeTab === 'foryou') {
+        const data = await api.getForYouFeed();
+        setPosts(data);
+      } else if (activeTab === 'trending') {
+        const data = await api.getTrending();
+        setTrendingData(data);
+      }
     } catch (error) {
-      console.error('Load explore error:', error);
+      console.error('Load content error:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const data = await api.getCategories();
+      setCategories(data);
+    } catch (error) {
+      console.error('Categories error:', error);
     }
   };
 
