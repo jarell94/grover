@@ -489,6 +489,36 @@ export default function HomeScreen() {
         title={item.content}
       />
 
+      {/* Poll Display */}
+      {item.has_poll && item.poll_options && (
+        <View style={styles.pollContainer}>
+          <Text style={styles.pollQuestion}>{item.poll_question}</Text>
+          {item.poll_options.map((option, index) => {
+            const votes = item.poll_votes?.[index.toString()] || 0;
+            const totalVotes = Object.values(item.poll_votes || {}).reduce((a: any, b: any) => a + b, 0);
+            const percentage = totalVotes > 0 ? (votes / totalVotes) * 100 : 0;
+            
+            return (
+              <TouchableOpacity
+                key={index}
+                style={styles.pollOption}
+                onPress={() => handleVotePoll(item.post_id, index)}
+              >
+                <View style={styles.pollOptionContent}>
+                  <View style={[styles.pollBar, { width: `${percentage}%` }]} />
+                  <Text style={styles.pollOptionText}>{option}</Text>
+                  <Text style={styles.pollPercentage}>{percentage.toFixed(0)}%</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+          <Text style={styles.pollVoteCount}>
+            {Object.values(item.poll_votes || {}).reduce((a: any, b: any) => a + b, 0)} votes
+            {item.poll_expires_at && ` • Ends ${new Date(item.poll_expires_at).toLocaleDateString()}`}
+          </Text>
+        </View>
+      )}
+
       <View style={styles.postActions}>
         <TouchableOpacity
           style={styles.actionButton}
