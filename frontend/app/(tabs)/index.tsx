@@ -83,11 +83,14 @@ export default function HomeScreen() {
 
   const loadFeed = async () => {
     try {
-      const data = await api.getFeed();
-      setPosts(data);
+      const [feedData, storiesData] = await Promise.all([
+        api.getFeed(),
+        api.getStories().catch(() => [])
+      ]);
+      setPosts(feedData);
+      setStories(storiesData);
     } catch (error) {
-      console.error('Load feed error:', error);
-      Alert.alert('Error', 'Failed to load feed');
+      console.error('Feed load error:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
