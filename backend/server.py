@@ -1003,26 +1003,23 @@ async def create_comment(
     
     # Create notification for post owner (if not commenting on own post)
     if post["user_id"] != current_user.user_id:
-        await db.notifications.insert_one({
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-            "user_id": post["user_id"],
-            "type": "comment",
-            "content": f"{current_user.name} commented on your post",
-            "read": False,
-            "created_at": datetime.now(timezone.utc)
-        })
+        await create_notification(
+            post["user_id"],
+            "comment",
+            f"{current_user.name} commented on your post",
+            comment_id
+        )
     
     # If it's a reply, notify the parent comment owner
     if parent_comment_id:
         parent_comment = await db.comments.find_one({"comment_id": parent_comment_id})
         if parent_comment and parent_comment["user_id"] != current_user.user_id:
-            await db.notifications.insert_one({
-                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-                "user_id": parent_comment["user_id"],
-                "type": "reply",
-                "content": f"{current_user.name} replied to your comment",
-                "read": False,
-                "created_at": datetime.now(timezone.utc)
+            await create_notification(
+                parent_comment["user_id"],
+                "comment",
+                f"{current_user.name} replied to your comment",
+                comment_id
+            )
             })
     
     return {"comment_id": comment_id, "message": "Comment created"}
