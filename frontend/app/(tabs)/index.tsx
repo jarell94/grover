@@ -591,6 +591,60 @@ export default function HomeScreen() {
         </LinearGradient>
       </View>
 
+      {/* Stories Header */}
+      {stories.length > 0 && (
+        <ScrollView
+          horizontal
+          style={styles.storiesContainer}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.storiesContent}
+        >
+          {/* Create Story Button */}
+          <TouchableOpacity
+            style={styles.storyItem}
+            onPress={() => router.push('/create-story')}
+          >
+            <View style={styles.createStoryRing}>
+              <Ionicons name="add" size={28} color={Colors.primary} />
+            </View>
+            <Text style={styles.storyUsername}>Your Story</Text>
+          </TouchableOpacity>
+
+          {/* User Stories */}
+          {stories.map((userStory, index) => {
+            const hasUnviewed = userStory.stories.some((s: any) => !s.viewed);
+            return (
+              <TouchableOpacity
+                key={userStory.user.user_id}
+                style={styles.storyItem}
+                onPress={() => {
+                  router.push({
+                    pathname: '/stories',
+                    params: {
+                      stories: JSON.stringify(stories),
+                      initialIndex: index.toString(),
+                    },
+                  });
+                }}
+              >
+                <View style={[
+                  styles.storyRing,
+                  hasUnviewed && styles.storyRingUnviewed
+                ]}>
+                  <Image
+                    source={{ uri: userStory.user.picture || 'https://via.placeholder.com/60' }}
+                    style={styles.storyAvatar}
+                  />
+                </View>
+                <Text style={styles.storyUsername} numberOfLines={1}>
+                  {userStory.user.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
       <FlatList
         data={posts}
         renderItem={renderPost}
