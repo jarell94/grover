@@ -222,4 +222,30 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(settings),
   }),
+
+  // Stories
+  createStory: (formData: FormData) => apiRequest('/stories', { method: 'POST', body: formData }),
+  getStories: () => apiRequest('/stories'),
+  viewStory: (storyId: string) => apiRequest(`/stories/${storyId}/view`, { method: 'POST' }),
+  reactToStory: (storyId: string, reaction: string) => apiRequest(`/stories/${storyId}/react`, {
+    method: 'POST',
+    body: JSON.stringify({ reaction }),
+  }),
+  replyToStory: (storyId: string, message: string) => apiRequest(`/stories/${storyId}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  }),
+  highlightStory: (storyId: string, title: string) => apiRequest(`/stories/${storyId}/highlight`, {
+    method: 'POST',
+    body: JSON.stringify({ title }),
+  }),
+  deleteStory: (storyId: string) => apiRequest(`/stories/${storyId}`, { method: 'DELETE' }),
+  getUserHighlights: (userId: string) => apiRequest(`/users/${userId}/highlights`),
+
+  // Polls
+  voteOnPoll: (postId: string, optionIndex: number) => apiRequest(`/posts/${postId}/vote`, {
+    method: 'POST',
+    body: JSON.stringify({ option_index: optionIndex }),
+  }),
+  getPollResults: (postId: string) => apiRequest(`/posts/${postId}/poll-results`),
 };
