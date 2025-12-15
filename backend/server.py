@@ -622,6 +622,114 @@ async def share_post(post_id: str, current_user: User = Depends(require_auth)):
     
     return {"message": "Post shared", "shares_count": post.get("shares_count", 0) + 1}
 
+@api_router.post("/posts/{post_id}/repost")
+async def repost_post(
+    post_id: str,
+    repost_comment: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Repost/retweet a post with optional commentary"""
+    # Check if original post exists
+    original_post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not original_post:
+        raise HTTPException(status_code=404, detail="Original post not found")
+    
+    # Check if user already reposted this
+    existing_repost = await db.posts.find_one({
+        "user_id": current_user.user_id,
+        "is_repost": True,
+        "original_post_id": post_id
+    })
+    
+    if existing_repost:
+        raise HTTPException(status_code=400, detail="You have already reposted this")
+    
+    # Create repost
+    repost_id = f"post_{uuid.uuid4().hex[:12]}"
+    repost_data = {
+        "post_id": repost_id,
+        "user_id": current_user.user_id,
+        "content": original_post["content"],
+        "media_url": original_post.get("media_url"),
+        "media_type": original_post.get("media_type"),
+        "likes_count": 0,
+        "dislikes_count": 0,
+        "shares_count": 0,
+        "comments_count": 0,
+        "repost_count": 0,
+        "tagged_users": original_post.get("tagged_users", []),
+        "location": original_post.get("location"),
+        "is_repost": True,
+        "original_post_id": post_id,
+        "repost_comment": repost_comment,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.posts.insert_one(repost_data)
+    
+    # Increment repost count on original post
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$inc": {"repost_count": 1}}
+    )
+    
+    # Create notification for original author
+    if original_post["user_id"] != current_user.user_id:
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": original_post["user_id"],
+            "type": "repost",
+            "content": f"{current_user.name} reposted your post",
+            "related_id": repost_id,
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        })
+    
+    return {
+        "message": "Post reposted successfully",
+        "repost_id": repost_id,
+        "repost_count": original_post.get("repost_count", 0) + 1
+    }
+
+@api_router.delete("/posts/{post_id}/unrepost")
+async def unrepost_post(post_id: str, current_user: User = Depends(require_auth)):
+    """Remove a repost"""
+    # Find the repost
+    repost = await db.posts.find_one({
+        "user_id": current_user.user_id,
+        "is_repost": True,
+        "original_post_id": post_id
+    })
+    
+    if not repost:
+        raise HTTPException(status_code=404, detail="Repost not found")
+    
+    # Delete the repost
+    await db.posts.delete_one({"post_id": repost["post_id"]})
+    
+    # Decrement repost count on original post
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$inc": {"repost_count": -1}}
+    )
+    
+    return {"message": "Repost removed"}
+
+@api_router.get("/posts/{post_id}/reposts")
+async def get_post_reposts(post_id: str, current_user: User = Depends(require_auth)):
+    """Get all reposts of a specific post"""
+    reposts = await db.posts.find(
+        {"is_repost": True, "original_post_id": post_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Add user data for each repost
+    for repost in reposts:
+        user = await db.users.find_one({"user_id": repost["user_id"]}, {"_id": 0})
+        repost["user"] = user
+    
+    return reposts
+
 @api_router.get("/posts/saved")
 async def get_saved_posts(current_user: User = Depends(require_auth)):
     saved = await db.saved_posts.find(
