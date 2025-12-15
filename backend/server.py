@@ -2602,7 +2602,7 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     total_posts = await db.posts.count_documents({"user_id": current_user.user_id})
     
     # Total reactions
-    total_reactions = await db.reactions.count_documents({"post_id": {"$regex": f"^post_"}})
+    total_reactions = await db.reactions.count_documents({"post_id": {"$regex": "^post_"}})
     user_posts = await db.posts.find({"user_id": current_user.user_id}, {"post_id": 1}).to_list(1000)
     post_ids = [p["post_id"] for p in user_posts]
     total_reactions = await db.reactions.count_documents({"post_id": {"$in": post_ids}})
