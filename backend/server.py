@@ -255,6 +255,7 @@ async def update_profile(
     twitter: Optional[str] = None,
     instagram: Optional[str] = None,
     linkedin: Optional[str] = None,
+    paypal_email: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
     update_data = {}
@@ -272,6 +273,8 @@ async def update_profile(
         update_data["instagram"] = instagram
     if linkedin is not None:
         update_data["linkedin"] = linkedin
+    if paypal_email is not None:
+        update_data["paypal_email"] = paypal_email
     
     if update_data:
         await db.users.update_one(
