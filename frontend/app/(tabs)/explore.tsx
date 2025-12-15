@@ -5,13 +5,17 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
-  TextInput,
+  RefreshControl,
   ActivityIndicator,
+  Image,
+  Dimensions,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { api } from '../../services/api';
+
+const { width } = Dimensions.get('window');
 
 interface Post {
   post_id: string;
