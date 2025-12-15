@@ -112,11 +112,19 @@ export default function NotificationsScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Notifications</Text>
-        {notifications.some(n => !n.read) && (
-          <TouchableOpacity style={styles.markAllButton} onPress={handleMarkAllRead}>
-            <Text style={styles.markAllText}>Mark all read</Text>
+        <View style={styles.headerActions}>
+          {notifications.some(n => !n.read) && (
+            <TouchableOpacity style={styles.markAllButton} onPress={handleMarkAllRead}>
+              <Text style={styles.markAllText}>Mark all read</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity 
+            style={styles.settingsButton} 
+            onPress={() => router.push('/notification-settings')}
+          >
+            <Ionicons name="settings-outline" size={22} color={Colors.text} />
           </TouchableOpacity>
-        )}
+        </View>
       </View>
 
       <FlatList
