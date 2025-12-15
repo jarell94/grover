@@ -157,4 +157,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
+  loginButtonDisabled: {
+    opacity: 0.6,
+  },
 });
