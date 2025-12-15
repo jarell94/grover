@@ -1262,14 +1262,12 @@ async def execute_paypal_payment(
             payout_info = "Seller needs to configure PayPal to receive funds"
         
         # Create notification
-        await db.notifications.insert_one({
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-            "user_id": product["user_id"],
-            "type": "purchase",
-            "content": f"{current_user.name} purchased {product['name']}",
-            "read": False,
-            "created_at": datetime.now(timezone.utc)
-        })
+        await create_notification(
+            product["user_id"],
+            "sale",
+            f"{current_user.name} purchased {product['name']}",
+            order_id
+        )
         
         return {
             "success": True,
