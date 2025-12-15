@@ -1572,6 +1572,322 @@ async def mark_notifications_read(current_user: User = Depends(require_auth)):
     )
     return {"message": "Notifications marked as read"}
 
+# ============ COLLECTIONS ENDPOINTS ============
+
+@api_router.post("/collections")
+async def create_collection(
+    name: str,
+    description: Optional[str] = None,
+    is_public: bool = False,
+    current_user: User = Depends(require_auth)
+):
+    """Create a new collection/bookmark folder"""
+    collection_id = f"collection_{uuid.uuid4().hex[:12]}"
+    
+    collection_data = {
+        "collection_id": collection_id,
+        "user_id": current_user.user_id,
+        "name": name,
+        "description": description,
+        "is_public": is_public,
+        "post_count": 0,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.collections.insert_one(collection_data)
+    return {"collection_id": collection_id, "message": "Collection created"}
+
+@api_router.get("/collections")
+async def get_my_collections(current_user: User = Depends(require_auth)):
+    """Get user's collections"""
+    collections = await db.collections.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Add post count for each collection
+    for collection in collections:
+        post_count = await db.collection_posts.count_documents({
+            "collection_id": collection["collection_id"]
+        })
+        collection["post_count"] = post_count
+    
+    return collections
+
+@api_router.get("/collections/{collection_id}")
+async def get_collection(collection_id: str, current_user: User = Depends(require_auth)):
+    """Get collection details and posts"""
+    collection = await db.collections.find_one({"collection_id": collection_id}, {"_id": 0})
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    # Check if user can access this collection
+    if collection["user_id"] != current_user.user_id and not collection.get("is_public", False):
+        raise HTTPException(status_code=403, detail="Collection is private")
+    
+    # Get posts in collection
+    collection_posts = await db.collection_posts.find(
+        {"collection_id": collection_id},
+        {"_id": 0}
+    ).sort("added_at", -1).to_list(100)
+    
+    post_ids = [cp["post_id"] for cp in collection_posts]
+    posts = await db.posts.find(
+        {"post_id": {"$in": post_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Add user data and reaction status
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # Check if current user reacted
+        user_reaction = await db.reactions.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+        
+        # Check saved status
+        post["saved"] = True  # All posts in collection are saved
+    
+    collection["posts"] = posts
+    return collection
+
+@api_router.post("/collections/{collection_id}/posts/{post_id}")
+async def add_post_to_collection(
+    collection_id: str,
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Add a post to a collection"""
+    # Check if collection exists and user owns it
+    collection = await db.collections.find_one({"collection_id": collection_id})
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    if collection["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if post exists
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Check if already in collection
+    existing = await db.collection_posts.find_one({
+        "collection_id": collection_id,
+        "post_id": post_id
+    })
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Post already in collection")
+    
+    # Add to collection
+    await db.collection_posts.insert_one({
+        "collection_id": collection_id,
+        "post_id": post_id,
+        "user_id": current_user.user_id,
+        "added_at": datetime.now(timezone.utc)
+    })
+    
+    # Update collection post count
+    await db.collections.update_one(
+        {"collection_id": collection_id},
+        {"$inc": {"post_count": 1}}
+    )
+    
+    return {"message": "Post added to collection"}
+
+@api_router.delete("/collections/{collection_id}/posts/{post_id}")
+async def remove_post_from_collection(
+    collection_id: str,
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Remove a post from a collection"""
+    # Check if collection exists and user owns it
+    collection = await db.collections.find_one({"collection_id": collection_id})
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    if collection["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Remove from collection
+    result = await db.collection_posts.delete_one({
+        "collection_id": collection_id,
+        "post_id": post_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Post not in collection")
+    
+    # Update collection post count
+    await db.collections.update_one(
+        {"collection_id": collection_id},
+        {"$inc": {"post_count": -1}}
+    )
+    
+    return {"message": "Post removed from collection"}
+
+@api_router.put("/collections/{collection_id}")
+async def update_collection(
+    collection_id: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    is_public: Optional[bool] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Update collection details"""
+    collection = await db.collections.find_one({"collection_id": collection_id})
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    if collection["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = {}
+    if name is not None:
+        update_data["name"] = name
+    if description is not None:
+        update_data["description"] = description
+    if is_public is not None:
+        update_data["is_public"] = is_public
+    
+    if update_data:
+        await db.collections.update_one(
+            {"collection_id": collection_id},
+            {"$set": update_data}
+        )
+    
+    return {"message": "Collection updated"}
+
+@api_router.delete("/collections/{collection_id}")
+async def delete_collection(collection_id: str, current_user: User = Depends(require_auth)):
+    """Delete a collection"""
+    collection = await db.collections.find_one({"collection_id": collection_id})
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    if collection["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Delete collection and all its posts
+    await db.collections.delete_one({"collection_id": collection_id})
+    await db.collection_posts.delete_many({"collection_id": collection_id})
+    
+    return {"message": "Collection deleted"}
+
+@api_router.get("/collections/public")
+async def get_public_collections(current_user: User = Depends(require_auth)):
+    """Get public collections from all users"""
+    collections = await db.collections.find(
+        {"is_public": True},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Add user data and post count
+    for collection in collections:
+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
+        collection["user"] = user
+        
+        post_count = await db.collection_posts.count_documents({
+            "collection_id": collection["collection_id"]
+        })
+        collection["post_count"] = post_count
+    
+    return collections
+
+@api_router.get("/users/{user_id}/collections")
+async def get_user_public_collections(user_id: str, current_user: User = Depends(require_auth)):
+    """Get a user's public collections"""
+    collections = await db.collections.find(
+        {"user_id": user_id, "is_public": True},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Add post count
+    for collection in collections:
+        post_count = await db.collection_posts.count_documents({
+            "collection_id": collection["collection_id"]
+        })
+        collection["post_count"] = post_count
+    
+    return collections
+
+@api_router.post("/collections/{collection_id}/follow")
+async def follow_collection(collection_id: str, current_user: User = Depends(require_auth)):
+    """Follow/unfollow a public collection"""
+    collection = await db.collections.find_one({"collection_id": collection_id})
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    if not collection.get("is_public", False):
+        raise HTTPException(status_code=403, detail="Collection is private")
+    
+    if collection["user_id"] == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Cannot follow your own collection")
+    
+    # Check if already following
+    existing = await db.collection_follows.find_one({
+        "collection_id": collection_id,
+        "user_id": current_user.user_id
+    })
+    
+    if existing:
+        # Unfollow
+        await db.collection_follows.delete_one({
+            "collection_id": collection_id,
+            "user_id": current_user.user_id
+        })
+        return {"message": "Collection unfollowed", "following": False}
+    else:
+        # Follow
+        await db.collection_follows.insert_one({
+            "collection_id": collection_id,
+            "user_id": current_user.user_id,
+            "created_at": datetime.now(timezone.utc)
+        })
+        
+        # Notify collection owner
+        await create_notification(
+            collection["user_id"],
+            "follow",
+            f"{current_user.name} started following your collection '{collection['name']}'",
+            collection_id
+        )
+        
+        return {"message": "Collection followed", "following": True}
+
+@api_router.get("/collections/following")
+async def get_followed_collections(current_user: User = Depends(require_auth)):
+    """Get collections the user is following"""
+    follows = await db.collection_follows.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    collection_ids = [f["collection_id"] for f in follows]
+    collections = await db.collections.find(
+        {"collection_id": {"$in": collection_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Add user data and post count
+    for collection in collections:
+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
+        collection["user"] = user
+        
+        post_count = await db.collection_posts.count_documents({
+            "collection_id": collection["collection_id"]
+        })
+        collection["post_count"] = post_count
+    
+    return collections
+
 # ============ PREMIUM ENDPOINTS ============
 
 @api_router.post("/premium/subscribe")
