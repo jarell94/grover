@@ -544,8 +544,13 @@ async def get_feed(
     return posts
 
 @api_router.get("/posts/explore")
-async def get_explore(current_user: User = Depends(require_auth)):
-    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+async def get_explore(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get explore posts with pagination"""
+    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
     # Add user data
     for post in posts:
