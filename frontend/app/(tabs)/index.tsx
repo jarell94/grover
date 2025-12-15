@@ -784,4 +784,117 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.text,
   },
+  commentsList: {
+    paddingVertical: 16,
+  },
+  commentItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    paddingHorizontal: 8,
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  commentContent: {
+    flex: 1,
+  },
+  commentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  commentUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  commentTime: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  commentText: {
+    fontSize: 14,
+    color: Colors.text,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  commentActions: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  commentAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  commentActionText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  emptyComments: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
+  emptyCommentsText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    marginTop: 12,
+  },
+  emptyCommentsSubtext: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 4,
+  },
+  replyingIndicator: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  replyingText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  commentInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  commentInputAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  commentInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    color: Colors.text,
+    fontSize: 14,
+    maxHeight: 100,
+  },
+  commentSendButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentSendButtonDisabled: {
+    opacity: 0.5,
+  },
 });
