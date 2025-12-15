@@ -38,6 +38,10 @@ export default function ProfileScreen() {
       setName(user.name);
       setBio(user.bio || '');
       setIsPrivate(user.is_private);
+      setWebsite(user.website || '');
+      setTwitter(user.twitter || '');
+      setInstagram(user.instagram || '');
+      setLinkedin(user.linkedin || '');
     }
   }, [user]);
 
