@@ -663,55 +663,125 @@ async def create_post(
     
     return {"post_id": post_id, "message": "Post created"}
 
-@api_router.post("/posts/{post_id}/like")
-async def like_post(post_id: str, current_user: User = Depends(require_auth)):
-    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+@api_router.post("/posts/{post_id}/react")
+async def react_to_post(
+    post_id: str,
+    reaction_type: str,
+    current_user: User = Depends(require_auth)
+):
+    """React to a post with various reactions: like, love, wow, sad, angry, or custom emoji"""
+    post = await db.posts.find_one({"post_id": post_id})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     
-    existing = await db.likes.find_one({
+    # Valid reaction types
+    valid_reactions = ["like", "love", "wow", "sad", "angry", "care", "haha"]
+    
+    # Check if it's a valid reaction or custom emoji
+    if reaction_type not in valid_reactions and len(reaction_type) > 10:
+        raise HTTPException(status_code=400, detail="Invalid reaction type")
+    
+    # Check if user already reacted
+    existing = await db.reactions.find_one({
         "user_id": current_user.user_id,
         "post_id": post_id
     })
     
     if existing:
-        # Unlike
-        await db.likes.delete_one({
-            "user_id": current_user.user_id,
-            "post_id": post_id
-        })
-        await db.posts.update_one(
-            {"post_id": post_id},
-            {"$inc": {"likes_count": -1}}
-        )
-        return {"message": "Unliked", "liked": False}
+        # If same reaction, remove it (toggle off)
+        if existing["reaction_type"] == reaction_type:
+            await db.reactions.delete_one({"user_id": current_user.user_id, "post_id": post_id})
+            
+            # Decrement reaction count
+            reaction_counts = post.get("reaction_counts", {})
+            reaction_counts[reaction_type] = max(0, reaction_counts.get(reaction_type, 1) - 1)
+            await db.posts.update_one(
+                {"post_id": post_id},
+                {"$set": {"reaction_counts": reaction_counts}}
+            )
+            
+            return {"reacted": False, "reaction_type": None, "reaction_counts": reaction_counts}
+        else:
+            # Change reaction
+            old_type = existing["reaction_type"]
+            await db.reactions.update_one(
+                {"user_id": current_user.user_id, "post_id": post_id},
+                {"$set": {"reaction_type": reaction_type, "created_at": datetime.now(timezone.utc)}}
+            )
+            
+            # Update counts
+            reaction_counts = post.get("reaction_counts", {})
+            reaction_counts[old_type] = max(0, reaction_counts.get(old_type, 1) - 1)
+            reaction_counts[reaction_type] = reaction_counts.get(reaction_type, 0) + 1
+            await db.posts.update_one(
+                {"post_id": post_id},
+                {"$set": {"reaction_counts": reaction_counts}}
+            )
+            
+            return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
     else:
-        # Like (remove dislike if exists)
-        await db.dislikes.delete_one({
-            "user_id": current_user.user_id,
-            "post_id": post_id
-        })
-        
-        await db.likes.insert_one({
+        # New reaction
+        await db.reactions.insert_one({
             "user_id": current_user.user_id,
             "post_id": post_id,
+            "reaction_type": reaction_type,
             "created_at": datetime.now(timezone.utc)
         })
+        
+        # Update counts
+        reaction_counts = post.get("reaction_counts", {})
+        reaction_counts[reaction_type] = reaction_counts.get(reaction_type, 0) + 1
         await db.posts.update_one(
             {"post_id": post_id},
-            {"$inc": {"likes_count": 1}}
+            {"$set": {"reaction_counts": reaction_counts}}
         )
         
         # Create notification
         if post["user_id"] != current_user.user_id:
+            reaction_emoji = {
+                "like": "👍",
+                "love": "❤️",
+                "wow": "😮",
+                "sad": "😢",
+                "angry": "😠",
+                "care": "🤗",
+                "haha": "😂"
+            }.get(reaction_type, reaction_type)
+            
             await create_notification(
                 post["user_id"],
-                "like",
-                f"{current_user.name} liked your post",
+                "reaction",
+                f"{current_user.name} reacted {reaction_emoji} to your post",
                 post_id
             )
         
-        return {"message": "Liked", "liked": True}
+        return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
+
+@api_router.get("/posts/{post_id}/reactions")
+async def get_post_reactions(post_id: str, current_user: User = Depends(require_auth)):
+    """Get detailed reactions for a post"""
+    reactions = await db.reactions.find({"post_id": post_id}, {"_id": 0}).to_list(1000)
+    
+    # Group by reaction type and add user data
+    grouped = {}
+    for reaction in reactions:
+        r_type = reaction["reaction_type"]
+        if r_type not in grouped:
+            grouped[r_type] = []
+        
+        user = await db.users.find_one({"user_id": reaction["user_id"]}, {"_id": 0, "name": 1, "picture": 1})
+        grouped[r_type].append({
+            "user": user,
+            "created_at": reaction["created_at"]
+        })
+    
+    return grouped
+
+# Keep old like endpoint for backward compatibility
+@api_router.post("/posts/{post_id}/like")
+async def like_post(post_id: str, current_user: User = Depends(require_auth)):
+    """Legacy like endpoint - redirects to react"""
+    return await react_to_post(post_id, "like", current_user)
 
 @api_router.post("/posts/{post_id}/dislike")
 async def dislike_post(post_id: str, current_user: User = Depends(require_auth)):
