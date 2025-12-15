@@ -1,190 +1,179 @@
 <analysis>
 
-original_problem_statement: Build Grover - a social media creator platform mobile app (iOS & Android using Expo/React Native). The application should have a FastAPI backend.
+original_problem_statement: Build Grover - a social media creator platform mobile app (iOS & Android using Expo/React Native) with a FastAPI backend.
 
-**Core Features Requested:**
-1.  **Authentication & Onboarding:** Google OAuth login, session management.
-2.  **Main Feed (Dashboard):** Create posts (text, image, video, audio), view feed, like/dislike, comment, share, save, tag users/locations.
-3.  **Explore:** Discover content from all users.
-4.  **User Profiles:** View profiles, follow/unfollow, edit profile (name, bio, social links, PayPal email).
-5.  **Store:** Browse, create, and buy products using PayPal.
-6.  **Messages:** Real-time chat using Socket.IO.
-7.  **Creator Studio:** Revenue and engagement analytics.
-8.  **Notifications:** List of notifications.
-9.  **Settings:** Profile editing, privacy, logout.
-10. **Premium:** Subscription page.
-11. **Payments:** Use PayPal SDK for transactions, and allow users to add their own PayPal accounts to receive payments.
-12. **Media:** Support image, short/long-form video, and audio uploads.
+The user has requested a vast number of features throughout the session, progressively building on the initial request. The final state of requested features includes:
+- **Core Social Features:** Auth, Posts (text, image, video, audio), Feed, Profiles, Likes, Comments, Reposts, Shares, Saves.
+- **Engagement Features:** Stories (24-hour disappearing), Polls, Reactions (Love, Wow, etc.), Q&A sessions.
+- **Community & Messaging:** Rich Direct Messages (voice, video, GIFs), Group Chats, Communities (interest-based groups), Voice/Video Calls.
+- **Creator & Monetization Tools:** Creator Studio, Advanced Analytics, Content Scheduling, Subscription Tiers, Tips/Donations, Live Streaming (with super chat), and a Store with PayPal integration.
+- **Discovery & Algorithm:** A For You recommendation page, Advanced Search, Trending section, and Suggested Users.
+- **The user's final and most important request is to make ALL features accessible to EVERY user, removing any premium restrictions or paywalls.**
 
 **User's preferred language**: en-US
 
 **what currently exists?**
-A partially-built Expo/React Native mobile app named Grover with a FastAPI backend.
-- **Backend**: A single  file contains the entire backend logic, including Pydantic models and API endpoints for users, authentication, posts, comments, media, products, and PayPal payments (both platform-level and user-to-user payouts).
-- **Frontend**: The app uses  for file-based routing. Key features implemented include:
-    - Emergent Google OAuth for user authentication.
-    - A tabbed navigation structure for Home, Explore, Studio, Notifications, Store, Messages, and Profile.
-    - A Home feed where users can create posts with text, images, videos, or audio.
-    - A Profile page that allows users to edit their bio, social media links, and a personal PayPal email for receiving payments.
-    - A Store section with a functional PayPal payment flow using live credentials.
-    - Placeholders and basic UI for Creator Studio, Notifications, Messages, and Explore screens.
-    - Media player components for video and audio.
+A highly feature-rich social media application, Grover, with a massive FastAPI backend and a partially implemented Expo/React Native frontend.
+
+- **Backend ():** An extensive, monolithic FastAPI server containing endpoints and logic for nearly every feature requested by the user, including posts, comments, reposts, stories, polls, live streaming (with Agora stubs), advanced messaging, communities, user analytics, content scheduling, and more. It uses MongoDB as the database and has been optimized with Redis caching and database indexes.
+- **Frontend ():** The frontend has a solid foundation with user authentication, a main feed, profile management, and basic UI for many features. However, most of the advanced backend features have only placeholder screens or are not yet implemented in the UI. Key completed UI work includes comments, post interactions (like, dislike, share, save, repost), and a refined tab navigation. The main feed screen () is extremely complex, containing logic for the feed, post creation, polls, story rings, and modals.
 
 **Last working item**:
-    - Last item agent was working: Implementing a full-featured commenting system on posts. The agent created the backend models and API endpoints for creating/viewing/liking comments. On the frontend, it updated the API service and began adding the necessary state and handler functions to the main feed screen () to manage a comments modal.
-    - Status: IN PROGRESS
+    - Last item agent was working: The user requested to remove all premium restrictions and paywalls, making every feature accessible to all users. The previous agent acknowledged this request and was about to begin implementation. This involves auditing the backend and frontend to remove any logic tied to subscription tiers, paid-only features (like potential premium calls), or tips.
+    - Status: NOT STARTED
     - Agent Testing Done: N
     - Which testing method agent to use? both
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-  - Issue 1: Sign in with Google was not working due to an incorrect backend URL configuration. (Status: RESOLVED)
-  - Issue 2: Logout button did not redirect the user to the login screen. (Status: RESOLVED)
-  - Issue 3: Failed to fetch services/api.ts error due to static URL evaluation at module load time. (Status: RESOLVED)
+  - Issue 1: **Unable to resolve module build error.** (Status: RESOLVED). This was caused by a missing  dependency, which was installed and the Metro cache was cleared to fix it.
 
   Issues Detail:
-  - N/A (All previously identified major issues have been resolved).
+  - N/A
 
 **In progress Task List**:
-  - Task 1: Complete the Comments on Posts feature. (Priority: P0)
-  - Task 2: Implement the UI for Dislike, Share, Save and Tagging features. (Priority: P1)
-
- Task Detail:
-  - Task 1: 
-     - Where to resume: The state management logic and handler functions for the comments modal are partially implemented in . The next step is to complete the UI inside the modal to display comments, allow posting new comments (including replies), and connect it to the already implemented handler functions (, , etc.).
-     - What will be achieved with this? Users will be able to view and add comments to posts, increasing engagement.
-     - Status: IN PROGRESS
-     - Should Test frontend/backend/both after fix? both
-     - Blocked on something: None
-  - Task 2: 
-     - Where to resume: The backend endpoints and frontend API service methods for dislike, save, and tagging are already created. The UI elements (buttons on the post card, fields in the create-post modal) need to be added to  and wired to the corresponding API calls.
-     - What will be achieved with this? Users will have more ways to interact with content, fulfilling a core feature request.
+  - Task 1: **Remove All Premium Restrictions and Paywalls (P0)**
+     - Where to resume: This is a new task. The agent needs to start by auditing the backend code in  and any related frontend components. The primary targets are the  and  features.
+     - What will be achieved with this? The application will align with the user's latest requirement that all functionality is free and accessible to every user, simplifying the user experience.
      - Status: NOT STARTED
      - Should Test frontend/backend/both after fix? both
      - Blocked on something: None
 
 **Upcoming and Future Tasks**
     Upcoming Tasks:
-    - **P1: Real-time Chat:** Fully implement the Socket.IO connection and UI for the  and  screens.
-    - **P1: Follow/Unfollow Users:** Add follow/unfollow buttons to user profiles and implement the backend logic and API calls.
-    - **P2: Creator Studio Analytics:** Connect the  screen to the backend analytics endpoints and display the data.
-    - **P2: Notifications:** Connect the  screen to the backend notifications endpoint to fetch and display user notifications.
-    - **P2: Explore Page:** Implement the logic in  to fetch and display the global content feed.
-    
+    - **P1: Build Full Stories UI:** Implement the UI for  (viewer) and  (camera/uploader). The story rings in the feed are present but need to be connected to these screens.
+    - **P1: Build Full Polls UI:** The UI for creating and displaying polls in the feed is partially implemented in . It needs to be completed and tested.
+    - **P1: Build Full Live Streaming UI:** Implement the  and  screens using the installed Agora SDK. This involves replacing the current placeholder/simulated UI with actual video components and connecting to the backend stream management endpoints. This will likely require user-provided Agora credentials.
+    - **P2: Build Full Rich Messaging & Groups UI:** Implement the frontend for Rich DMs, Group Chats, and Communities. This involves creating new screens and integrating with the backend Socket.IO and API endpoints.
+    - **P2: Build Advanced Analytics UI:** Create a dedicated screen to display the data from the advanced analytics backend endpoints (e.g., in the  tab).
+    - **P2: Build Content Scheduling UI:** Create a UI for users to schedule posts, view drafts, and manage their content queue.
+
     Future Tasks:
-    - **Search Functionality:** Implement the UI and API integration for content and user search.
-    - **Premium Subscriptions:** Build the UI and backend logic for a  premium feature.
-    - **Store Enhancements:** Allow users to create their own products to sell.
-    - **Content Moderation:** Implement tools for reporting and managing content.
-    - **Recommendation Engine:** Develop a system to suggest content to users.
+    - **Build UI for Discovery Features:** Implement the UI for Advanced Search, the Trending Section, and Suggested Users.
+    - **Build UI for Collections/Bookmarks:** Implement the frontend for organizing saved posts into collections.
+    - **Refactor Monolithic Files:** Break down  into multiple routers (e.g., , ) and refactor the massive  into smaller, reusable components (, , , etc.).
 
 **Completed work in this session**
-- **Authentication:** Implemented and debugged Emergent Google OAuth for login and session management.
-- **PayPal Integration:**
-  - Integrated PayPal SDK for product purchases.
-  - Configured with user-provided **LIVE** credentials.
-  - Implemented a system for users to add their own PayPal email to their profile to receive payouts for sales.
-- **Profile Enhancements:** Added functionality for users to edit their bio, social media links (Twitter, Instagram, etc.), and PayPal email.
-- **Advanced Media Uploads:** Enhanced post creation to support audio and video files in addition to images.
-- **UI Enhancements:**
-  - Changed bottom tab navigation to be icon-only for a cleaner look.
-  - Added a Sign Up prompt on the login screen to clarify the auth flow for new users.
-- **New Screens:** Scaffolded Creator Studio and Notifications screens and added them to the main navigation.
-- **Backend Foundation:** Built a comprehensive set of API endpoints in  for posts, users, payments, and the initial implementation of comments.
+- **Massive Backend Expansion:** Implemented backend logic and API endpoints for a vast array of features:
+  - Reposts, Enhanced Reactions, Collections/Bookmarks.
+  - Stories, Polls, Live Streaming stubs.
+  - Content Scheduling, Advanced Analytics, Subscription Tiers, Tips/Donations.
+  - Rich DMs, Group Chats, Communities, Voice/Video Calls.
+  - For You algorithmic feed.
+- **Frontend Feature Implementation:**
+  - Completed the Comments on Posts feature.
+  - Implemented UI for Dislike, Share, Save, and Tagging features.
+  - Implemented UI for Reposts (button, modal, and display logic).
+  - Built a comprehensive, customizable Notification system with a dedicated settings screen.
+  - Started UI for Polls, Stories (header rings), and Live Streaming (Go Live button).
+- **Performance Optimization:**
+  - Integrated Redis for backend caching on key endpoints.
+  - Created and executed a DB optimization script () to add indexes to MongoDB collections.
+  - Implemented frontend pagination/infinite scroll on the main feed.
+- **Bug Fixes & UX Improvements:**
+  - Resolved a critical Unable to resolve module build error by installing a missing dependency.
+  - Optimized the main tab navigation from 7 cluttered tabs to 5 essential ones.
 
 **Earlier issues found/mentioned but not fixed**
-   - None identified. The agent has been diligent in addressing user-reported issues.
+   - None. The previous agent was diligent in addressing issues as they arose.
 
 **Known issue recurrence from previous fork**
-  - None. This is the first summary.
+  - None.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- **Frontend**: React Native, Expo, Expo Router (file-based routing), TypeScript, Zustand (for state management, though Context API is also used), Axios.
-- **Backend**: FastAPI, Python, MongoDB (via ), .
+- **Frontend**: React Native, Expo, Expo Router, TypeScript, Zustand/Context API.
+- **Backend**: FastAPI, Python, MongoDB (), , Redis ().
 - **Authentication**: Emergent Google OAuth.
 - **Payments**: PayPal REST SDK.
+- **Live Streaming**: Agora SDK () - installed, not fully implemented.
 
 **key DB schema**
-  - **users**: , , , , , , 
-  - **posts**: , , , , , , 
-  - **products**: , , , , 
-  - **likes**: , 
-  - **dislikes**: , 
-  - **saves**: , 
-  - **comments**: , , ,  (for threads), , 
-  - **orders**: , , , , 
+- **users**: , , , , 
+- **posts**: , , , , , , , 
+- **stories**: , , , 
+- **reactions**: , ,  (e.g., 'like', 'love', 'wow')
+- **collections**: , , , 
+- **notifications**: , , , , 
+- **communities**: , , , 
+- *(Plus many other collections for followers, tips, orders, chats, etc.)*
 
 **changes in tech stack**
-  - No major changes from the initial request. The stack is FastAPI + React Native (Expo) + MongoDB.
+- **Redis** was added for backend caching.
+- **Agora SDK** was added for live video streaming.
 
 **All files of reference**
-- **Created/Updated:**
-  - : The single source of truth for all backend logic. Heavily modified.
-  - : The main feed screen. Heavily modified to add post creation, media uploads, and interaction features.
-  - : Modified to include editing for social media and PayPal email.
-  - : Core of the authentication flow. Modified to fix bugs.
-  - : Central API handler. Modified significantly to fix URL issues and add new methods.
-  -  & : Created for PayPal integration.
-  - : Modified to add new tabs and switch to an icon-only display.
-  - : Updated with LIVE PayPal credentials.
-- **Important:**
-  - : Manages the root navigation stack and redirects based on auth status.
+- **Heavily Modified:**
+  - : Contains the logic for almost the entire application. Grew from ~1000 to ~2500+ lines.
+  - : The main feed screen. Grew significantly in complexity to handle polls, stories, reposts, and numerous modals.
+  - : Updated continuously to add dozens of new API methods.
+- **Newly Created:**
+  - , 
+  - 
+  - , 
+  - , , 
 
 **Areas that need refactoring**:
-- The main feed screen at  is becoming very large and complex. It handles state for post creation, comments, and fetching the feed. It would benefit from being broken down into smaller, more manageable components (e.g., , , ).
-- The backend in  is a single monolithic file. For future maintainability, it should be split into multiple files by feature (e.g., , ).
+- ****: This file is critically oversized and unmaintainable. It **must** be broken down into a modular structure using FastAPI's  for different features (e.g., , , ).
+- ****: This file is a mega-component handling the feed, post creation, poll creation, modals for comments and reposts, and story ring display. It should be refactored into smaller, specialized components (, , , , etc.).
 
 **key api endpoints**
-- : Exchange session ID for a token.
-- : CRUD for posts.
-- , , : Post interactions.
-- : CRUD for comments.
-- : Get/update current user profile.
-- , : Handle PayPal transactions.
+- The API is extensive. Key new categories of endpoints include:
+  - : CRUD for stories and reactions.
+  - : Voting on polls.
+  - : Managing live streams (token generation, start/end).
+  - : CRUD for post collections.
+  - : Get/update notification preferences.
+  - , , , , , , , , , , and more.
 
 **Critical Info for New Agent**
-- **LIVE PayPal Credentials**: The application is configured with the user's LIVE PayPal client ID and secret in . Be cautious with any payment-related code.
-- **Backend URL Handling**: The function  in  is crucial. It dynamically determines the correct backend URL for web () and native platforms (). Do not replace this with a static constant.
-- **Monolithic Files**: Both the frontend feed screen () and the entire backend () are in single, large files. Be prepared to navigate these large files. Refactoring should be considered a future task.
-- **In-Progress Features**: The Comments feature is mid-implementation. The UI for Dislike, Share, Save, and Tagging is not yet built, although the backend is ready.
+- **Priority #1: Remove Paywalls:** The user's most recent and critical instruction is to make all features free. Your first task is to audit the codebase (especially backend logic for subscriptions and tips) and remove any and all restrictions.
+- **Backend is Far Ahead of Frontend:** Do not assume a feature is usable just because a backend endpoint exists. The vast majority of features added in the last half of the session have backend support but **no functional UI**.
+- **Monolithic Codebase:** Be prepared to work within two very large files:  and . Navigating and modifying them requires care. Proposing a refactor as a future task would be beneficial.
+- **Incomplete Integrations:** The Agora Video SDK is installed, but the live streaming UI is just a placeholder. Completing this will require significant work and likely user credentials for Agora.
 
 **documents created in this job**
-  -  (Contains a playbook for testing auth, but may be outdated).
+  - 
+  -  (Continuously updated by the agent)
 
 **Last 10 User Messages and any pending user messages**
- - **Add comments on posts**: User requested a full comment system. (Status: IN PROGRESS)
- - **Continue with next steps**: User confirmed to proceed with the comment implementation. (Status: IN PROGRESS)
- - **How can this app be better?**: User asked for suggestions. Agent provided a list. (Status: COMPLETED)
- - **Every user should be able to add their own PayPal**: User requested user-specific PayPal accounts for payouts. (Status: COMPLETED)
- - **Here are the live credentials...**: User provided live PayPal keys (twice). (Status: COMPLETED)
- - **Setup PayPal payment / Implement PayPal sdk**: User requested PayPal integration. (Status: COMPLETED)
- - **Add dislike, share, save, and tagging**: User requested more post interaction features. (Status: IN PROGRESS - Backend done, UI pending)
- - **Change tabs to icons**: User requested a UI tweak for the bottom navigation. (Status: COMPLETED)
- - **Users should be able to upload audio/video**: User requested advanced media uploads. (Status: COMPLETED)
- - **Profile Page should have...**: User requested social media links on the profile page. (Status: COMPLETED)
- - **Pending Message**: The agent's last action was to start implementing the comments UI, a direct continuation of the user's request. There is no pending message from the user.
+1.  **Request:** Add Stories, Polls, and Live Streaming. (Status: Backend COMPLETE, Frontend SCAFFOLDED)
+2.  **User:** Continue with next steps (to build UI). (Status: IN PROGRESS)
+3.  **User:** Build stories. (Status: IN PROGRESS - UI scaffolded)
+4.  **User:** Finish polls and add livestreaming ui. (Status: IN PROGRESS - Polls UI partially done, Live streaming UI scaffolded)
+5.  **Request:** Add Video SDK and integration. (Status: COMPLETE - Agora installed, backend endpoints created)
+6.  **Request:** Add Reactions and Collections. (Status: COMPLETE - Backend implemented)
+7.  **User:** Unable to resolve module. (Status: RESOLVED - Agent debugged and fixed the build error).
+8.  **Request:** Add a massive list of features (Scheduling, Analytics, Subscriptions, For You page, etc.). (Status: COMPLETE - Backend for all features implemented).
+9.  **Request:** Add another massive list of features (Rich DMs, Group Chats, Communities, Calls). (Status: COMPLETE - Backend for all features implemented).
+10. **User:** Make sure all buttons and tabs are running correctly. (Status: COMPLETE - Agent optimized tab navigation).
+11. **User:** Optimize the entire app for functionality and ease of use. (Status: COMPLETE - Agent added caching, DB indexes, and infinite scroll).
+12. **Pending User Message:** Every individual user should have access to all these features. (Status: NOT STARTED - This is the next P0 task).
 
 **Project Health Check:**
-- Broken: The comments feature and the dislike/share/save/tagging features are incomplete. They are not functional from a user's perspective.
-- Mocked: No data is being mocked. The app communicates with a live backend and database.
+- Broken: From a user's perspective, most advanced features are broken as they lack a functional frontend. This includes Stories, Live Streaming, Analytics, Scheduling, Communities, etc.
+- Mocked: The current live streaming UI in  and  is a simulation and does not use a real video feed.
 
 **3rd Party Integrations**
 	 •	Emergent Google OAuth — uses Emergent Auth flow.
-	 •	PayPal SDK — requires User API Key (LIVE keys are currently in use).
+	 •	PayPal SDK — requires User API Key (LIVE keys were previously in use).
+	 •	**Agora Video SDK** — requires User API Key (for App ID, etc.). Not yet configured.
+	 •	**Redis** — configured for backend caching.
 
 **Testing status**
-  - Testing agent used after significant changes: NO
+  - Testing agent used after significant changes: NO (Only for initial features, not for the recent massive expansion).
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: []
-  - Known regressions: []
+  - Test files created: [, ]
+  - Known regressions: None identified, but the sheer volume of un-tested code presents a high risk.
 
 **Credentials to test flow:**
-- No credentials are required for the agent. The app uses Emergent Google OAuth, which the user will interact with via the web preview.
+- Google OAuth is handled by the user via the web preview.
+- PayPal was previously configured with live keys.
+- **Agora will require an App ID from the user to implement live streaming.**
 
 **What agent forgot to execute**
-- The UI implementation for the dislike, share, save, and tagging features was not completed. The backend was built, but the agent moved on to PayPal integration and then comments before finishing the frontend for these interactions.
+- The agent didn't forget anything but rather followed the user's rapid-fire requests to build out the backend. The primary unexecuted work is the frontend implementation for the vast majority of the application's features. The agent was about to start on the user's final request to remove all paywalls.
 
 </analysis>
