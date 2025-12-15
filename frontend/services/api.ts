@@ -60,6 +60,8 @@ export const setAuthToken = (token: string | null) => {
 export const getAuthToken = () => authToken;
 
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
+  initializeUrls(); // Ensure URLs are initialized
+  
   const headers: any = {
     'Content-Type': 'application/json',
     ...options.headers,
