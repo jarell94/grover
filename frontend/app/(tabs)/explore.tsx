@@ -173,7 +173,7 @@ export default function ExploreScreen() {
               </View>
             </TouchableOpacity>
           )}
-          keyExtractor={(item: any) => item.user_id}
+          keyExtractor={(item) => item.user_id}
           scrollEnabled={false}
         />
       </View>
