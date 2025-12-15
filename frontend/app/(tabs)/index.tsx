@@ -79,16 +79,53 @@ export default function HomeScreen() {
     }
   };
 
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'],
-      allowsEditing: true,
-      quality: 0.8,
-      base64: true,
-    });
+  const pickMedia = async (type: 'image' | 'video' | 'audio') => {
+    try {
+      if (type === 'audio') {
+        // Pick audio files
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['audio/*'],
+          copyToCacheDirectory: true,
+        });
 
-    if (!result.canceled && result.assets[0]) {
-      setSelectedMedia(result.assets[0]);
+        if (!result.canceled && result.assets[0]) {
+          const asset = result.assets[0];
+          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          setSelectedMedia({
+            ...asset,
+            base64,
+            type: 'audio',
+          });
+        }
+      } else {
+        // Pick images or videos
+        const mediaTypes = type === 'image' ? ['images'] : ['videos'];
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: mediaTypes as any,
+          allowsEditing: type === 'image',
+          quality: 0.8,
+          videoMaxDuration: type === 'video' ? 600 : undefined, // 10 minutes max
+        });
+
+        if (!result.canceled && result.assets[0]) {
+          const asset = result.assets[0];
+          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          setSelectedMedia({
+            ...asset,
+            base64,
+            type: asset.type || type,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Media picking error:', error);
+      Alert.alert('Error', 'Failed to pick media file');
     }
   };
 
