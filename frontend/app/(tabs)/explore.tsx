@@ -183,7 +183,7 @@ export default function ExploreScreen() {
   const renderCategoriesContent = () => (
     <FlatList
       data={categories}
-      renderItem={({ item }: { item: any }) => (
+      renderItem={({ item }) => (
         <TouchableOpacity style={styles.categoryCard}>
           <Text style={styles.categoryEmoji}>{item.emoji}</Text>
           <Text style={styles.categoryName}>{item.name}</Text>
