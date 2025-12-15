@@ -427,7 +427,12 @@ async def like_post(post_id: str, current_user: User = Depends(require_auth)):
         )
         return {"message": "Unliked", "liked": False}
     else:
-        # Like
+        # Like (remove dislike if exists)
+        await db.dislikes.delete_one({
+            "user_id": current_user.user_id,
+            "post_id": post_id
+        })
+        
         await db.likes.insert_one({
             "user_id": current_user.user_id,
             "post_id": post_id,
@@ -450,6 +455,132 @@ async def like_post(post_id: str, current_user: User = Depends(require_auth)):
             })
         
         return {"message": "Liked", "liked": True}
+
+@api_router.post("/posts/{post_id}/dislike")
+async def dislike_post(post_id: str, current_user: User = Depends(require_auth)):
+    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    existing = await db.dislikes.find_one({
+        "user_id": current_user.user_id,
+        "post_id": post_id
+    })
+    
+    if existing:
+        # Remove dislike
+        await db.dislikes.delete_one({
+            "user_id": current_user.user_id,
+            "post_id": post_id
+        })
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$inc": {"dislikes_count": -1}}
+        )
+        return {"message": "Dislike removed", "disliked": False}
+    else:
+        # Dislike (remove like if exists)
+        await db.likes.delete_one({
+            "user_id": current_user.user_id,
+            "post_id": post_id
+        })
+        
+        await db.dislikes.insert_one({
+            "user_id": current_user.user_id,
+            "post_id": post_id,
+            "created_at": datetime.now(timezone.utc)
+        })
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$inc": {"dislikes_count": 1}}
+        )
+        
+        return {"message": "Disliked", "disliked": True}
+
+@api_router.post("/posts/{post_id}/save")
+async def save_post(post_id: str, current_user: User = Depends(require_auth)):
+    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    existing = await db.saved_posts.find_one({
+        "user_id": current_user.user_id,
+        "post_id": post_id
+    })
+    
+    if existing:
+        # Unsave
+        await db.saved_posts.delete_one({
+            "user_id": current_user.user_id,
+            "post_id": post_id
+        })
+        return {"message": "Post unsaved", "saved": False}
+    else:
+        # Save
+        await db.saved_posts.insert_one({
+            "user_id": current_user.user_id,
+            "post_id": post_id,
+            "created_at": datetime.now(timezone.utc)
+        })
+        return {"message": "Post saved", "saved": True}
+
+@api_router.post("/posts/{post_id}/share")
+async def share_post(post_id: str, current_user: User = Depends(require_auth)):
+    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Increment share count
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$inc": {"shares_count": 1}}
+    )
+    
+    # Create notification
+    if post["user_id"] != current_user.user_id:
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": post["user_id"],
+            "type": "share",
+            "content": f"{current_user.name} shared your post",
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        })
+    
+    return {"message": "Post shared", "shares_count": post.get("shares_count", 0) + 1}
+
+@api_router.get("/posts/saved")
+async def get_saved_posts(current_user: User = Depends(require_auth)):
+    saved = await db.saved_posts.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    post_ids = [s["post_id"] for s in saved]
+    posts = await db.posts.find(
+        {"post_id": {"$in": post_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Add user data and liked status
+    for post in posts:
+        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        liked = await db.likes.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["liked"] = liked is not None
+        
+        disliked = await db.dislikes.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["disliked"] = disliked is not None
+        post["saved"] = True
+    
+    return posts
 
 @api_router.delete("/posts/{post_id}")
 async def delete_post(post_id: str, current_user: User = Depends(require_auth)):
