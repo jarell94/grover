@@ -73,6 +73,10 @@ class Post(BaseModel):
     media_url: Optional[str] = None  # base64
     media_type: Optional[str] = None  # image/video/audio
     likes_count: int = 0
+    dislikes_count: int = 0
+    shares_count: int = 0
+    tagged_users: List[str] = []  # List of user_ids
+    location: Optional[str] = None
     created_at: datetime
 
 class Product(BaseModel):
