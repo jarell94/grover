@@ -702,6 +702,92 @@ export default function HomeScreen() {
               onChangeText={setLocation}
             />
 
+            {/* Poll Toggle */}
+            <TouchableOpacity
+              style={styles.pollToggle}
+              onPress={() => setShowPollOption(!showPollOption)}
+            >
+              <Ionicons 
+                name={showPollOption ? "stats-chart" : "stats-chart-outline"} 
+                size={20} 
+                color={showPollOption ? Colors.primary : Colors.textSecondary} 
+              />
+              <Text style={[styles.pollToggleText, showPollOption && { color: Colors.primary }]}>
+                {showPollOption ? 'Remove Poll' : 'Add Poll'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Poll Creation UI */}
+            {showPollOption && (
+              <View style={styles.pollCreationContainer}>
+                <TextInput
+                  style={styles.pollQuestionInput}
+                  placeholder="Ask a question..."
+                  placeholderTextColor={Colors.textSecondary}
+                  value={pollQuestion}
+                  onChangeText={setPollQuestion}
+                />
+                
+                {pollOptions.map((option, index) => (
+                  <View key={index} style={styles.pollOptionRow}>
+                    <TextInput
+                      style={styles.pollOptionInput}
+                      placeholder={`Option ${index + 1}`}
+                      placeholderTextColor={Colors.textSecondary}
+                      value={option}
+                      onChangeText={(text) => {
+                        const newOptions = [...pollOptions];
+                        newOptions[index] = text;
+                        setPollOptions(newOptions);
+                      }}
+                    />
+                    {pollOptions.length > 2 && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setPollOptions(pollOptions.filter((_, i) => i !== index));
+                        }}
+                      >
+                        <Ionicons name="close-circle" size={24} color={Colors.error} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+                
+                {pollOptions.length < 4 && (
+                  <TouchableOpacity
+                    style={styles.addOptionButton}
+                    onPress={() => setPollOptions([...pollOptions, ''])}
+                  >
+                    <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
+                    <Text style={styles.addOptionText}>Add Option</Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={styles.pollDurationContainer}>
+                  <Text style={styles.pollDurationLabel}>Poll Duration:</Text>
+                  <View style={styles.pollDurationButtons}>
+                    {[24, 48, 72].map((hours) => (
+                      <TouchableOpacity
+                        key={hours}
+                        style={[
+                          styles.durationButton,
+                          pollDuration === hours && styles.durationButtonActive
+                        ]}
+                        onPress={() => setPollDuration(hours)}
+                      >
+                        <Text style={[
+                          styles.durationButtonText,
+                          pollDuration === hours && styles.durationButtonTextActive
+                        ]}>
+                          {hours}h
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            )}
+
             {selectedMedia && (
               <View style={styles.mediaPreview}>
                 {selectedMedia.type === 'audio' ? (
