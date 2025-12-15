@@ -617,8 +617,18 @@ async def create_post(
     if tagged_users:
         tagged_user_list = [u.strip() for u in tagged_users.split(',') if u.strip()]
     
+    # Parse poll data
+    has_poll = False
+    poll_options_list = None
+    poll_expires_at = None
+    if poll_question and poll_options:
+        has_poll = True
+        import json
+        poll_options_list = json.loads(poll_options) if isinstance(poll_options, str) else poll_options
+        poll_expires_at = datetime.now(timezone.utc) + timedelta(hours=poll_duration_hours)
+    
     post_id = f"post_{uuid.uuid4().hex[:12]}"
-    await db.posts.insert_one({
+    post_data = {
         "post_id": post_id,
         "user_id": current_user.user_id,
         "content": content,
@@ -629,8 +639,17 @@ async def create_post(
         "shares_count": 0,
         "tagged_users": tagged_user_list,
         "location": location,
+        "has_poll": has_poll,
         "created_at": datetime.now(timezone.utc)
-    })
+    }
+    
+    if has_poll:
+        post_data["poll_question"] = poll_question
+        post_data["poll_options"] = poll_options_list
+        post_data["poll_votes"] = {str(i): 0 for i in range(len(poll_options_list))}
+        post_data["poll_expires_at"] = poll_expires_at
+    
+    await db.posts.insert_one(post_data)
     
     # Create notifications for tagged users
     for tagged_user_id in tagged_user_list:
