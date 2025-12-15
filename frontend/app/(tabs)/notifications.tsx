@@ -58,13 +58,25 @@ export default function NotificationsScreen() {
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'like':
-        return { name: 'heart', color: Colors.error };
+        return { name: 'heart', color: '#EF4444' };
       case 'follow':
-        return { name: 'person-add', color: Colors.primary };
+        return { name: 'person-add', color: '#8B5CF6' };
+      case 'comment':
+      case 'reply':
+        return { name: 'chatbubble', color: '#3B82F6' };
+      case 'message':
+        return { name: 'mail', color: '#EC4899' };
+      case 'sale':
       case 'purchase':
-        return { name: 'cart', color: Colors.success };
+        return { name: 'cash', color: '#10B981' };
+      case 'mention':
+      case 'tag':
+        return { name: 'at', color: '#F59E0B' };
+      case 'repost':
+      case 'share':
+        return { name: 'repeat', color: '#8B5CF6' };
       default:
-        return { name: 'notifications', color: Colors.accent };
+        return { name: 'notifications', color: '#FBBF24' };
     }
   };
 
