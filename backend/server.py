@@ -1614,6 +1614,52 @@ async def get_my_collections(current_user: User = Depends(require_auth)):
     
     return collections
 
+@api_router.get("/collections/public")
+async def get_public_collections(current_user: User = Depends(require_auth)):
+    """Get public collections from all users"""
+    collections = await db.collections.find(
+        {"is_public": True},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Add user data and post count
+    for collection in collections:
+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
+        collection["user"] = user
+        
+        post_count = await db.collection_posts.count_documents({
+            "collection_id": collection["collection_id"]
+        })
+        collection["post_count"] = post_count
+    
+    return collections
+
+@api_router.get("/collections/following")
+async def get_followed_collections(current_user: User = Depends(require_auth)):
+    """Get collections the user is following"""
+    follows = await db.collection_follows.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    collection_ids = [f["collection_id"] for f in follows]
+    collections = await db.collections.find(
+        {"collection_id": {"$in": collection_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Add user data and post count
+    for collection in collections:
+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
+        collection["user"] = user
+        
+        post_count = await db.collection_posts.count_documents({
+            "collection_id": collection["collection_id"]
+        })
+        collection["post_count"] = post_count
+    
+    return collections
+
 @api_router.get("/collections/{collection_id}")
 async def get_collection(collection_id: str, current_user: User = Depends(require_auth)):
     """Get collection details and posts"""
