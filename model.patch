@@ -1,78 +1,167 @@
+diff --git a/backend/server.py b/backend/server.py
+index 651a0f3..6962521 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -708,6 +708,79 @@ async def delete_product(product_id: str, current_user: User = Depends(require_a
+ 
+ # ============ ORDER ENDPOINTS ============
+ 
++@api_router.post("/paypal/create-payment")
++async def create_paypal_payment(
++    product_id: str,
++    current_user: User = Depends(require_auth)
++):
++    """Create a PayPal payment for a product"""
++    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
++    if not product:
++        raise HTTPException(status_code=404, detail="Product not found")
++    
++    # Create PayPal payment
++    result = create_payment(
++        amount=product["price"],
++        currency="USD",
++        description=f"Purchase: {product['name']}"
++    )
++    
++    if result["success"]:
++        return {
++            "success": True,
++            "payment_id": result["payment_id"],
++            "approval_url": result["approval_url"]
++        }
++    else:
++        raise HTTPException(status_code=500, detail=result.get("error", "Payment creation failed"))
++
++@api_router.post("/paypal/execute-payment")
++async def execute_paypal_payment(
++    payment_id: str,
++    payer_id: str,
++    product_id: str,
++    current_user: User = Depends(require_auth)
++):
++    """Execute a PayPal payment after user approval"""
++    result = execute_payment(payment_id, payer_id)
++    
++    if result["success"]:
++        # Get product details
++        product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
++        if not product:
++            raise HTTPException(status_code=404, detail="Product not found")
++        
++        # Create order in database
++        order_id = f"order_{uuid.uuid4().hex[:12]}"
++        await db.orders.insert_one({
++            "order_id": order_id,
++            "buyer_id": current_user.user_id,
++            "seller_id": product["user_id"],
++            "product_id": product_id,
++            "amount": product["price"],
++            "status": "completed",
++            "paypal_payment_id": payment_id,
++            "created_at": datetime.now(timezone.utc)
++        })
++        
++        # Create notification
++        await db.notifications.insert_one({
++            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
++            "user_id": product["user_id"],
++            "type": "purchase",
++            "content": f"{current_user.name} purchased {product['name']}",
++            "read": False,
++            "created_at": datetime.now(timezone.utc)
++        })
++        
++        return {
++            "success": True,
++            "order_id": order_id,
++            "message": "Payment completed successfully"
++        }
++    else:
++        raise HTTPException(status_code=500, detail=result.get("error", "Payment execution failed"))
++
+ @api_router.post("/orders")
+ async def create_order(
+     product_id: str,
 diff --git a/model.patch b/model.patch
-index 39be44a..e69de29 100644
+index 342b9ce..e69de29 100644
 --- a/model.patch
 +++ b/model.patch
-@@ -1,73 +0,0 @@
--diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
--index eca94bb..552b491 100644
----- a/frontend/app/(tabs)/index.tsx
--+++ b/frontend/app/(tabs)/index.tsx
--@@ -43,6 +43,8 @@ export default function HomeScreen() {
--   const [newPostContent, setNewPostContent] = useState('');
--   const [selectedMedia, setSelectedMedia] = useState<any>(null);
--   const [uploading, setUploading] = useState(false);
--+  const [taggedUsers, setTaggedUsers] = useState('');
--+  const [location, setLocation] = useState('');
-- 
--   useEffect(() => {
--     loadFeed();
+@@ -1,78 +0,0 @@
 -diff --git a/model.patch b/model.patch
--index 1f822eb..e69de29 100644
+-index 39be44a..e69de29 100644
 ---- a/model.patch
 -+++ b/model.patch
--@@ -1,55 +0,0 @@
---diff --git a/backend/server.py b/backend/server.py
---index 5105bcb..cc32f7d 100644
------ a/backend/server.py
---+++ b/backend/server.py
---@@ -350,6 +350,20 @@ async def get_feed(current_user: User = Depends(require_auth)):
---             "post_id": post["post_id"]
---         })
---         post["liked"] = liked is not None
---+        
---+        # Check if current user disliked
---+        disliked = await db.dislikes.find_one({
---+            "user_id": current_user.user_id,
---+            "post_id": post["post_id"]
---+        })
---+        post["disliked"] = disliked is not None
---+        
---+        # Check if current user saved
---+        saved = await db.saved_posts.find_one({
---+            "user_id": current_user.user_id,
---+            "post_id": post["post_id"]
---+        })
---+        post["saved"] = saved is not None
---     
---     return posts
+-@@ -1,73 +0,0 @@
+--diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
+--index eca94bb..552b491 100644
+----- a/frontend/app/(tabs)/index.tsx
+--+++ b/frontend/app/(tabs)/index.tsx
+--@@ -43,6 +43,8 @@ export default function HomeScreen() {
+--   const [newPostContent, setNewPostContent] = useState('');
+--   const [selectedMedia, setSelectedMedia] = useState<any>(null);
+--   const [uploading, setUploading] = useState(false);
+--+  const [taggedUsers, setTaggedUsers] = useState('');
+--+  const [location, setLocation] = useState('');
 -- 
---@@ -367,6 +381,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
---             "post_id": post["post_id"]
---         })
---         post["liked"] = liked is not None
---+        
---+        # Check if current user disliked
---+        disliked = await db.dislikes.find_one({
---+            "user_id": current_user.user_id,
---+            "post_id": post["post_id"]
---+        })
---+        post["disliked"] = disliked is not None
---+        
---+        # Check if current user saved
---+        saved = await db.saved_posts.find_one({
---+            "user_id": current_user.user_id,
---+            "post_id": post["post_id"]
---+        })
---+        post["saved"] = saved is not None
---     
---     return posts
--- 
---@@ -587,7 +615,7 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
---     
---     # Add user data and liked status
---     for post in posts:
----        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
---+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
---         post["user"] = user
---         
---         liked = await db.likes.find_one({
+--   useEffect(() => {
+--     loadFeed();
+--diff --git a/model.patch b/model.patch
+--index 1f822eb..e69de29 100644
+----- a/model.patch
+--+++ b/model.patch
+--@@ -1,55 +0,0 @@
+---diff --git a/backend/server.py b/backend/server.py
+---index 5105bcb..cc32f7d 100644
+------ a/backend/server.py
+---+++ b/backend/server.py
+---@@ -350,6 +350,20 @@ async def get_feed(current_user: User = Depends(require_auth)):
+---             "post_id": post["post_id"]
+---         })
+---         post["liked"] = liked is not None
+---+        
+---+        # Check if current user disliked
+---+        disliked = await db.dislikes.find_one({
+---+            "user_id": current_user.user_id,
+---+            "post_id": post["post_id"]
+---+        })
+---+        post["disliked"] = disliked is not None
+---+        
+---+        # Check if current user saved
+---+        saved = await db.saved_posts.find_one({
+---+            "user_id": current_user.user_id,
+---+            "post_id": post["post_id"]
+---+        })
+---+        post["saved"] = saved is not None
+---     
+---     return posts
+--- 
+---@@ -367,6 +381,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
+---             "post_id": post["post_id"]
+---         })
+---         post["liked"] = liked is not None
+---+        
+---+        # Check if current user disliked
+---+        disliked = await db.dislikes.find_one({
+---+            "user_id": current_user.user_id,
+---+            "post_id": post["post_id"]
+---+        })
+---+        post["disliked"] = disliked is not None
+---+        
+---+        # Check if current user saved
+---+        saved = await db.saved_posts.find_one({
+---+            "user_id": current_user.user_id,
+---+            "post_id": post["post_id"]
+---+        })
+---+        post["saved"] = saved is not None
+---     
+---     return posts
+--- 
+---@@ -587,7 +615,7 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
+---     
+---     # Add user data and liked status
+---     for post in posts:
+----        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
+---+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+---         post["user"] = user
+---         
+---         liked = await db.likes.find_one({
