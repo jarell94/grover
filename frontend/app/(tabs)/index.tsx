@@ -141,12 +141,28 @@ export default function HomeScreen() {
       formData.append('content', newPostContent);
 
       if (selectedMedia) {
-        const fileType = selectedMedia.type === 'video' ? 'video/mp4' : 'image/jpeg';
-        formData.append('media', {
-          uri: selectedMedia.uri,
+        let fileType = 'application/octet-stream';
+        let fileName = 'media';
+        
+        if (selectedMedia.type === 'video') {
+          fileType = 'video/mp4';
+          fileName = 'video.mp4';
+        } else if (selectedMedia.type === 'audio') {
+          fileType = selectedMedia.mimeType || 'audio/mpeg';
+          fileName = selectedMedia.name || 'audio.mp3';
+        } else {
+          fileType = 'image/jpeg';
+          fileName = 'image.jpg';
+        }
+
+        // Create blob from base64
+        const blob = {
+          uri: `data:${fileType};base64,${selectedMedia.base64}`,
           type: fileType,
-          name: 'media.jpg',
-        } as any);
+          name: fileName,
+        };
+
+        formData.append('media', blob as any);
       }
 
       await api.createPost(formData);
@@ -154,9 +170,10 @@ export default function HomeScreen() {
       setSelectedMedia(null);
       setCreateModalVisible(false);
       loadFeed();
+      Alert.alert('Success', 'Post created successfully!');
     } catch (error) {
       console.error('Create post error:', error);
-      Alert.alert('Error', 'Failed to create post');
+      Alert.alert('Error', 'Failed to create post. Please try again.');
     } finally {
       setUploading(false);
     }
