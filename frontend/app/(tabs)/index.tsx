@@ -169,6 +169,44 @@ export default function HomeScreen() {
     }
   };
 
+  const handleDislike = async (postId: string) => {
+    try {
+      const result = await api.dislikePost(postId);
+      setPosts(posts.map(p => 
+        p.post_id === postId 
+          ? { ...p, disliked: result.disliked, dislikes_count: (p.dislikes_count || 0) + (result.disliked ? 1 : -1) }
+          : p
+      ));
+    } catch (error) {
+      console.error('Dislike error:', error);
+    }
+  };
+
+  const handleSave = async (postId: string) => {
+    try {
+      const result = await api.savePost(postId);
+      setPosts(posts.map(p => 
+        p.post_id === postId 
+          ? { ...p, saved: result.saved }
+          : p
+      ));
+      Alert.alert('Success', result.saved ? 'Post saved!' : 'Post unsaved');
+    } catch (error) {
+      console.error('Save error:', error);
+      Alert.alert('Error', 'Failed to save post');
+    }
+  };
+
+  const handleShare = async (postId: string) => {
+    try {
+      await api.sharePost(postId);
+      Alert.alert('Success', 'Post shared!');
+    } catch (error) {
+      console.error('Share error:', error);
+      Alert.alert('Error', 'Failed to share post');
+    }
+  };
+
   const pickMedia = async (type: 'image' | 'video' | 'audio') => {
     try {
       if (type === 'audio') {
