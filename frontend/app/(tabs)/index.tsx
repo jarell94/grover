@@ -29,10 +29,15 @@ interface Post {
   media_url?: string;
   media_type?: string;
   likes_count: number;
+  dislikes_count?: number;
   comments_count?: number;
   created_at: string;
   user?: any;
   liked?: boolean;
+  disliked?: boolean;
+  saved?: boolean;
+  tagged_users?: string[];
+  location?: string;
 }
 
 export default function HomeScreen() {
