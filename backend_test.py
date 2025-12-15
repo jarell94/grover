@@ -72,36 +72,63 @@ class GroverBackendTester:
             return False
             
     def setup_authentication(self):
-        """Setup authentication using mock session (in real app would use OAuth)"""
+        """Setup authentication by creating a test user and session directly"""
         self.log("Setting up authentication...")
         
-        # For testing, we'll create a mock user session
-        # In production, this would go through the OAuth flow
-        mock_user_data = {
-            "email": f"testuser_{uuid.uuid4().hex[:8]}@example.com",
-            "name": "Test User",
-            "picture": "https://example.com/avatar.jpg"
-        }
-        
-        # Try to create a session directly in the database or use existing auth endpoint
-        # For now, let's try the auth/me endpoint to see if we can get user info
-        response = self.make_request("GET", "/auth/me")
-        
-        if response and response.status_code == 401:
-            self.log("No existing session, need to create one")
-            # In a real scenario, we'd go through OAuth flow
-            # For testing, we'll use a mock session token
-            self.session_token = f"mock_token_{uuid.uuid4().hex}"
+        try:
+            import pymongo
+            from datetime import datetime, timezone, timedelta
+            
+            # Connect to MongoDB directly to create test user and session
+            client = pymongo.MongoClient("mongodb://localhost:27017")
+            db = client["test_database"]
+            
+            # Create test user
             self.user_id = f"user_{uuid.uuid4().hex[:12]}"
-            self.log(f"Using mock session token: {self.session_token}")
-            return True
-        elif response and response.status_code == 200:
-            user_data = response.json()
-            self.user_id = user_data.get("user_id")
-            self.log(f"✅ Authenticated as user: {user_data.get('name')} ({self.user_id})")
-            return True
-        else:
-            self.log("❌ Authentication setup failed", "ERROR")
+            test_user = {
+                "user_id": self.user_id,
+                "email": f"testuser_{uuid.uuid4().hex[:8]}@example.com",
+                "name": "Test User",
+                "picture": "https://example.com/avatar.jpg",
+                "bio": "Test user for backend testing",
+                "is_premium": False,
+                "is_private": False,
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            # Insert user (replace if exists)
+            db.users.replace_one({"user_id": self.user_id}, test_user, upsert=True)
+            
+            # Create session token
+            self.session_token = f"test_token_{uuid.uuid4().hex}"
+            session_doc = {
+                "user_id": self.user_id,
+                "session_token": self.session_token,
+                "expires_at": datetime.now(timezone.utc) + timedelta(days=1),
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            # Insert session
+            db.user_sessions.replace_one({"session_token": self.session_token}, session_doc, upsert=True)
+            
+            client.close()
+            
+            # Test the authentication
+            response = self.make_request("GET", "/auth/me")
+            
+            if response and response.status_code == 200:
+                user_data = response.json()
+                self.log(f"✅ Authenticated as user: {user_data.get('name')} ({user_data.get('user_id')})")
+                return True
+            else:
+                self.log(f"❌ Authentication test failed: {response.status_code if response else 'No response'}", "ERROR")
+                return False
+                
+        except ImportError:
+            self.log("❌ pymongo not available, cannot create test user", "ERROR")
+            return False
+        except Exception as e:
+            self.log(f"❌ Authentication setup error: {e}", "ERROR")
             return False
             
     def create_test_post(self):
