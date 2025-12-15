@@ -44,7 +44,8 @@ export default function ExploreScreen() {
   const loadContent = async () => {
     try {
       if (activeTab === 'foryou') {
-        const data = await api.getForYouFeed();
+        // Use the optimized explore endpoint with pagination
+        const data = await api.getExplore(20, 0);
         setPosts(data);
       } else if (activeTab === 'trending') {
         const data = await api.getTrending();
