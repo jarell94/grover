@@ -771,6 +771,11 @@ async def typing(sid, data):
     if conversation_id and user_id:
         await sio.emit('user_typing', {"user_id": user_id}, room=f"conversation_{conversation_id}", skip_sid=sid)
 
+# Health check at root
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 # Include router
 app.include_router(api_router)
 
