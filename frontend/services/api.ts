@@ -259,8 +259,52 @@ export const api = {
     body: JSON.stringify({ amount, message }),
   }),
 
-  // For You Feed & Discovery
-  getForYouFeed: () => apiRequest('/posts/for-you'),
-  getTrending: () => apiRequest('/posts/trending'),
+  // Discovery & For You
+  getForYouFeed: () => apiRequest('/discover/for-you'),
+  getTrending: () => apiRequest('/discover/trending'),
+  getSuggestedUsers: () => apiRequest('/discover/suggested-users'),
   getCategories: () => apiRequest('/categories'),
+  getCategoryPosts: (categoryId: string) => apiRequest(`/categories/${categoryId}/posts`),
+
+  // Analytics
+  getAnalyticsOverview: () => apiRequest('/analytics/overview'),
+  getContentPerformance: () => apiRequest('/analytics/content-performance'),
+
+  // Tips
+  sendTip: (userId: string, amount: number, message: string) => apiRequest(`/users/${userId}/tip`, {
+    method: 'POST',
+    body: JSON.stringify({ amount, message }),
+  }),
+  getTopSupporters: (userId: string) => apiRequest(`/users/${userId}/tips/leaderboard`),
+
+  // Scheduled Posts
+  schedulePost: (formData: FormData) => apiRequest('/posts/schedule', { method: 'POST', body: formData }),
+  getScheduledPosts: () => apiRequest('/posts/scheduled'),
+  deleteScheduledPost: (scheduledPostId: string) => apiRequest(`/posts/scheduled/${scheduledPostId}`, { method: 'DELETE' }),
+
+  // Communities
+  createCommunity: (formData: FormData) => apiRequest('/communities/create', { method: 'POST', body: formData }),
+  getCommunity: (communityId: string) => apiRequest(`/communities/${communityId}`),
+  joinCommunity: (communityId: string) => apiRequest(`/communities/${communityId}/join`, { method: 'POST' }),
+  createCommunityPost: (communityId: string, formData: FormData) => apiRequest(`/communities/${communityId}/posts`, { method: 'POST', body: formData }),
+  getCommunityPosts: (communityId: string) => apiRequest(`/communities/${communityId}/posts`),
+  discoverCommunities: () => apiRequest('/communities/discover'),
+
+  // Groups
+  createGroup: (formData: FormData) => apiRequest('/groups/create', { method: 'POST', body: formData }),
+  getGroup: (groupId: string) => apiRequest(`/groups/${groupId}`),
+  sendGroupMessage: (groupId: string, content: string) => apiRequest(`/groups/${groupId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  }),
+  getGroupMessages: (groupId: string) => apiRequest(`/groups/${groupId}/messages`),
+
+  // Calls
+  initiateCall: (receiverId: string, callType: string) => apiRequest('/calls/initiate', {
+    method: 'POST',
+    body: JSON.stringify({ receiver_id: receiverId, call_type: callType }),
+  }),
+  answerCall: (callId: string) => apiRequest(`/calls/${callId}/answer`, { method: 'POST' }),
+  endCall: (callId: string) => apiRequest(`/calls/${callId}/end`, { method: 'POST' }),
+  getCallHistory: () => apiRequest('/calls/history'),
 };
