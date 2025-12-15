@@ -125,6 +125,7 @@ class Post(BaseModel):
     shares_count: int = 0
     comments_count: int = 0
     repost_count: int = 0
+    reaction_counts: Optional[dict] = {}  # {reaction_type: count}
     tagged_users: List[str] = []  # List of user_ids
     location: Optional[str] = None
     is_repost: bool = False
