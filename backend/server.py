@@ -807,15 +807,12 @@ async def repost_post(
     
     # Create notification for original author
     if original_post["user_id"] != current_user.user_id:
-        await db.notifications.insert_one({
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-            "user_id": original_post["user_id"],
-            "type": "repost",
-            "content": f"{current_user.name} reposted your post",
-            "related_id": repost_id,
-            "read": False,
-            "created_at": datetime.now(timezone.utc)
-        })
+        await create_notification(
+            original_post["user_id"],
+            "repost",
+            f"{current_user.name} reposted your post",
+            repost_id
+        )
     
     return {
         "message": "Post reposted successfully",
