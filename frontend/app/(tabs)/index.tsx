@@ -63,6 +63,9 @@ export default function HomeScreen() {
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [repostModalVisible, setRepostModalVisible] = useState(false);
+  const [repostComment, setRepostComment] = useState('');
+  const [selectedRepostPost, setSelectedRepostPost] = useState<Post | null>(null);
 
   useEffect(() => {
     loadFeed();
