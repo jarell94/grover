@@ -30,6 +30,7 @@ export default function ProfileScreen() {
   const [twitter, setTwitter] = useState(user?.twitter || '');
   const [instagram, setInstagram] = useState(user?.instagram || '');
   const [linkedin, setLinkedin] = useState(user?.linkedin || '');
+  const [paypalEmail, setPaypalEmail] = useState(user?.paypal_email || '');
   const [showPremiumModal, setShowPremiumModal] = useState(false);
 
   useEffect(() => {
