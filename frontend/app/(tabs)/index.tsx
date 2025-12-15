@@ -31,13 +31,19 @@ interface Post {
   likes_count: number;
   dislikes_count?: number;
   comments_count?: number;
+  repost_count?: number;
   created_at: string;
   user?: any;
   liked?: boolean;
   disliked?: boolean;
   saved?: boolean;
+  reposted?: boolean;
   tagged_users?: string[];
   location?: string;
+  is_repost?: boolean;
+  original_post_id?: string;
+  repost_comment?: string;
+  original_post?: Post;
 }
 
 export default function HomeScreen() {
