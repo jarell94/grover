@@ -113,7 +113,7 @@ export default function ExploreScreen() {
     </View>
   );
 
-  const renderPost = ({ item }: { item: Post }) => (
+  const renderPost = ({ item }) => (
     <TouchableOpacity style={styles.gridItem}>
       {item.media_url && item.media_type === 'image' ? (
         <Image
