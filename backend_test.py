@@ -11,7 +11,8 @@ import uuid
 from datetime import datetime
 
 # Configuration
-BASE_URL = "https://creator-hub-308.preview.emergentagent.com/api"
+BASE_URL = "http://localhost:8001/api"
+HEALTH_URL = "http://localhost:8001/health"
 TEST_SESSION_ID = "test_session_123"  # This would normally come from OAuth flow
 
 class GroverBackendTester:
