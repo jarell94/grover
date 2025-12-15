@@ -86,19 +86,33 @@ export default function HomeScreen() {
     loadFeed();
   }, []);
 
-  const loadFeed = async () => {
+  const loadFeed = async (isRefresh = false) => {
     try {
+      const currentPage = isRefresh ? 0 : page;
       const [feedData, storiesData] = await Promise.all([
-        api.getFeed(),
-        api.getStories().catch(() => [])
+        api.getFeed(20, currentPage * 20),
+        isRefresh ? api.getStories().catch(() => []) : Promise.resolve(stories)
       ]);
-      setPosts(feedData);
-      setStories(storiesData);
+      
+      if (isRefresh) {
+        setPosts(feedData);
+        setPage(1);
+        setHasMore(feedData.length === 20);
+      } else {
+        setPosts(prev => [...prev, ...feedData]);
+        setPage(prev => prev + 1);
+        setHasMore(feedData.length === 20);
+      }
+      
+      if (isRefresh) {
+        setStories(storiesData);
+      }
     } catch (error) {
       console.error('Feed load error:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   };
 
