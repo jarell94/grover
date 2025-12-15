@@ -800,6 +800,14 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     marginBottom: 16,
   },
+  tagInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 12,
+    color: Colors.text,
+    fontSize: 14,
+    marginBottom: 12,
+  },
   mediaPreview: {
     position: 'relative',
     marginBottom: 16,
