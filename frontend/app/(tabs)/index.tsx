@@ -44,6 +44,11 @@ interface Post {
   original_post_id?: string;
   repost_comment?: string;
   original_post?: Post;
+  has_poll?: boolean;
+  poll_question?: string;
+  poll_options?: string[];
+  poll_votes?: { [key: string]: number };
+  poll_expires_at?: string;
 }
 
 export default function HomeScreen() {
