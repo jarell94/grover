@@ -96,24 +96,35 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
 };
 
 const apiFormRequest = async (endpoint: string, formData: FormData) => {
+  initializeUrls(); // Ensure URLs are initialized
+  
   const headers: any = {};
 
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
+  const url = `${API_URL}${endpoint}`;
+  console.log('API Form Request:', { url });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || 'Request failed');
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('API Form Error:', { url, status: response.status, error });
+      throw new Error(error || `Request failed with status ${response.status}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('API Form Request Failed:', { url, error });
+    throw error;
   }
-
-  return response.json();
 };
 
 export const api = {
