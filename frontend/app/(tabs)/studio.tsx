@@ -442,4 +442,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 32,
   },
+  quickAccess: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+    flexWrap: 'wrap',
+  },
+  toolCard: {
+    flex: 1,
+    minWidth: 70,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    gap: 6,
+  },
+  toolText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+  },
 });
