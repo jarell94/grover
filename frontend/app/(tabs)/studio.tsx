@@ -106,6 +106,26 @@ export default function StudioScreen() {
       >
         <Text style={styles.headerTitle}>Creator Studio</Text>
         <Text style={styles.headerSubtitle}>Manage your content and track performance</Text>
+        
+        {/* Quick Access Tools */}
+        <View style={styles.quickAccess}>
+          <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/analytics')}>
+            <Ionicons name="bar-chart" size={24} color={Colors.primary} />
+            <Text style={styles.toolText}>Analytics</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/schedule-post')}>
+            <Ionicons name="calendar" size={24} color={Colors.primary} />
+            <Text style={styles.toolText}>Schedule</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/collections')}>
+            <Ionicons name="folder" size={24} color={Colors.primary} />
+            <Text style={styles.toolText}>Collections</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/communities')}>
+            <Ionicons name="people" size={24} color={Colors.primary} />
+            <Text style={styles.toolText}>Communities</Text>
+          </TouchableOpacity>
+        </View>
       </LinearGradient>
 
       <View style={styles.tabs}>
