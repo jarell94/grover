@@ -307,4 +307,23 @@ export const api = {
   answerCall: (callId: string) => apiRequest(`/calls/${callId}/answer`, { method: 'POST' }),
   endCall: (callId: string) => apiRequest(`/calls/${callId}/end`, { method: 'POST' }),
   getCallHistory: () => apiRequest('/calls/history'),
+
+  // Collections
+  createCollection: (data: any) => apiRequest('/collections', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getCollections: () => apiRequest('/collections'),
+  getCollectionDetail: (collectionId: string) => apiRequest(`/collections/${collectionId}`),
+  updateCollection: (collectionId: string, data: any) => apiRequest(`/collections/${collectionId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  deleteCollection: (collectionId: string) => apiRequest(`/collections/${collectionId}`, { method: 'DELETE' }),
+  addPostToCollection: (collectionId: string, postId: string) => apiRequest(`/collections/${collectionId}/posts/${postId}`, { method: 'POST' }),
+  removePostFromCollection: (collectionId: string, postId: string) => apiRequest(`/collections/${collectionId}/posts/${postId}`, { method: 'DELETE' }),
+
+  // Community Discovery
+  getDiscoverCommunities: () => apiRequest('/communities/discover'),
+  getCommunityDetail: (communityId: string) => apiRequest(`/communities/${communityId}`),
 };
