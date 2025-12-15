@@ -163,7 +163,7 @@ export default function ExploreScreen() {
         <Text style={styles.sectionTitle}>⭐ Rising Creators</Text>
         <FlatList
           data={trendingData.rising_creators}
-          renderItem={({ item }: { item: any }) => (
+          renderItem={({ item }) => (
             <TouchableOpacity style={styles.creatorCard}>
               <View style={styles.creatorInfo}>
                 <Text style={styles.creatorName}>{item.username}</Text>
