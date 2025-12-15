@@ -250,25 +250,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  searchContainer: {
-    padding: 16,
+  tabBar: {
+    flexDirection: 'row',
     backgroundColor: Colors.card,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    paddingTop: 8,
   },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  searchInput: {
+  tab: {
     flex: 1,
-    color: Colors.text,
-    fontSize: 16,
+    alignItems: 'center',
     paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+  },
+  tabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginTop: 4,
+  },
+  activeTabText: {
+    color: Colors.primary,
+  },
+  section: {
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+    marginBottom: 12,
   },
   grid: {
     padding: 2,
