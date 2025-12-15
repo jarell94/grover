@@ -67,6 +67,14 @@ class User(BaseModel):
     instagram: Optional[str] = None
     linkedin: Optional[str] = None
     paypal_email: Optional[str] = None
+    # Notification preferences
+    notify_followers: bool = True
+    notify_likes: bool = True
+    notify_comments: bool = True
+    notify_messages: bool = True
+    notify_sales: bool = True
+    notify_mentions: bool = True
+    notify_reposts: bool = True
     created_at: datetime
 
 class Post(BaseModel):
