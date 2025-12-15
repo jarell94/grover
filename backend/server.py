@@ -132,6 +132,30 @@ class Post(BaseModel):
     repost_comment: Optional[str] = None  # User's commentary on the repost
     created_at: datetime
 
+class Story(BaseModel):
+    story_id: str
+    user_id: str
+    media_url: str  # base64 image or video
+    media_type: str  # image/video
+    caption: Optional[str] = None
+    views_count: int = 0
+    reactions_count: int = 0
+    replies_count: int = 0
+    is_highlighted: bool = False
+    highlight_title: Optional[str] = None
+    expires_at: datetime
+    created_at: datetime
+
+class Poll(BaseModel):
+    poll_id: str
+    post_id: str
+    question: str
+    options: List[str]
+    votes: dict = {}  # {option_index: [user_ids]}
+    duration_hours: int = 24  # Poll duration
+    expires_at: datetime
+    created_at: datetime
+
 class Comment(BaseModel):
     comment_id: str
     post_id: str
