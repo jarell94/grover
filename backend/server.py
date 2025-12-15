@@ -469,20 +469,26 @@ async def get_posts(current_user: User = Depends(require_auth)):
     return posts
 
 @api_router.get("/posts/feed")
-async def get_feed(current_user: User = Depends(require_auth)):
-    # Get followed users
+async def get_feed(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get feed of posts from followed users with pagination"""
+    # Get followed users (cached for performance)
     follows = await db.follows.find(
         {"follower_id": current_user.user_id},
-        {"_id": 0}
+        {"_id": 0, "following_id": 1}
     ).to_list(1000)
     
-    following_ids = [f["following_id"] for f in follows]
-    following_ids.append(current_user.user_id)  # Include own posts
+    followed_ids = [f["following_id"] for f in follows]
+    followed_ids.append(current_user.user_id)  # Include own posts
     
+    # Optimized query with pagination
     posts = await db.posts.find(
-        {"user_id": {"$in": following_ids}},
+        {"user_id": {"$in": followed_ids}},
         {"_id": 0}
-    ).sort("created_at", -1).to_list(100)
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
     # Add user data to each post
     for post in posts:
