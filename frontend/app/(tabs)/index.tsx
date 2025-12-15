@@ -475,6 +475,22 @@ export default function HomeScreen() {
 
         <TouchableOpacity
           style={styles.actionButton}
+          onPress={() => handleOpenRepost(item)}
+        >
+          <Ionicons
+            name={item.reposted ? 'repeat' : 'repeat-outline'}
+            size={24}
+            color={item.reposted ? Colors.primary : Colors.textSecondary}
+          />
+          {item.repost_count! > 0 && (
+            <Text style={[styles.actionText, item.reposted && { color: Colors.primary }]}>
+              {item.repost_count}
+            </Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
           onPress={() => handleShare(item.post_id)}
         >
           <Ionicons name="share-outline" size={24} color={Colors.textSecondary} />
