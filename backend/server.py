@@ -602,14 +602,12 @@ async def create_post(
     # Create notifications for tagged users
     for tagged_user_id in tagged_user_list:
         if tagged_user_id != current_user.user_id:
-            await db.notifications.insert_one({
-                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-                "user_id": tagged_user_id,
-                "type": "tag",
-                "content": f"{current_user.name} tagged you in a post",
-                "read": False,
-                "created_at": datetime.now(timezone.utc)
-            })
+            await create_notification(
+                tagged_user_id,
+                "mention",
+                f"{current_user.name} tagged you in a post",
+                post_id
+            )
     
     return {"post_id": post_id, "message": "Post created"}
 
