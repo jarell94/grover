@@ -920,6 +920,7 @@ async def repost_post(
         "shares_count": 0,
         "comments_count": 0,
         "repost_count": 0,
+        "reaction_counts": {},
         "tagged_users": original_post.get("tagged_users", []),
         "location": original_post.get("location"),
         "is_repost": True,
