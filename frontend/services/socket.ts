@@ -1,7 +1,34 @@
 import { io, Socket } from 'socket.io-client';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
-const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || '';
+// Get backend URL from environment
+const getBackendUrl = () => {
+  // Try to get from process.env first (works in web)
+  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_BACKEND_URL) {
+    return process.env.EXPO_PUBLIC_BACKEND_URL;
+  }
+  
+  // Try Constants (works in native)
+  if (Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL) {
+    return Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_URL;
+  }
+  
+  // Fallback based on platform
+  if (Platform.OS === 'web') {
+    // For web, use the current origin
+    if (typeof window !== 'undefined') {
+      return window.location.origin;
+    }
+    return '';
+  }
+  
+  // For native, this should be set in .env
+  return '';
+};
+
+const BACKEND_URL = getBackendUrl();
+console.log('Socket.IO Backend URL:', BACKEND_URL);
 
 class SocketService {
   private socket: Socket | null = null;
