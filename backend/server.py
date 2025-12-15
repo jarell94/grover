@@ -2596,7 +2596,7 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     """Get analytics overview for creator"""
     # Get date range (last 30 days)
     end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=30)
+    # start_date = end_date - timedelta(days=30)  # Reserved for future date filtering
     
     # Total posts
     total_posts = await db.posts.count_documents({"user_id": current_user.user_id})
