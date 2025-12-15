@@ -422,14 +422,11 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
         })
         
         # Create notification
-        await db.notifications.insert_one({
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-            "user_id": user_id,
-            "type": "follow",
-            "content": f"{current_user.name} started following you",
-            "read": False,
-            "created_at": datetime.now(timezone.utc)
-        })
+        await create_notification(
+            user_id,
+            "follow",
+            f"{current_user.name} started following you"
+        )
         
         return {"message": "Followed", "following": True}
 
