@@ -450,11 +450,8 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Comments System (Backend)"
     - "Comments UI System"
-    - "Post Interactions: Dislike, Save, Share"
     - "Post Interactions UI (Dislike, Share, Save)"
-    - "Tagging and Location in Posts"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
