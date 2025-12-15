@@ -34,10 +34,22 @@ const getBackendUrl = () => {
   return '';
 };
 
-const BACKEND_URL = getBackendUrl();
-export const API_URL = `${BACKEND_URL}/api`;
+// Make this dynamic to ensure window is available
+let BACKEND_URL: string;
+let API_URL: string;
 
-console.log('API Configuration:', { BACKEND_URL, API_URL });
+const initializeUrls = () => {
+  if (!BACKEND_URL) {
+    BACKEND_URL = getBackendUrl();
+    API_URL = `${BACKEND_URL}/api`;
+    console.log('API Configuration:', { BACKEND_URL, API_URL });
+  }
+};
+
+export const getApiUrl = () => {
+  initializeUrls();
+  return API_URL;
+};
 
 let authToken: string | null = null;
 
