@@ -84,6 +84,34 @@ export default function ExploreScreen() {
     }
   };
 
+  const renderTabBar = () => (
+    <View style={styles.tabBar}>
+      {[
+        { key: 'foryou', label: 'For You', icon: 'heart' },
+        { key: 'trending', label: 'Trending', icon: 'trending-up' },
+        { key: 'categories', label: 'Categories', icon: 'grid' },
+      ].map((tab) => (
+        <TouchableOpacity
+          key={tab.key}
+          style={[styles.tab, activeTab === tab.key && styles.activeTab]}
+          onPress={() => setActiveTab(tab.key)}
+        >
+          <Ionicons
+            name={tab.icon as any}
+            size={20}
+            color={activeTab === tab.key ? Colors.primary : Colors.textSecondary}
+          />
+          <Text style={[
+            styles.tabText,
+            activeTab === tab.key && styles.activeTabText
+          ]}>
+            {tab.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
   const renderPost = ({ item }: { item: Post }) => (
     <TouchableOpacity style={styles.gridItem}>
       {item.media_url && item.media_type === 'image' ? (
@@ -110,6 +138,64 @@ export default function ExploreScreen() {
         <Text style={styles.likesText}>{item.likes_count} likes</Text>
       </View>
     </TouchableOpacity>
+  );
+
+  const renderTrendingContent = () => (
+    <ScrollView
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🔥 Trending Posts</Text>
+        <FlatList
+          data={trendingData.trending_posts}
+          renderItem={renderPost}
+          keyExtractor={(item: any) => item.post_id}
+          numColumns={3}
+          scrollEnabled={false}
+          contentContainerStyle={styles.grid}
+        />
+      </View>
+      
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>⭐ Rising Creators</Text>
+        <FlatList
+          data={trendingData.rising_creators}
+          renderItem={({ item }: { item: any }) => (
+            <TouchableOpacity style={styles.creatorCard}>
+              <View style={styles.creatorInfo}>
+                <Text style={styles.creatorName}>{item.username}</Text>
+                <Text style={styles.creatorStats}>
+                  {item.followers_count} followers • {item.engagement_rate}% engagement
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          keyExtractor={(item: any) => item.user_id}
+          scrollEnabled={false}
+        />
+      </View>
+    </ScrollView>
+  );
+
+  const renderCategoriesContent = () => (
+    <FlatList
+      data={categories}
+      renderItem={({ item }: { item: any }) => (
+        <TouchableOpacity style={styles.categoryCard}>
+          <Text style={styles.categoryEmoji}>{item.emoji}</Text>
+          <Text style={styles.categoryName}>{item.name}</Text>
+          <Text style={styles.categoryCount}>{item.post_count} posts</Text>
+        </TouchableOpacity>
+      )}
+      keyExtractor={(item: any) => item.category_id}
+      numColumns={2}
+      contentContainerStyle={styles.categoriesGrid}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    />
   );
 
   if (loading) {
