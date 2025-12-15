@@ -98,7 +98,7 @@ export default function ExploreScreen() {
           onPress={() => setActiveTab(tab.key)}
         >
           <Ionicons
-            name={tab.icon as any}
+            name={tab.icon}
             size={20}
             color={activeTab === tab.key ? Colors.primary : Colors.textSecondary}
           />
