@@ -67,9 +67,19 @@ export default function Index() {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.loginButton} onPress={login}>
-            <Ionicons name="logo-google" size={24} color={Colors.primary} />
-            <Text style={styles.loginButtonText}>Sign in with Google</Text>
+          <TouchableOpacity 
+            style={[styles.loginButton, loggingIn && styles.loginButtonDisabled]} 
+            onPress={handleLogin}
+            disabled={loggingIn}
+          >
+            {loggingIn ? (
+              <ActivityIndicator color={Colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="logo-google" size={24} color={Colors.primary} />
+                <Text style={styles.loginButtonText}>Sign in with Google</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </LinearGradient>
