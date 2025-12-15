@@ -45,6 +45,12 @@ export default function HomeScreen() {
   const [uploading, setUploading] = useState(false);
   const [taggedUsers, setTaggedUsers] = useState('');
   const [location, setLocation] = useState('');
+  const [commentsModalVisible, setCommentsModalVisible] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [replyingTo, setReplyingTo] = useState<any>(null);
+  const [loadingComments, setLoadingComments] = useState(false);
 
   useEffect(() => {
     loadFeed();
