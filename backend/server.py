@@ -755,6 +755,14 @@ async def execute_paypal_payment(
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
+        # Get seller info
+        seller = await db.users.find_one({"user_id": product["user_id"]}, {"_id": 0})
+        
+        # Calculate platform fee (5% for now, can be adjusted)
+        platform_fee_percentage = 0.05
+        platform_fee = product["price"] * platform_fee_percentage
+        seller_amount = product["price"] - platform_fee
+        
         # Create order in database
         order_id = f"order_{uuid.uuid4().hex[:12]}"
         await db.orders.insert_one({
@@ -763,10 +771,46 @@ async def execute_paypal_payment(
             "seller_id": product["user_id"],
             "product_id": product_id,
             "amount": product["price"],
+            "platform_fee": platform_fee,
+            "seller_amount": seller_amount,
             "status": "completed",
             "paypal_payment_id": payment_id,
             "created_at": datetime.now(timezone.utc)
         })
+        
+        # Send payout to seller if they have PayPal configured
+        payout_info = None
+        if seller and seller.get("paypal_email"):
+            payout_result = send_payout(
+                recipient_email=seller["paypal_email"],
+                amount=seller_amount,
+                note=f"Sale of '{product['name']}' on Grover"
+            )
+            
+            if payout_result["success"]:
+                # Update order with payout info
+                await db.orders.update_one(
+                    {"order_id": order_id},
+                    {"$set": {
+                        "payout_batch_id": payout_result.get("payout_batch_id"),
+                        "payout_status": "sent"
+                    }}
+                )
+                payout_info = "Payout sent to seller's PayPal"
+            else:
+                logger.error(f"Payout failed for order {order_id}: {payout_result.get('error')}")
+                await db.orders.update_one(
+                    {"order_id": order_id},
+                    {"$set": {"payout_status": "failed", "payout_error": payout_result.get("error")}}
+                )
+                payout_info = "Payment received, but seller payout pending"
+        else:
+            # Seller doesn't have PayPal configured
+            await db.orders.update_one(
+                {"order_id": order_id},
+                {"$set": {"payout_status": "pending_seller_setup"}}
+            )
+            payout_info = "Seller needs to configure PayPal to receive funds"
         
         # Create notification
         await db.notifications.insert_one({
@@ -781,7 +825,10 @@ async def execute_paypal_payment(
         return {
             "success": True,
             "order_id": order_id,
-            "message": "Payment completed successfully"
+            "message": "Payment completed successfully",
+            "payout_info": payout_info,
+            "seller_amount": seller_amount,
+            "platform_fee": platform_fee
         }
     else:
         raise HTTPException(status_code=500, detail=result.get("error", "Payment execution failed"))
