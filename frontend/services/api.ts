@@ -248,4 +248,14 @@ export const api = {
     body: JSON.stringify({ option_index: optionIndex }),
   }),
   getPollResults: (postId: string) => apiRequest(`/posts/${postId}/poll-results`),
+
+  // Live Streaming
+  startStream: (formData: FormData) => apiRequest('/streams/start', { method: 'POST', body: formData }),
+  endStream: (streamId: string) => apiRequest(`/streams/${streamId}/end`, { method: 'POST' }),
+  getLiveStreams: () => apiRequest('/streams/live'),
+  getStream: (streamId: string) => apiRequest(`/streams/${streamId}`),
+  sendSuperChat: (streamId: string, amount: number, message: string) => apiRequest(`/streams/${streamId}/super-chat`, {
+    method: 'POST',
+    body: JSON.stringify({ amount, message }),
+  }),
 };
