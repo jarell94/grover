@@ -30,7 +30,7 @@ const PostType = {
 
 export default function ExploreScreen() {
   const [activeTab, setActiveTab] = useState('foryou'); // 'foryou', 'trending', 'categories'
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState([]);
   const [trendingData, setTrendingData] = useState({ trending_posts: [], rising_creators: [] });
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
