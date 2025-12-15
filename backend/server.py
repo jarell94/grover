@@ -78,8 +78,20 @@ class Post(BaseModel):
     likes_count: int = 0
     dislikes_count: int = 0
     shares_count: int = 0
+    comments_count: int = 0
     tagged_users: List[str] = []  # List of user_ids
     location: Optional[str] = None
+    created_at: datetime
+
+class Comment(BaseModel):
+    comment_id: str
+    post_id: str
+    user_id: str
+    content: str
+    parent_comment_id: Optional[str] = None  # For threaded replies
+    likes_count: int = 0
+    replies_count: int = 0
+    tagged_users: List[str] = []  # List of user_ids mentioned
     created_at: datetime
 
 class Product(BaseModel):
