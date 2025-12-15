@@ -436,6 +436,134 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Comments Modal */}
+      <Modal
+        visible={commentsModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setCommentsModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                Comments ({selectedPost?.comments_count || 0})
+              </Text>
+              <TouchableOpacity onPress={() => {
+                setCommentsModalVisible(false);
+                setReplyingTo(null);
+                setCommentText('');
+              }}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingComments ? (
+              <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 32 }} />
+            ) : (
+              <FlatList
+                data={comments}
+                renderItem={({ item }) => (
+                  <View style={styles.commentItem}>
+                    <Image
+                      source={{ uri: item.user?.picture || 'https://via.placeholder.com/40' }}
+                      style={styles.commentAvatar}
+                    />
+                    <View style={styles.commentContent}>
+                      <View style={styles.commentHeader}>
+                        <Text style={styles.commentUsername}>{item.user?.name || 'Unknown'}</Text>
+                        <Text style={styles.commentTime}>
+                          {new Date(item.created_at).toLocaleDateString()}
+                        </Text>
+                      </View>
+                      <Text style={styles.commentText}>{item.content}</Text>
+                      <View style={styles.commentActions}>
+                        <TouchableOpacity
+                          style={styles.commentAction}
+                          onPress={() => handleCommentLike(item.comment_id)}
+                        >
+                          <Ionicons
+                            name={item.liked ? 'heart' : 'heart-outline'}
+                            size={16}
+                            color={item.liked ? Colors.error : Colors.textSecondary}
+                          />
+                          <Text style={[styles.commentActionText, item.liked && { color: Colors.error }]}>
+                            {item.likes_count}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.commentAction}
+                          onPress={() => {
+                            setReplyingTo(item);
+                            setCommentText(`@${item.user?.name} `);
+                          }}
+                        >
+                          <Ionicons name="arrow-undo" size={16} color={Colors.textSecondary} />
+                          <Text style={styles.commentActionText}>Reply</Text>
+                        </TouchableOpacity>
+                        {user?.user_id === item.user_id && (
+                          <TouchableOpacity
+                            style={styles.commentAction}
+                            onPress={() => handleDeleteComment(item.comment_id)}
+                          >
+                            <Ionicons name="trash" size={16} color={Colors.error} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                )}
+                keyExtractor={(item) => item.comment_id}
+                contentContainerStyle={styles.commentsList}
+                ListEmptyComponent={
+                  <View style={styles.emptyComments}>
+                    <Ionicons name="chatbubble-outline" size={48} color={Colors.textSecondary} />
+                    <Text style={styles.emptyCommentsText}>No comments yet</Text>
+                    <Text style={styles.emptyCommentsSubtext}>Be the first to comment!</Text>
+                  </View>
+                }
+              />
+            )}
+
+            {replyingTo && (
+              <View style={styles.replyingIndicator}>
+                <Text style={styles.replyingText}>
+                  Replying to @{replyingTo.user?.name}
+                </Text>
+                <TouchableOpacity onPress={() => {
+                  setReplyingTo(null);
+                  setCommentText('');
+                }}>
+                  <Ionicons name="close-circle" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={styles.commentInputContainer}>
+              <Image
+                source={{ uri: user?.picture || 'https://via.placeholder.com/32' }}
+                style={styles.commentInputAvatar}
+              />
+              <TextInput
+                style={styles.commentInput}
+                placeholder="Add a comment..."
+                placeholderTextColor={Colors.textSecondary}
+                value={commentText}
+                onChangeText={setCommentText}
+                multiline
+              />
+              <TouchableOpacity
+                style={[styles.commentSendButton, !commentText.trim() && styles.commentSendButtonDisabled]}
+                onPress={handleCommentSubmit}
+                disabled={!commentText.trim()}
+              >
+                <Ionicons name="send" size={20} color={commentText.trim() ? Colors.primary : Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
