@@ -342,8 +342,13 @@ export default function HomeScreen() {
   };
 
   const createPost = async () => {
-    if (!newPostContent.trim() && !selectedMedia) {
+    if (!newPostContent.trim() && !selectedMedia && !showPollOption) {
       Alert.alert('Error', 'Please add some content');
+      return;
+    }
+
+    if (showPollOption && (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2)) {
+      Alert.alert('Error', 'Poll needs a question and at least 2 options');
       return;
     }
 
@@ -358,6 +363,12 @@ export default function HomeScreen() {
 
       if (location.trim()) {
         formData.append('location', location.trim());
+      }
+
+      if (showPollOption && pollQuestion.trim()) {
+        formData.append('poll_question', pollQuestion.trim());
+        formData.append('poll_options', JSON.stringify(pollOptions.filter(o => o.trim())));
+        formData.append('poll_duration_hours', pollDuration.toString());
       }
 
       if (selectedMedia) {
