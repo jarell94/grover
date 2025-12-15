@@ -3,23 +3,31 @@ import { Platform } from 'react-native';
 
 // Get backend URL from environment
 const getBackendUrl = () => {
-  // Try to get from process.env first (works in web)
+  // For web, use the current origin (same domain)
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  
+  // Try to get from process.env (works in web build)
   if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_BACKEND_URL) {
-    return process.env.EXPO_PUBLIC_BACKEND_URL;
+    const url = process.env.EXPO_PUBLIC_BACKEND_URL;
+    // Skip if it contains REPLACEME placeholder
+    if (!url.includes('REPLACEME')) {
+      return url;
+    }
   }
   
   // Try Constants (works in native)
   if (Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL) {
-    return Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_URL;
+    const url = Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_URL;
+    if (!url.includes('REPLACEME')) {
+      return url;
+    }
   }
   
-  // Fallback based on platform
-  if (Platform.OS === 'web') {
-    // For web, use the current origin
-    if (typeof window !== 'undefined') {
-      return window.location.origin;
-    }
-    return '';
+  // Final fallback for web
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return window.location.origin;
   }
   
   // For native, this should be set in .env
