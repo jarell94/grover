@@ -60,6 +60,10 @@ class User(BaseModel):
     bio: Optional[str] = ""
     is_premium: bool = False
     is_private: bool = False
+    website: Optional[str] = None
+    twitter: Optional[str] = None
+    instagram: Optional[str] = None
+    linkedin: Optional[str] = None
     created_at: datetime
 
 class Post(BaseModel):
