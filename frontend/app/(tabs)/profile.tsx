@@ -618,4 +618,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 12,
   },
+  paypalContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: '#003087',
+  },
+  helperText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
 });
