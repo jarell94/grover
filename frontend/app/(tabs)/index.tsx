@@ -141,12 +141,11 @@ export default function HomeScreen() {
 
       <Text style={styles.postContent}>{item.content}</Text>
 
-      {item.media_url && item.media_type === 'image' && (
-        <Image
-          source={{ uri: `data:image/jpeg;base64,${item.media_url}` }}
-          style={styles.postImage}
-        />
-      )}
+      <MediaDisplay
+        mediaUrl={item.media_url}
+        mediaType={item.media_type}
+        title={item.content}
+      />
 
       <View style={styles.postActions}>
         <TouchableOpacity
