@@ -152,7 +152,7 @@ export default function ExploreScreen() {
         <FlatList
           data={trendingData.trending_posts}
           renderItem={renderPost}
-          keyExtractor={(item: any) => item.post_id}
+          keyExtractor={(item) => item.post_id}
           numColumns={3}
           scrollEnabled={false}
           contentContainerStyle={styles.grid}
