@@ -79,8 +79,12 @@ class Post(BaseModel):
     dislikes_count: int = 0
     shares_count: int = 0
     comments_count: int = 0
+    repost_count: int = 0
     tagged_users: List[str] = []  # List of user_ids
     location: Optional[str] = None
+    is_repost: bool = False
+    original_post_id: Optional[str] = None  # If this is a repost, reference to original
+    repost_comment: Optional[str] = None  # User's commentary on the repost
     created_at: datetime
 
 class Comment(BaseModel):
