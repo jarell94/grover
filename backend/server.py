@@ -374,6 +374,8 @@ async def get_explore(current_user: User = Depends(require_auth)):
 async def create_post(
     content: str = Form(...),
     media: Optional[UploadFile] = File(None),
+    tagged_users: Optional[str] = Form(None),
+    location: Optional[str] = Form(None),
     current_user: User = Depends(require_auth)
 ):
     media_url = None
@@ -391,6 +393,11 @@ async def create_post(
         elif media.content_type.startswith('audio'):
             media_type = 'audio'
     
+    # Parse tagged users (comma-separated user_ids)
+    tagged_user_list = []
+    if tagged_users:
+        tagged_user_list = [u.strip() for u in tagged_users.split(',') if u.strip()]
+    
     post_id = f"post_{uuid.uuid4().hex[:12]}"
     await db.posts.insert_one({
         "post_id": post_id,
@@ -399,8 +406,24 @@ async def create_post(
         "media_url": media_url,
         "media_type": media_type,
         "likes_count": 0,
+        "dislikes_count": 0,
+        "shares_count": 0,
+        "tagged_users": tagged_user_list,
+        "location": location,
         "created_at": datetime.now(timezone.utc)
     })
+    
+    # Create notifications for tagged users
+    for tagged_user_id in tagged_user_list:
+        if tagged_user_id != current_user.user_id:
+            await db.notifications.insert_one({
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": tagged_user_id,
+                "type": "tag",
+                "content": f"{current_user.name} tagged you in a post",
+                "read": False,
+                "created_at": datetime.now(timezone.utc)
+            })
     
     return {"post_id": post_id, "message": "Post created"}
 
