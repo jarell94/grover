@@ -181,4 +181,24 @@ const styles = StyleSheet.create({
   loginButtonDisabled: {
     opacity: 0.6,
   },
+  authButtonsContainer: {
+    width: '100%',
+    gap: 16,
+    marginBottom: 16,
+  },
+  signUpButton: {
+    backgroundColor: Colors.primary,
+  },
+  signUpButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#fff',
+    textAlign: 'center',
+    opacity: 0.8,
+    marginTop: 8,
+  },
 });
