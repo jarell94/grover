@@ -615,7 +615,7 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
     
     # Add user data and liked status
     for post in posts:
-        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
         post["user"] = user
         
         liked = await db.likes.find_one({
