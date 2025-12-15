@@ -662,8 +662,207 @@ async def delete_post(post_id: str, current_user: User = Depends(require_auth)):
     
     await db.posts.delete_one({"post_id": post_id})
     await db.likes.delete_many({"post_id": post_id})
+    await db.comments.delete_many({"post_id": post_id})
     
     return {"message": "Post deleted"}
+
+# ============ COMMENT ENDPOINTS ============
+
+@api_router.get("/posts/{post_id}/comments")
+async def get_comments(post_id: str, current_user: User = Depends(require_auth)):
+    """Get all comments for a post (only top-level, not replies)"""
+    comments = await db.comments.find(
+        {"post_id": post_id, "parent_comment_id": None},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(1000)
+    
+    # Add user data and liked status
+    for comment in comments:
+        user = await db.users.find_one({"user_id": comment["user_id"]}, {"_id": 0})
+        comment["user"] = user
+        
+        liked = await db.comment_likes.find_one({
+            "user_id": current_user.user_id,
+            "comment_id": comment["comment_id"]
+        })
+        comment["liked"] = liked is not None
+    
+    return comments
+
+@api_router.get("/comments/{comment_id}/replies")
+async def get_comment_replies(comment_id: str, current_user: User = Depends(require_auth)):
+    """Get all replies to a comment"""
+    replies = await db.comments.find(
+        {"parent_comment_id": comment_id},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(1000)
+    
+    # Add user data and liked status
+    for reply in replies:
+        user = await db.users.find_one({"user_id": reply["user_id"]}, {"_id": 0})
+        reply["user"] = user
+        
+        liked = await db.comment_likes.find_one({
+            "user_id": current_user.user_id,
+            "comment_id": reply["comment_id"]
+        })
+        reply["liked"] = liked is not None
+    
+    return replies
+
+@api_router.post("/posts/{post_id}/comments")
+async def create_comment(
+    post_id: str,
+    content: str,
+    parent_comment_id: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Create a comment or reply"""
+    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Extract tagged users from content (@username)
+    import re
+    mentions = re.findall(r'@(\w+)', content)
+    tagged_user_ids = []
+    
+    # Find user_ids for mentioned usernames (simplified - would need username field in real app)
+    for mention in mentions:
+        # In real app, would search by username
+        pass
+    
+    comment_id = f"comment_{uuid.uuid4().hex[:12]}"
+    comment_doc = {
+        "comment_id": comment_id,
+        "post_id": post_id,
+        "user_id": current_user.user_id,
+        "content": content,
+        "parent_comment_id": parent_comment_id,
+        "likes_count": 0,
+        "replies_count": 0,
+        "tagged_users": tagged_user_ids,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.comments.insert_one(comment_doc)
+    
+    # Update post comment count
+    if not parent_comment_id:
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$inc": {"comments_count": 1}}
+        )
+    else:
+        # Update parent comment reply count
+        await db.comments.update_one(
+            {"comment_id": parent_comment_id},
+            {"$inc": {"replies_count": 1}}
+        )
+    
+    # Create notification for post owner (if not commenting on own post)
+    if post["user_id"] != current_user.user_id:
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": post["user_id"],
+            "type": "comment",
+            "content": f"{current_user.name} commented on your post",
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        })
+    
+    # If it's a reply, notify the parent comment owner
+    if parent_comment_id:
+        parent_comment = await db.comments.find_one({"comment_id": parent_comment_id})
+        if parent_comment and parent_comment["user_id"] != current_user.user_id:
+            await db.notifications.insert_one({
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": parent_comment["user_id"],
+                "type": "reply",
+                "content": f"{current_user.name} replied to your comment",
+                "read": False,
+                "created_at": datetime.now(timezone.utc)
+            })
+    
+    return {"comment_id": comment_id, "message": "Comment created"}
+
+@api_router.post("/comments/{comment_id}/like")
+async def like_comment(comment_id: str, current_user: User = Depends(require_auth)):
+    """Like or unlike a comment"""
+    comment = await db.comments.find_one({"comment_id": comment_id}, {"_id": 0})
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    existing = await db.comment_likes.find_one({
+        "user_id": current_user.user_id,
+        "comment_id": comment_id
+    })
+    
+    if existing:
+        # Unlike
+        await db.comment_likes.delete_one({
+            "user_id": current_user.user_id,
+            "comment_id": comment_id
+        })
+        await db.comments.update_one(
+            {"comment_id": comment_id},
+            {"$inc": {"likes_count": -1}}
+        )
+        return {"message": "Comment unliked", "liked": False}
+    else:
+        # Like
+        await db.comment_likes.insert_one({
+            "user_id": current_user.user_id,
+            "comment_id": comment_id,
+            "created_at": datetime.now(timezone.utc)
+        })
+        await db.comments.update_one(
+            {"comment_id": comment_id},
+            {"$inc": {"likes_count": 1}}
+        )
+        
+        # Create notification for comment owner
+        if comment["user_id"] != current_user.user_id:
+            await db.notifications.insert_one({
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": comment["user_id"],
+                "type": "comment_like",
+                "content": f"{current_user.name} liked your comment",
+                "read": False,
+                "created_at": datetime.now(timezone.utc)
+            })
+        
+        return {"message": "Comment liked", "liked": True}
+
+@api_router.delete("/comments/{comment_id}")
+async def delete_comment(comment_id: str, current_user: User = Depends(require_auth)):
+    """Delete a comment"""
+    comment = await db.comments.find_one({"comment_id": comment_id})
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    if comment["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Delete comment and all its replies
+    await db.comments.delete_one({"comment_id": comment_id})
+    await db.comments.delete_many({"parent_comment_id": comment_id})
+    await db.comment_likes.delete_many({"comment_id": comment_id})
+    
+    # Update post comment count
+    if not comment.get("parent_comment_id"):
+        await db.posts.update_one(
+            {"post_id": comment["post_id"]},
+            {"$inc": {"comments_count": -1}}
+        )
+    else:
+        # Update parent comment reply count
+        await db.comments.update_one(
+            {"comment_id": comment["parent_comment_id"]},
+            {"$inc": {"replies_count": -1}}
+        )
+    
+    return {"message": "Comment deleted"}
 
 # ============ PRODUCT ENDPOINTS ============
 
