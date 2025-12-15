@@ -1,2025 +1,2030 @@
-diff --git a/backend/server.py b/backend/server.py
-index f12b9c8..5d27c45 100644
---- a/backend/server.py
-+++ b/backend/server.py
-@@ -125,6 +125,7 @@ class Post(BaseModel):
-     shares_count: int = 0
-     comments_count: int = 0
-     repost_count: int = 0
-+    reaction_counts: Optional[dict] = {}  # {reaction_type: count}
-     tagged_users: List[str] = []  # List of user_ids
-     location: Optional[str] = None
-     is_repost: bool = False
-@@ -502,12 +503,15 @@ async def get_feed(current_user: User = Depends(require_auth)):
-                 original_post["user"] = original_user
-                 post["original_post"] = original_post
-         
--        # Check if current user liked
--        liked = await db.likes.find_one({
-+        # Check if current user reacted
-+        user_reaction = await db.reactions.find_one({
-             "user_id": current_user.user_id,
-             "post_id": post["post_id"]
-         })
--        post["liked"] = liked is not None
-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
-+        
-+        # Keep backward compatibility
-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
-         
-         # Check if current user disliked
-         disliked = await db.dislikes.find_one({
-@@ -556,11 +560,15 @@ async def get_explore(current_user: User = Depends(require_auth)):
-                 original_post["user"] = original_user
-                 post["original_post"] = original_post
-         
--        liked = await db.likes.find_one({
-+        # Check if current user reacted
-+        user_reaction = await db.reactions.find_one({
-             "user_id": current_user.user_id,
-             "post_id": post["post_id"]
-         })
--        post["liked"] = liked is not None
-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
-+        
-+        # Keep backward compatibility
-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
-         
-         # Check if current user disliked
-         disliked = await db.dislikes.find_one({
-@@ -637,6 +645,9 @@ async def create_post(
-         "likes_count": 0,
-         "dislikes_count": 0,
-         "shares_count": 0,
-+        "comments_count": 0,
-+        "repost_count": 0,
-+        "reaction_counts": {},
-         "tagged_users": tagged_user_list,
-         "location": location,
-         "has_poll": has_poll,
-@@ -663,55 +674,125 @@ async def create_post(
-     
-     return {"post_id": post_id, "message": "Post created"}
- 
--@api_router.post("/posts/{post_id}/like")
--async def like_post(post_id: str, current_user: User = Depends(require_auth)):
--    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
-+@api_router.post("/posts/{post_id}/react")
-+async def react_to_post(
-+    post_id: str,
-+    reaction_type: str,
-+    current_user: User = Depends(require_auth)
-+):
-+    """React to a post with various reactions: like, love, wow, sad, angry, or custom emoji"""
-+    post = await db.posts.find_one({"post_id": post_id})
-     if not post:
-         raise HTTPException(status_code=404, detail="Post not found")
-     
--    existing = await db.likes.find_one({
-+    # Valid reaction types
-+    valid_reactions = ["like", "love", "wow", "sad", "angry", "care", "haha"]
-+    
-+    # Check if it's a valid reaction or custom emoji
-+    if reaction_type not in valid_reactions and len(reaction_type) > 10:
-+        raise HTTPException(status_code=400, detail="Invalid reaction type")
-+    
-+    # Check if user already reacted
-+    existing = await db.reactions.find_one({
-         "user_id": current_user.user_id,
-         "post_id": post_id
-     })
-     
-     if existing:
--        # Unlike
--        await db.likes.delete_one({
--            "user_id": current_user.user_id,
--            "post_id": post_id
--        })
--        await db.posts.update_one(
--            {"post_id": post_id},
--            {"$inc": {"likes_count": -1}}
--        )
--        return {"message": "Unliked", "liked": False}
-+        # If same reaction, remove it (toggle off)
-+        if existing["reaction_type"] == reaction_type:
-+            await db.reactions.delete_one({"user_id": current_user.user_id, "post_id": post_id})
-+            
-+            # Decrement reaction count
-+            reaction_counts = post.get("reaction_counts", {})
-+            reaction_counts[reaction_type] = max(0, reaction_counts.get(reaction_type, 1) - 1)
-+            await db.posts.update_one(
-+                {"post_id": post_id},
-+                {"$set": {"reaction_counts": reaction_counts}}
-+            )
-+            
-+            return {"reacted": False, "reaction_type": None, "reaction_counts": reaction_counts}
-+        else:
-+            # Change reaction
-+            old_type = existing["reaction_type"]
-+            await db.reactions.update_one(
-+                {"user_id": current_user.user_id, "post_id": post_id},
-+                {"$set": {"reaction_type": reaction_type, "created_at": datetime.now(timezone.utc)}}
-+            )
-+            
-+            # Update counts
-+            reaction_counts = post.get("reaction_counts", {})
-+            reaction_counts[old_type] = max(0, reaction_counts.get(old_type, 1) - 1)
-+            reaction_counts[reaction_type] = reaction_counts.get(reaction_type, 0) + 1
-+            await db.posts.update_one(
-+                {"post_id": post_id},
-+                {"$set": {"reaction_counts": reaction_counts}}
-+            )
-+            
-+            return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
-     else:
--        # Like (remove dislike if exists)
--        await db.dislikes.delete_one({
--            "user_id": current_user.user_id,
--            "post_id": post_id
--        })
--        
--        await db.likes.insert_one({
-+        # New reaction
-+        await db.reactions.insert_one({
-             "user_id": current_user.user_id,
-             "post_id": post_id,
-+            "reaction_type": reaction_type,
-             "created_at": datetime.now(timezone.utc)
-         })
-+        
-+        # Update counts
-+        reaction_counts = post.get("reaction_counts", {})
-+        reaction_counts[reaction_type] = reaction_counts.get(reaction_type, 0) + 1
-         await db.posts.update_one(
-             {"post_id": post_id},
--            {"$inc": {"likes_count": 1}}
-+            {"$set": {"reaction_counts": reaction_counts}}
-         )
-         
-         # Create notification
-         if post["user_id"] != current_user.user_id:
-+            reaction_emoji = {
-+                "like": "👍",
-+                "love": "❤️",
-+                "wow": "😮",
-+                "sad": "😢",
-+                "angry": "😠",
-+                "care": "🤗",
-+                "haha": "😂"
-+            }.get(reaction_type, reaction_type)
-+            
-             await create_notification(
-                 post["user_id"],
--                "like",
--                f"{current_user.name} liked your post",
-+                "reaction",
-+                f"{current_user.name} reacted {reaction_emoji} to your post",
-                 post_id
-             )
-         
--        return {"message": "Liked", "liked": True}
-+        return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
-+
-+@api_router.get("/posts/{post_id}/reactions")
-+async def get_post_reactions(post_id: str, current_user: User = Depends(require_auth)):
-+    """Get detailed reactions for a post"""
-+    reactions = await db.reactions.find({"post_id": post_id}, {"_id": 0}).to_list(1000)
-+    
-+    # Group by reaction type and add user data
-+    grouped = {}
-+    for reaction in reactions:
-+        r_type = reaction["reaction_type"]
-+        if r_type not in grouped:
-+            grouped[r_type] = []
-+        
-+        user = await db.users.find_one({"user_id": reaction["user_id"]}, {"_id": 0, "name": 1, "picture": 1})
-+        grouped[r_type].append({
-+            "user": user,
-+            "created_at": reaction["created_at"]
-+        })
-+    
-+    return grouped
-+
-+# Keep old like endpoint for backward compatibility
-+@api_router.post("/posts/{post_id}/like")
-+async def like_post(post_id: str, current_user: User = Depends(require_auth)):
-+    """Legacy like endpoint - redirects to react"""
-+    return await react_to_post(post_id, "like", current_user)
- 
- @api_router.post("/posts/{post_id}/dislike")
- async def dislike_post(post_id: str, current_user: User = Depends(require_auth)):
-@@ -839,6 +920,7 @@ async def repost_post(
-         "shares_count": 0,
-         "comments_count": 0,
-         "repost_count": 0,
-+        "reaction_counts": {},
-         "tagged_users": original_post.get("tagged_users", []),
-         "location": original_post.get("location"),
-         "is_repost": True,
-@@ -927,11 +1009,15 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
-         user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
-         post["user"] = user
-         
--        liked = await db.likes.find_one({
-+        # Check if current user reacted
-+        user_reaction = await db.reactions.find_one({
-             "user_id": current_user.user_id,
-             "post_id": post["post_id"]
-         })
--        post["liked"] = liked is not None
-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
-+        
-+        # Keep backward compatibility
-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
-         
-         disliked = await db.dislikes.find_one({
-             "user_id": current_user.user_id,
-@@ -1486,6 +1572,322 @@ async def mark_notifications_read(current_user: User = Depends(require_auth)):
-     )
-     return {"message": "Notifications marked as read"}
- 
-+# ============ COLLECTIONS ENDPOINTS ============
-+
-+@api_router.post("/collections")
-+async def create_collection(
-+    name: str,
-+    description: Optional[str] = None,
-+    is_public: bool = False,
-+    current_user: User = Depends(require_auth)
-+):
-+    """Create a new collection/bookmark folder"""
-+    collection_id = f"collection_{uuid.uuid4().hex[:12]}"
-+    
-+    collection_data = {
-+        "collection_id": collection_id,
-+        "user_id": current_user.user_id,
-+        "name": name,
-+        "description": description,
-+        "is_public": is_public,
-+        "post_count": 0,
-+        "created_at": datetime.now(timezone.utc)
-+    }
-+    
-+    await db.collections.insert_one(collection_data)
-+    return {"collection_id": collection_id, "message": "Collection created"}
-+
-+@api_router.get("/collections")
-+async def get_my_collections(current_user: User = Depends(require_auth)):
-+    """Get user's collections"""
-+    collections = await db.collections.find(
-+        {"user_id": current_user.user_id},
-+        {"_id": 0}
-+    ).sort("created_at", -1).to_list(100)
-+    
-+    # Add post count for each collection
-+    for collection in collections:
-+        post_count = await db.collection_posts.count_documents({
-+            "collection_id": collection["collection_id"]
-+        })
-+        collection["post_count"] = post_count
-+    
-+    return collections
-+
-+@api_router.get("/collections/public")
-+async def get_public_collections(current_user: User = Depends(require_auth)):
-+    """Get public collections from all users"""
-+    collections = await db.collections.find(
-+        {"is_public": True},
-+        {"_id": 0}
-+    ).sort("created_at", -1).to_list(100)
-+    
-+    # Add user data and post count
-+    for collection in collections:
-+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
-+        collection["user"] = user
-+        
-+        post_count = await db.collection_posts.count_documents({
-+            "collection_id": collection["collection_id"]
-+        })
-+        collection["post_count"] = post_count
-+    
-+    return collections
-+
-+@api_router.get("/collections/following")
-+async def get_followed_collections(current_user: User = Depends(require_auth)):
-+    """Get collections the user is following"""
-+    follows = await db.collection_follows.find(
-+        {"user_id": current_user.user_id},
-+        {"_id": 0}
-+    ).to_list(100)
-+    
-+    collection_ids = [f["collection_id"] for f in follows]
-+    collections = await db.collections.find(
-+        {"collection_id": {"$in": collection_ids}},
-+        {"_id": 0}
-+    ).to_list(100)
-+    
-+    # Add user data and post count
-+    for collection in collections:
-+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
-+        collection["user"] = user
-+        
-+        post_count = await db.collection_posts.count_documents({
-+            "collection_id": collection["collection_id"]
-+        })
-+        collection["post_count"] = post_count
-+    
-+    return collections
-+
-+@api_router.get("/collections/{collection_id}")
-+async def get_collection(collection_id: str, current_user: User = Depends(require_auth)):
-+    """Get collection details and posts"""
-+    collection = await db.collections.find_one({"collection_id": collection_id}, {"_id": 0})
-+    if not collection:
-+        raise HTTPException(status_code=404, detail="Collection not found")
-+    
-+    # Check if user can access this collection
-+    if collection["user_id"] != current_user.user_id and not collection.get("is_public", False):
-+        raise HTTPException(status_code=403, detail="Collection is private")
-+    
-+    # Get posts in collection
-+    collection_posts = await db.collection_posts.find(
-+        {"collection_id": collection_id},
-+        {"_id": 0}
-+    ).sort("added_at", -1).to_list(100)
-+    
-+    post_ids = [cp["post_id"] for cp in collection_posts]
-+    posts = await db.posts.find(
-+        {"post_id": {"$in": post_ids}},
-+        {"_id": 0}
-+    ).to_list(100)
-+    
-+    # Add user data and reaction status
-+    for post in posts:
-+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
-+        post["user"] = user
-+        
-+        # Check if current user reacted
-+        user_reaction = await db.reactions.find_one({
-+            "user_id": current_user.user_id,
-+            "post_id": post["post_id"]
-+        })
-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
-+        
-+        # Check saved status
-+        post["saved"] = True  # All posts in collection are saved
-+    
-+    collection["posts"] = posts
-+    return collection
-+
-+@api_router.post("/collections/{collection_id}/posts/{post_id}")
-+async def add_post_to_collection(
-+    collection_id: str,
-+    post_id: str,
-+    current_user: User = Depends(require_auth)
-+):
-+    """Add a post to a collection"""
-+    # Check if collection exists and user owns it
-+    collection = await db.collections.find_one({"collection_id": collection_id})
-+    if not collection:
-+        raise HTTPException(status_code=404, detail="Collection not found")
-+    
-+    if collection["user_id"] != current_user.user_id:
-+        raise HTTPException(status_code=403, detail="Not authorized")
-+    
-+    # Check if post exists
-+    post = await db.posts.find_one({"post_id": post_id})
-+    if not post:
-+        raise HTTPException(status_code=404, detail="Post not found")
-+    
-+    # Check if already in collection
-+    existing = await db.collection_posts.find_one({
-+        "collection_id": collection_id,
-+        "post_id": post_id
-+    })
-+    
-+    if existing:
-+        raise HTTPException(status_code=400, detail="Post already in collection")
-+    
-+    # Add to collection
-+    await db.collection_posts.insert_one({
-+        "collection_id": collection_id,
-+        "post_id": post_id,
-+        "user_id": current_user.user_id,
-+        "added_at": datetime.now(timezone.utc)
-+    })
-+    
-+    # Update collection post count
-+    await db.collections.update_one(
-+        {"collection_id": collection_id},
-+        {"$inc": {"post_count": 1}}
-+    )
-+    
-+    return {"message": "Post added to collection"}
-+
-+@api_router.delete("/collections/{collection_id}/posts/{post_id}")
-+async def remove_post_from_collection(
-+    collection_id: str,
-+    post_id: str,
-+    current_user: User = Depends(require_auth)
-+):
-+    """Remove a post from a collection"""
-+    # Check if collection exists and user owns it
-+    collection = await db.collections.find_one({"collection_id": collection_id})
-+    if not collection:
-+        raise HTTPException(status_code=404, detail="Collection not found")
-+    
-+    if collection["user_id"] != current_user.user_id:
-+        raise HTTPException(status_code=403, detail="Not authorized")
-+    
-+    # Remove from collection
-+    result = await db.collection_posts.delete_one({
-+        "collection_id": collection_id,
-+        "post_id": post_id
-+    })
-+    
-+    if result.deleted_count == 0:
-+        raise HTTPException(status_code=404, detail="Post not in collection")
-+    
-+    # Update collection post count
-+    await db.collections.update_one(
-+        {"collection_id": collection_id},
-+        {"$inc": {"post_count": -1}}
-+    )
-+    
-+    return {"message": "Post removed from collection"}
-+
-+@api_router.put("/collections/{collection_id}")
-+async def update_collection(
-+    collection_id: str,
-+    name: Optional[str] = None,
-+    description: Optional[str] = None,
-+    is_public: Optional[bool] = None,
-+    current_user: User = Depends(require_auth)
-+):
-+    """Update collection details"""
-+    collection = await db.collections.find_one({"collection_id": collection_id})
-+    if not collection:
-+        raise HTTPException(status_code=404, detail="Collection not found")
-+    
-+    if collection["user_id"] != current_user.user_id:
-+        raise HTTPException(status_code=403, detail="Not authorized")
-+    
-+    update_data = {}
-+    if name is not None:
-+        update_data["name"] = name
-+    if description is not None:
-+        update_data["description"] = description
-+    if is_public is not None:
-+        update_data["is_public"] = is_public
-+    
-+    if update_data:
-+        await db.collections.update_one(
-+            {"collection_id": collection_id},
-+            {"$set": update_data}
-+        )
-+    
-+    return {"message": "Collection updated"}
-+
-+@api_router.delete("/collections/{collection_id}")
-+async def delete_collection(collection_id: str, current_user: User = Depends(require_auth)):
-+    """Delete a collection"""
-+    collection = await db.collections.find_one({"collection_id": collection_id})
-+    if not collection:
-+        raise HTTPException(status_code=404, detail="Collection not found")
-+    
-+    if collection["user_id"] != current_user.user_id:
-+        raise HTTPException(status_code=403, detail="Not authorized")
-+    
-+    # Delete collection and all its posts
-+    await db.collections.delete_one({"collection_id": collection_id})
-+    await db.collection_posts.delete_many({"collection_id": collection_id})
-+    
-+    return {"message": "Collection deleted"}
-+
-+@api_router.get("/users/{user_id}/collections")
-+async def get_user_public_collections(user_id: str, current_user: User = Depends(require_auth)):
-+    """Get a user's public collections"""
-+    collections = await db.collections.find(
-+        {"user_id": user_id, "is_public": True},
-+        {"_id": 0}
-+    ).sort("created_at", -1).to_list(100)
-+    
-+    # Add post count
-+    for collection in collections:
-+        post_count = await db.collection_posts.count_documents({
-+            "collection_id": collection["collection_id"]
-+        })
-+        collection["post_count"] = post_count
-+    
-+    return collections
-+
-+@api_router.post("/collections/{collection_id}/follow")
-+async def follow_collection(collection_id: str, current_user: User = Depends(require_auth)):
-+    """Follow/unfollow a public collection"""
-+    collection = await db.collections.find_one({"collection_id": collection_id})
-+    if not collection:
-+        raise HTTPException(status_code=404, detail="Collection not found")
-+    
-+    if not collection.get("is_public", False):
-+        raise HTTPException(status_code=403, detail="Collection is private")
-+    
-+    if collection["user_id"] == current_user.user_id:
-+        raise HTTPException(status_code=400, detail="Cannot follow your own collection")
-+    
-+    # Check if already following
-+    existing = await db.collection_follows.find_one({
-+        "collection_id": collection_id,
-+        "user_id": current_user.user_id
-+    })
-+    
-+    if existing:
-+        # Unfollow
-+        await db.collection_follows.delete_one({
-+            "collection_id": collection_id,
-+            "user_id": current_user.user_id
-+        })
-+        return {"message": "Collection unfollowed", "following": False}
-+    else:
-+        # Follow
-+        await db.collection_follows.insert_one({
-+            "collection_id": collection_id,
-+            "user_id": current_user.user_id,
-+            "created_at": datetime.now(timezone.utc)
-+        })
-+        
-+        # Notify collection owner
-+        await create_notification(
-+            collection["user_id"],
-+            "follow",
-+            f"{current_user.name} started following your collection '{collection['name']}'",
-+            collection_id
-+        )
-+        
-+        return {"message": "Collection followed", "following": True}
-+
- # ============ PREMIUM ENDPOINTS ============
- 
- @api_router.post("/premium/subscribe")
 diff --git a/model.patch b/model.patch
-index 45c9f31..21c45b9 100644
+index 9779d32..e69de29 100644
 --- a/model.patch
 +++ b/model.patch
-@@ -1,1151 +0,0 @@
--diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
--index 28f5692..063b91a 100644
----- a/frontend/app/(tabs)/index.tsx
--+++ b/frontend/app/(tabs)/index.tsx
--@@ -627,9 +627,18 @@ export default function HomeScreen() {
--           style={styles.headerGradient}
--         >
--           <Text style={styles.headerTitle}>Feed</Text>
---          <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
---            <Ionicons name="add-circle" size={32} color="#fff" />
---          </TouchableOpacity>
--+          <View style={styles.headerActions}>
--+            <TouchableOpacity
--+              style={styles.liveButton}
--+              onPress={() => router.push('/go-live')}
--+            >
--+              <Ionicons name="radio" size={18} color="#fff" />
--+              <Text style={styles.liveButtonText}>LIVE</Text>
--+            </TouchableOpacity>
--+            <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
--+              <Ionicons name="add-circle" size={32} color="#fff" />
--+            </TouchableOpacity>
--+          </View>
--         </LinearGradient>
--       </View>
+@@ -1,2025 +0,0 @@
+-diff --git a/backend/server.py b/backend/server.py
+-index f12b9c8..5d27c45 100644
+---- a/backend/server.py
+-+++ b/backend/server.py
+-@@ -125,6 +125,7 @@ class Post(BaseModel):
+-     shares_count: int = 0
+-     comments_count: int = 0
+-     repost_count: int = 0
+-+    reaction_counts: Optional[dict] = {}  # {reaction_type: count}
+-     tagged_users: List[str] = []  # List of user_ids
+-     location: Optional[str] = None
+-     is_repost: bool = False
+-@@ -502,12 +503,15 @@ async def get_feed(current_user: User = Depends(require_auth)):
+-                 original_post["user"] = original_user
+-                 post["original_post"] = original_post
+-         
+--        # Check if current user liked
+--        liked = await db.likes.find_one({
+-+        # Check if current user reacted
+-+        user_reaction = await db.reactions.find_one({
+-             "user_id": current_user.user_id,
+-             "post_id": post["post_id"]
+-         })
+--        post["liked"] = liked is not None
+-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+-+        
+-+        # Keep backward compatibility
+-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+-         
+-         # Check if current user disliked
+-         disliked = await db.dislikes.find_one({
+-@@ -556,11 +560,15 @@ async def get_explore(current_user: User = Depends(require_auth)):
+-                 original_post["user"] = original_user
+-                 post["original_post"] = original_post
+-         
+--        liked = await db.likes.find_one({
+-+        # Check if current user reacted
+-+        user_reaction = await db.reactions.find_one({
+-             "user_id": current_user.user_id,
+-             "post_id": post["post_id"]
+-         })
+--        post["liked"] = liked is not None
+-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+-+        
+-+        # Keep backward compatibility
+-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+-         
+-         # Check if current user disliked
+-         disliked = await db.dislikes.find_one({
+-@@ -637,6 +645,9 @@ async def create_post(
+-         "likes_count": 0,
+-         "dislikes_count": 0,
+-         "shares_count": 0,
+-+        "comments_count": 0,
+-+        "repost_count": 0,
+-+        "reaction_counts": {},
+-         "tagged_users": tagged_user_list,
+-         "location": location,
+-         "has_poll": has_poll,
+-@@ -663,55 +674,125 @@ async def create_post(
+-     
+-     return {"post_id": post_id, "message": "Post created"}
 - 
--@@ -1090,6 +1099,25 @@ const styles = StyleSheet.create({
--     fontWeight: 'bold',
--     color: '#fff',
--   },
--+  headerActions: {
--+    flexDirection: 'row',
--+    alignItems: 'center',
--+    gap: 12,
--+  },
--+  liveButton: {
--+    flexDirection: 'row',
--+    alignItems: 'center',
--+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
--+    paddingHorizontal: 12,
--+    paddingVertical: 6,
--+    borderRadius: 16,
--+    gap: 6,
--+  },
--+  liveButtonText: {
--+    color: '#fff',
--+    fontSize: 12,
--+    fontWeight: 'bold',
--+  },
--   listContent: {
--     padding: 16,
--   },
+--@api_router.post("/posts/{post_id}/like")
+--async def like_post(post_id: str, current_user: User = Depends(require_auth)):
+--    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+-+@api_router.post("/posts/{post_id}/react")
+-+async def react_to_post(
+-+    post_id: str,
+-+    reaction_type: str,
+-+    current_user: User = Depends(require_auth)
+-+):
+-+    """React to a post with various reactions: like, love, wow, sad, angry, or custom emoji"""
+-+    post = await db.posts.find_one({"post_id": post_id})
+-     if not post:
+-         raise HTTPException(status_code=404, detail="Post not found")
+-     
+--    existing = await db.likes.find_one({
+-+    # Valid reaction types
+-+    valid_reactions = ["like", "love", "wow", "sad", "angry", "care", "haha"]
+-+    
+-+    # Check if it's a valid reaction or custom emoji
+-+    if reaction_type not in valid_reactions and len(reaction_type) > 10:
+-+        raise HTTPException(status_code=400, detail="Invalid reaction type")
+-+    
+-+    # Check if user already reacted
+-+    existing = await db.reactions.find_one({
+-         "user_id": current_user.user_id,
+-         "post_id": post_id
+-     })
+-     
+-     if existing:
+--        # Unlike
+--        await db.likes.delete_one({
+--            "user_id": current_user.user_id,
+--            "post_id": post_id
+--        })
+--        await db.posts.update_one(
+--            {"post_id": post_id},
+--            {"$inc": {"likes_count": -1}}
+--        )
+--        return {"message": "Unliked", "liked": False}
+-+        # If same reaction, remove it (toggle off)
+-+        if existing["reaction_type"] == reaction_type:
+-+            await db.reactions.delete_one({"user_id": current_user.user_id, "post_id": post_id})
+-+            
+-+            # Decrement reaction count
+-+            reaction_counts = post.get("reaction_counts", {})
+-+            reaction_counts[reaction_type] = max(0, reaction_counts.get(reaction_type, 1) - 1)
+-+            await db.posts.update_one(
+-+                {"post_id": post_id},
+-+                {"$set": {"reaction_counts": reaction_counts}}
+-+            )
+-+            
+-+            return {"reacted": False, "reaction_type": None, "reaction_counts": reaction_counts}
+-+        else:
+-+            # Change reaction
+-+            old_type = existing["reaction_type"]
+-+            await db.reactions.update_one(
+-+                {"user_id": current_user.user_id, "post_id": post_id},
+-+                {"$set": {"reaction_type": reaction_type, "created_at": datetime.now(timezone.utc)}}
+-+            )
+-+            
+-+            # Update counts
+-+            reaction_counts = post.get("reaction_counts", {})
+-+            reaction_counts[old_type] = max(0, reaction_counts.get(old_type, 1) - 1)
+-+            reaction_counts[reaction_type] = reaction_counts.get(reaction_type, 0) + 1
+-+            await db.posts.update_one(
+-+                {"post_id": post_id},
+-+                {"$set": {"reaction_counts": reaction_counts}}
+-+            )
+-+            
+-+            return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
+-     else:
+--        # Like (remove dislike if exists)
+--        await db.dislikes.delete_one({
+--            "user_id": current_user.user_id,
+--            "post_id": post_id
+--        })
+--        
+--        await db.likes.insert_one({
+-+        # New reaction
+-+        await db.reactions.insert_one({
+-             "user_id": current_user.user_id,
+-             "post_id": post_id,
+-+            "reaction_type": reaction_type,
+-             "created_at": datetime.now(timezone.utc)
+-         })
+-+        
+-+        # Update counts
+-+        reaction_counts = post.get("reaction_counts", {})
+-+        reaction_counts[reaction_type] = reaction_counts.get(reaction_type, 0) + 1
+-         await db.posts.update_one(
+-             {"post_id": post_id},
+--            {"$inc": {"likes_count": 1}}
+-+            {"$set": {"reaction_counts": reaction_counts}}
+-         )
+-         
+-         # Create notification
+-         if post["user_id"] != current_user.user_id:
+-+            reaction_emoji = {
+-+                "like": "👍",
+-+                "love": "❤️",
+-+                "wow": "😮",
+-+                "sad": "😢",
+-+                "angry": "😠",
+-+                "care": "🤗",
+-+                "haha": "😂"
+-+            }.get(reaction_type, reaction_type)
+-+            
+-             await create_notification(
+-                 post["user_id"],
+--                "like",
+--                f"{current_user.name} liked your post",
+-+                "reaction",
+-+                f"{current_user.name} reacted {reaction_emoji} to your post",
+-                 post_id
+-             )
+-         
+--        return {"message": "Liked", "liked": True}
+-+        return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
+-+
+-+@api_router.get("/posts/{post_id}/reactions")
+-+async def get_post_reactions(post_id: str, current_user: User = Depends(require_auth)):
+-+    """Get detailed reactions for a post"""
+-+    reactions = await db.reactions.find({"post_id": post_id}, {"_id": 0}).to_list(1000)
+-+    
+-+    # Group by reaction type and add user data
+-+    grouped = {}
+-+    for reaction in reactions:
+-+        r_type = reaction["reaction_type"]
+-+        if r_type not in grouped:
+-+            grouped[r_type] = []
+-+        
+-+        user = await db.users.find_one({"user_id": reaction["user_id"]}, {"_id": 0, "name": 1, "picture": 1})
+-+        grouped[r_type].append({
+-+            "user": user,
+-+            "created_at": reaction["created_at"]
+-+        })
+-+    
+-+    return grouped
+-+
+-+# Keep old like endpoint for backward compatibility
+-+@api_router.post("/posts/{post_id}/like")
+-+async def like_post(post_id: str, current_user: User = Depends(require_auth)):
+-+    """Legacy like endpoint - redirects to react"""
+-+    return await react_to_post(post_id, "like", current_user)
+- 
+- @api_router.post("/posts/{post_id}/dislike")
+- async def dislike_post(post_id: str, current_user: User = Depends(require_auth)):
+-@@ -839,6 +920,7 @@ async def repost_post(
+-         "shares_count": 0,
+-         "comments_count": 0,
+-         "repost_count": 0,
+-+        "reaction_counts": {},
+-         "tagged_users": original_post.get("tagged_users", []),
+-         "location": original_post.get("location"),
+-         "is_repost": True,
+-@@ -927,11 +1009,15 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
+-         user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+-         post["user"] = user
+-         
+--        liked = await db.likes.find_one({
+-+        # Check if current user reacted
+-+        user_reaction = await db.reactions.find_one({
+-             "user_id": current_user.user_id,
+-             "post_id": post["post_id"]
+-         })
+--        post["liked"] = liked is not None
+-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+-+        
+-+        # Keep backward compatibility
+-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+-         
+-         disliked = await db.dislikes.find_one({
+-             "user_id": current_user.user_id,
+-@@ -1486,6 +1572,322 @@ async def mark_notifications_read(current_user: User = Depends(require_auth)):
+-     )
+-     return {"message": "Notifications marked as read"}
+- 
+-+# ============ COLLECTIONS ENDPOINTS ============
+-+
+-+@api_router.post("/collections")
+-+async def create_collection(
+-+    name: str,
+-+    description: Optional[str] = None,
+-+    is_public: bool = False,
+-+    current_user: User = Depends(require_auth)
+-+):
+-+    """Create a new collection/bookmark folder"""
+-+    collection_id = f"collection_{uuid.uuid4().hex[:12]}"
+-+    
+-+    collection_data = {
+-+        "collection_id": collection_id,
+-+        "user_id": current_user.user_id,
+-+        "name": name,
+-+        "description": description,
+-+        "is_public": is_public,
+-+        "post_count": 0,
+-+        "created_at": datetime.now(timezone.utc)
+-+    }
+-+    
+-+    await db.collections.insert_one(collection_data)
+-+    return {"collection_id": collection_id, "message": "Collection created"}
+-+
+-+@api_router.get("/collections")
+-+async def get_my_collections(current_user: User = Depends(require_auth)):
+-+    """Get user's collections"""
+-+    collections = await db.collections.find(
+-+        {"user_id": current_user.user_id},
+-+        {"_id": 0}
+-+    ).sort("created_at", -1).to_list(100)
+-+    
+-+    # Add post count for each collection
+-+    for collection in collections:
+-+        post_count = await db.collection_posts.count_documents({
+-+            "collection_id": collection["collection_id"]
+-+        })
+-+        collection["post_count"] = post_count
+-+    
+-+    return collections
+-+
+-+@api_router.get("/collections/public")
+-+async def get_public_collections(current_user: User = Depends(require_auth)):
+-+    """Get public collections from all users"""
+-+    collections = await db.collections.find(
+-+        {"is_public": True},
+-+        {"_id": 0}
+-+    ).sort("created_at", -1).to_list(100)
+-+    
+-+    # Add user data and post count
+-+    for collection in collections:
+-+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
+-+        collection["user"] = user
+-+        
+-+        post_count = await db.collection_posts.count_documents({
+-+            "collection_id": collection["collection_id"]
+-+        })
+-+        collection["post_count"] = post_count
+-+    
+-+    return collections
+-+
+-+@api_router.get("/collections/following")
+-+async def get_followed_collections(current_user: User = Depends(require_auth)):
+-+    """Get collections the user is following"""
+-+    follows = await db.collection_follows.find(
+-+        {"user_id": current_user.user_id},
+-+        {"_id": 0}
+-+    ).to_list(100)
+-+    
+-+    collection_ids = [f["collection_id"] for f in follows]
+-+    collections = await db.collections.find(
+-+        {"collection_id": {"$in": collection_ids}},
+-+        {"_id": 0}
+-+    ).to_list(100)
+-+    
+-+    # Add user data and post count
+-+    for collection in collections:
+-+        user = await db.users.find_one({"user_id": collection["user_id"]}, {"_id": 0})
+-+        collection["user"] = user
+-+        
+-+        post_count = await db.collection_posts.count_documents({
+-+            "collection_id": collection["collection_id"]
+-+        })
+-+        collection["post_count"] = post_count
+-+    
+-+    return collections
+-+
+-+@api_router.get("/collections/{collection_id}")
+-+async def get_collection(collection_id: str, current_user: User = Depends(require_auth)):
+-+    """Get collection details and posts"""
+-+    collection = await db.collections.find_one({"collection_id": collection_id}, {"_id": 0})
+-+    if not collection:
+-+        raise HTTPException(status_code=404, detail="Collection not found")
+-+    
+-+    # Check if user can access this collection
+-+    if collection["user_id"] != current_user.user_id and not collection.get("is_public", False):
+-+        raise HTTPException(status_code=403, detail="Collection is private")
+-+    
+-+    # Get posts in collection
+-+    collection_posts = await db.collection_posts.find(
+-+        {"collection_id": collection_id},
+-+        {"_id": 0}
+-+    ).sort("added_at", -1).to_list(100)
+-+    
+-+    post_ids = [cp["post_id"] for cp in collection_posts]
+-+    posts = await db.posts.find(
+-+        {"post_id": {"$in": post_ids}},
+-+        {"_id": 0}
+-+    ).to_list(100)
+-+    
+-+    # Add user data and reaction status
+-+    for post in posts:
+-+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+-+        post["user"] = user
+-+        
+-+        # Check if current user reacted
+-+        user_reaction = await db.reactions.find_one({
+-+            "user_id": current_user.user_id,
+-+            "post_id": post["post_id"]
+-+        })
+-+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+-+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+-+        
+-+        # Check saved status
+-+        post["saved"] = True  # All posts in collection are saved
+-+    
+-+    collection["posts"] = posts
+-+    return collection
+-+
+-+@api_router.post("/collections/{collection_id}/posts/{post_id}")
+-+async def add_post_to_collection(
+-+    collection_id: str,
+-+    post_id: str,
+-+    current_user: User = Depends(require_auth)
+-+):
+-+    """Add a post to a collection"""
+-+    # Check if collection exists and user owns it
+-+    collection = await db.collections.find_one({"collection_id": collection_id})
+-+    if not collection:
+-+        raise HTTPException(status_code=404, detail="Collection not found")
+-+    
+-+    if collection["user_id"] != current_user.user_id:
+-+        raise HTTPException(status_code=403, detail="Not authorized")
+-+    
+-+    # Check if post exists
+-+    post = await db.posts.find_one({"post_id": post_id})
+-+    if not post:
+-+        raise HTTPException(status_code=404, detail="Post not found")
+-+    
+-+    # Check if already in collection
+-+    existing = await db.collection_posts.find_one({
+-+        "collection_id": collection_id,
+-+        "post_id": post_id
+-+    })
+-+    
+-+    if existing:
+-+        raise HTTPException(status_code=400, detail="Post already in collection")
+-+    
+-+    # Add to collection
+-+    await db.collection_posts.insert_one({
+-+        "collection_id": collection_id,
+-+        "post_id": post_id,
+-+        "user_id": current_user.user_id,
+-+        "added_at": datetime.now(timezone.utc)
+-+    })
+-+    
+-+    # Update collection post count
+-+    await db.collections.update_one(
+-+        {"collection_id": collection_id},
+-+        {"$inc": {"post_count": 1}}
+-+    )
+-+    
+-+    return {"message": "Post added to collection"}
+-+
+-+@api_router.delete("/collections/{collection_id}/posts/{post_id}")
+-+async def remove_post_from_collection(
+-+    collection_id: str,
+-+    post_id: str,
+-+    current_user: User = Depends(require_auth)
+-+):
+-+    """Remove a post from a collection"""
+-+    # Check if collection exists and user owns it
+-+    collection = await db.collections.find_one({"collection_id": collection_id})
+-+    if not collection:
+-+        raise HTTPException(status_code=404, detail="Collection not found")
+-+    
+-+    if collection["user_id"] != current_user.user_id:
+-+        raise HTTPException(status_code=403, detail="Not authorized")
+-+    
+-+    # Remove from collection
+-+    result = await db.collection_posts.delete_one({
+-+        "collection_id": collection_id,
+-+        "post_id": post_id
+-+    })
+-+    
+-+    if result.deleted_count == 0:
+-+        raise HTTPException(status_code=404, detail="Post not in collection")
+-+    
+-+    # Update collection post count
+-+    await db.collections.update_one(
+-+        {"collection_id": collection_id},
+-+        {"$inc": {"post_count": -1}}
+-+    )
+-+    
+-+    return {"message": "Post removed from collection"}
+-+
+-+@api_router.put("/collections/{collection_id}")
+-+async def update_collection(
+-+    collection_id: str,
+-+    name: Optional[str] = None,
+-+    description: Optional[str] = None,
+-+    is_public: Optional[bool] = None,
+-+    current_user: User = Depends(require_auth)
+-+):
+-+    """Update collection details"""
+-+    collection = await db.collections.find_one({"collection_id": collection_id})
+-+    if not collection:
+-+        raise HTTPException(status_code=404, detail="Collection not found")
+-+    
+-+    if collection["user_id"] != current_user.user_id:
+-+        raise HTTPException(status_code=403, detail="Not authorized")
+-+    
+-+    update_data = {}
+-+    if name is not None:
+-+        update_data["name"] = name
+-+    if description is not None:
+-+        update_data["description"] = description
+-+    if is_public is not None:
+-+        update_data["is_public"] = is_public
+-+    
+-+    if update_data:
+-+        await db.collections.update_one(
+-+            {"collection_id": collection_id},
+-+            {"$set": update_data}
+-+        )
+-+    
+-+    return {"message": "Collection updated"}
+-+
+-+@api_router.delete("/collections/{collection_id}")
+-+async def delete_collection(collection_id: str, current_user: User = Depends(require_auth)):
+-+    """Delete a collection"""
+-+    collection = await db.collections.find_one({"collection_id": collection_id})
+-+    if not collection:
+-+        raise HTTPException(status_code=404, detail="Collection not found")
+-+    
+-+    if collection["user_id"] != current_user.user_id:
+-+        raise HTTPException(status_code=403, detail="Not authorized")
+-+    
+-+    # Delete collection and all its posts
+-+    await db.collections.delete_one({"collection_id": collection_id})
+-+    await db.collection_posts.delete_many({"collection_id": collection_id})
+-+    
+-+    return {"message": "Collection deleted"}
+-+
+-+@api_router.get("/users/{user_id}/collections")
+-+async def get_user_public_collections(user_id: str, current_user: User = Depends(require_auth)):
+-+    """Get a user's public collections"""
+-+    collections = await db.collections.find(
+-+        {"user_id": user_id, "is_public": True},
+-+        {"_id": 0}
+-+    ).sort("created_at", -1).to_list(100)
+-+    
+-+    # Add post count
+-+    for collection in collections:
+-+        post_count = await db.collection_posts.count_documents({
+-+            "collection_id": collection["collection_id"]
+-+        })
+-+        collection["post_count"] = post_count
+-+    
+-+    return collections
+-+
+-+@api_router.post("/collections/{collection_id}/follow")
+-+async def follow_collection(collection_id: str, current_user: User = Depends(require_auth)):
+-+    """Follow/unfollow a public collection"""
+-+    collection = await db.collections.find_one({"collection_id": collection_id})
+-+    if not collection:
+-+        raise HTTPException(status_code=404, detail="Collection not found")
+-+    
+-+    if not collection.get("is_public", False):
+-+        raise HTTPException(status_code=403, detail="Collection is private")
+-+    
+-+    if collection["user_id"] == current_user.user_id:
+-+        raise HTTPException(status_code=400, detail="Cannot follow your own collection")
+-+    
+-+    # Check if already following
+-+    existing = await db.collection_follows.find_one({
+-+        "collection_id": collection_id,
+-+        "user_id": current_user.user_id
+-+    })
+-+    
+-+    if existing:
+-+        # Unfollow
+-+        await db.collection_follows.delete_one({
+-+            "collection_id": collection_id,
+-+            "user_id": current_user.user_id
+-+        })
+-+        return {"message": "Collection unfollowed", "following": False}
+-+    else:
+-+        # Follow
+-+        await db.collection_follows.insert_one({
+-+            "collection_id": collection_id,
+-+            "user_id": current_user.user_id,
+-+            "created_at": datetime.now(timezone.utc)
+-+        })
+-+        
+-+        # Notify collection owner
+-+        await create_notification(
+-+            collection["user_id"],
+-+            "follow",
+-+            f"{current_user.name} started following your collection '{collection['name']}'",
+-+            collection_id
+-+        )
+-+        
+-+        return {"message": "Collection followed", "following": True}
+-+
+- # ============ PREMIUM ENDPOINTS ============
+- 
+- @api_router.post("/premium/subscribe")
 -diff --git a/model.patch b/model.patch
--index fcc95de..e69de29 100644
+-index 45c9f31..21c45b9 100644
 ---- a/model.patch
 -+++ b/model.patch
--@@ -1,1094 +0,0 @@
+-@@ -1,1151 +0,0 @@
 --diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
---index 71f0bbf..0bae4ee 100644
+--index 28f5692..063b91a 100644
 ----- a/frontend/app/(tabs)/index.tsx
 --+++ b/frontend/app/(tabs)/index.tsx
---@@ -4,6 +4,7 @@ import {
---   Text,
---   StyleSheet,
---   FlatList,
---+  ScrollView,
---   TouchableOpacity,
---   Image,
---   RefreshControl,
---@@ -15,6 +16,7 @@ import {
--- import { Ionicons } from '@expo/vector-icons';
--- import { Colors } from '../../constants/Colors';
--- import { useAuth } from '../../contexts/AuthContext';
---+import { router } from 'expo-router';
--- import { api } from '../../services/api';
--- import * as ImagePicker from 'expo-image-picker';
--- import * as DocumentPicker from 'expo-document-picker';
---@@ -589,6 +591,60 @@ export default function HomeScreen() {
+--@@ -627,9 +627,18 @@ export default function HomeScreen() {
+--           style={styles.headerGradient}
+--         >
+--           <Text style={styles.headerTitle}>Feed</Text>
+---          <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
+---            <Ionicons name="add-circle" size={32} color="#fff" />
+---          </TouchableOpacity>
+--+          <View style={styles.headerActions}>
+--+            <TouchableOpacity
+--+              style={styles.liveButton}
+--+              onPress={() => router.push('/go-live')}
+--+            >
+--+              <Ionicons name="radio" size={18} color="#fff" />
+--+              <Text style={styles.liveButtonText}>LIVE</Text>
+--+            </TouchableOpacity>
+--+            <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
+--+              <Ionicons name="add-circle" size={32} color="#fff" />
+--+            </TouchableOpacity>
+--+          </View>
 --         </LinearGradient>
 --       </View>
 -- 
---+      {/* Stories Header */}
---+      {stories.length > 0 && (
---+        <ScrollView
---+          horizontal
---+          style={styles.storiesContainer}
---+          showsHorizontalScrollIndicator={false}
---+          contentContainerStyle={styles.storiesContent}
---+        >
---+          {/* Create Story Button */}
---+          <TouchableOpacity
---+            style={styles.storyItem}
---+            onPress={() => router.push('/create-story')}
---+          >
---+            <View style={styles.createStoryRing}>
---+              <Ionicons name="add" size={28} color={Colors.primary} />
---+            </View>
---+            <Text style={styles.storyUsername}>Your Story</Text>
---+          </TouchableOpacity>
---+
---+          {/* User Stories */}
---+          {stories.map((userStory, index) => {
---+            const hasUnviewed = userStory.stories.some((s: any) => !s.viewed);
---+            return (
---+              <TouchableOpacity
---+                key={userStory.user.user_id}
---+                style={styles.storyItem}
---+                onPress={() => {
---+                  router.push({
---+                    pathname: '/stories',
---+                    params: {
---+                      stories: JSON.stringify(stories),
---+                      initialIndex: index.toString(),
---+                    },
---+                  });
---+                }}
---+              >
---+                <View style={[
---+                  styles.storyRing,
---+                  hasUnviewed && styles.storyRingUnviewed
---+                ]}>
---+                  <Image
---+                    source={{ uri: userStory.user.picture || 'https://via.placeholder.com/60' }}
---+                    style={styles.storyAvatar}
---+                  />
---+                </View>
---+                <Text style={styles.storyUsername} numberOfLines={1}>
---+                  {userStory.user.name}
---+                </Text>
---+              </TouchableOpacity>
---+            );
---+          })}
---+        </ScrollView>
---+      )}
---+
---       <FlatList
---         data={posts}
---         renderItem={renderPost}
---@@ -1294,4 +1350,52 @@ const styles = StyleSheet.create({
---     borderWidth: 1,
---     borderColor: Colors.border,
+--@@ -1090,6 +1099,25 @@ const styles = StyleSheet.create({
+--     fontWeight: 'bold',
+--     color: '#fff',
 --   },
---+  storiesContainer: {
---+    paddingVertical: 16,
---+    borderBottomWidth: 1,
---+    borderBottomColor: Colors.border,
---+  },
---+  storiesContent: {
---+    paddingHorizontal: 16,
+--+  headerActions: {
+--+    flexDirection: 'row',
+--+    alignItems: 'center',
 --+    gap: 12,
 --+  },
---+  storyItem: {
+--+  liveButton: {
+--+    flexDirection: 'row',
 --+    alignItems: 'center',
---+    width: 80,
+--+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+--+    paddingHorizontal: 12,
+--+    paddingVertical: 6,
+--+    borderRadius: 16,
+--+    gap: 6,
 --+  },
---+  storyRing: {
---+    width: 64,
---+    height: 64,
---+    borderRadius: 32,
---+    borderWidth: 2,
---+    borderColor: Colors.border,
---+    padding: 2,
---+    marginBottom: 8,
---+  },
---+  storyRingUnviewed: {
---+    borderColor: Colors.primary,
---+    borderWidth: 3,
---+  },
---+  createStoryRing: {
---+    width: 64,
---+    height: 64,
---+    borderRadius: 32,
---+    borderWidth: 2,
---+    borderColor: Colors.primary,
---+    borderStyle: 'dashed',
---+    justifyContent: 'center',
---+    alignItems: 'center',
---+    marginBottom: 8,
---+  },
---+  storyAvatar: {
---+    width: 56,
---+    height: 56,
---+    borderRadius: 28,
---+  },
---+  storyUsername: {
+--+  liveButtonText: {
+--+    color: '#fff',
 --+    fontSize: 12,
---+    color: Colors.text,
---+    textAlign: 'center',
---+    fontWeight: '500',
+--+    fontWeight: 'bold',
 --+  },
--- });
---\ No newline at end of file
+--   listContent: {
+--     padding: 16,
+--   },
 --diff --git a/model.patch b/model.patch
---index 7446fc9..e69de29 100644
+--index fcc95de..e69de29 100644
 ----- a/model.patch
 --+++ b/model.patch
---@@ -1,954 +0,0 @@
+--@@ -1,1094 +0,0 @@
 ---diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
----index 4aeb4c3..71f0bbf 100644
+---index 71f0bbf..0bae4ee 100644
 ------ a/frontend/app/(tabs)/index.tsx
 ---+++ b/frontend/app/(tabs)/index.tsx
----@@ -83,11 +83,14 @@ export default function HomeScreen() {
+---@@ -4,6 +4,7 @@ import {
+---   Text,
+---   StyleSheet,
+---   FlatList,
+---+  ScrollView,
+---   TouchableOpacity,
+---   Image,
+---   RefreshControl,
+---@@ -15,6 +16,7 @@ import {
+--- import { Ionicons } from '@expo/vector-icons';
+--- import { Colors } from '../../constants/Colors';
+--- import { useAuth } from '../../contexts/AuthContext';
+---+import { router } from 'expo-router';
+--- import { api } from '../../services/api';
+--- import * as ImagePicker from 'expo-image-picker';
+--- import * as DocumentPicker from 'expo-document-picker';
+---@@ -589,6 +591,60 @@ export default function HomeScreen() {
+---         </LinearGradient>
+---       </View>
 --- 
----   const loadFeed = async () => {
----     try {
-----      const data = await api.getFeed();
-----      setPosts(data);
----+      const [feedData, storiesData] = await Promise.all([
----+        api.getFeed(),
----+        api.getStories().catch(() => [])
----+      ]);
----+      setPosts(feedData);
----+      setStories(storiesData);
----     } catch (error) {
-----      console.error('Load feed error:', error);
-----      Alert.alert('Error', 'Failed to load feed');
----+      console.error('Feed load error:', error);
----     } finally {
----       setLoading(false);
----       setRefreshing(false);
+---+      {/* Stories Header */}
+---+      {stories.length > 0 && (
+---+        <ScrollView
+---+          horizontal
+---+          style={styles.storiesContainer}
+---+          showsHorizontalScrollIndicator={false}
+---+          contentContainerStyle={styles.storiesContent}
+---+        >
+---+          {/* Create Story Button */}
+---+          <TouchableOpacity
+---+            style={styles.storyItem}
+---+            onPress={() => router.push('/create-story')}
+---+          >
+---+            <View style={styles.createStoryRing}>
+---+              <Ionicons name="add" size={28} color={Colors.primary} />
+---+            </View>
+---+            <Text style={styles.storyUsername}>Your Story</Text>
+---+          </TouchableOpacity>
+---+
+---+          {/* User Stories */}
+---+          {stories.map((userStory, index) => {
+---+            const hasUnviewed = userStory.stories.some((s: any) => !s.viewed);
+---+            return (
+---+              <TouchableOpacity
+---+                key={userStory.user.user_id}
+---+                style={styles.storyItem}
+---+                onPress={() => {
+---+                  router.push({
+---+                    pathname: '/stories',
+---+                    params: {
+---+                      stories: JSON.stringify(stories),
+---+                      initialIndex: index.toString(),
+---+                    },
+---+                  });
+---+                }}
+---+              >
+---+                <View style={[
+---+                  styles.storyRing,
+---+                  hasUnviewed && styles.storyRingUnviewed
+---+                ]}>
+---+                  <Image
+---+                    source={{ uri: userStory.user.picture || 'https://via.placeholder.com/60' }}
+---+                    style={styles.storyAvatar}
+---+                  />
+---+                </View>
+---+                <Text style={styles.storyUsername} numberOfLines={1}>
+---+                  {userStory.user.name}
+---+                </Text>
+---+              </TouchableOpacity>
+---+            );
+---+          })}
+---+        </ScrollView>
+---+      )}
+---+
+---       <FlatList
+---         data={posts}
+---         renderItem={renderPost}
+---@@ -1294,4 +1350,52 @@ const styles = StyleSheet.create({
+---     borderWidth: 1,
+---     borderColor: Colors.border,
+---   },
+---+  storiesContainer: {
+---+    paddingVertical: 16,
+---+    borderBottomWidth: 1,
+---+    borderBottomColor: Colors.border,
+---+  },
+---+  storiesContent: {
+---+    paddingHorizontal: 16,
+---+    gap: 12,
+---+  },
+---+  storyItem: {
+---+    alignItems: 'center',
+---+    width: 80,
+---+  },
+---+  storyRing: {
+---+    width: 64,
+---+    height: 64,
+---+    borderRadius: 32,
+---+    borderWidth: 2,
+---+    borderColor: Colors.border,
+---+    padding: 2,
+---+    marginBottom: 8,
+---+  },
+---+  storyRingUnviewed: {
+---+    borderColor: Colors.primary,
+---+    borderWidth: 3,
+---+  },
+---+  createStoryRing: {
+---+    width: 64,
+---+    height: 64,
+---+    borderRadius: 32,
+---+    borderWidth: 2,
+---+    borderColor: Colors.primary,
+---+    borderStyle: 'dashed',
+---+    justifyContent: 'center',
+---+    alignItems: 'center',
+---+    marginBottom: 8,
+---+  },
+---+  storyAvatar: {
+---+    width: 56,
+---+    height: 56,
+---+    borderRadius: 28,
+---+  },
+---+  storyUsername: {
+---+    fontSize: 12,
+---+    color: Colors.text,
+---+    textAlign: 'center',
+---+    fontWeight: '500',
+---+  },
+--- });
+---\ No newline at end of file
 ---diff --git a/model.patch b/model.patch
----index 647072c..e69de29 100644
+---index 7446fc9..e69de29 100644
 ------ a/model.patch
 ---+++ b/model.patch
----@@ -1,926 +0,0 @@
-----diff --git a/comprehensive_backend_test.py b/comprehensive_backend_test.py
-----new file mode 100644
-----index 0000000..dbfadff
-------- /dev/null
-----+++ b/comprehensive_backend_test.py
-----@@ -0,0 +1,501 @@
-----+#!/usr/bin/env python3
-----+"""
-----+Comprehensive Backend Testing for Grover Social Media App
-----+Testing all requirements from the review request:
-----+1. Comments System (create, get, reply, like, delete)
-----+2. Post Interactions (dislike, save, share, get saved)
-----+3. Tagging and Location in Posts
-----+"""
-----+
-----+import requests
-----+import pymongo
-----+import uuid
-----+from datetime import datetime, timezone, timedelta
-----+
-----+class GroverBackendTester:
-----+    def __init__(self):
-----+        self.base_url = "http://localhost:8001/api"
-----+        self.user_id = None
-----+        self.session_token = None
-----+        self.test_post_id = None
-----+        self.test_comment_id = None
-----+        self.results = {
-----+            "comments_system": {"passed": 0, "total": 0, "details": []},
-----+            "post_interactions": {"passed": 0, "total": 0, "details": []},
-----+            "tagging_location": {"passed": 0, "total": 0, "details": []},
-----+            "error_handling": {"passed": 0, "total": 0, "details": []}
-----+        }
-----+        
-----+    def log(self, message, test_category=None, passed=None):
-----+        """Log test results"""
-----+        print(message)
-----+        if test_category and passed is not None:
-----+            self.results[test_category]["total"] += 1
-----+            if passed:
-----+                self.results[test_category]["passed"] += 1
-----+            self.results[test_category]["details"].append({
-----+                "message": message,
-----+                "passed": passed
-----+            })
-----+    
-----+    def setup_test_user(self):
-----+        """Create test user and session in MongoDB"""
-----+        try:
-----+            client = pymongo.MongoClient("mongodb://localhost:27017")
-----+            db = client["test_database"]
-----+            
-----+            self.user_id = f"user_{uuid.uuid4().hex[:12]}"
-----+            self.session_token = f"test_token_{uuid.uuid4().hex}"
-----+            
-----+            # Create test user
-----+            test_user = {
-----+                "user_id": self.user_id,
-----+                "email": f"testuser_{uuid.uuid4().hex[:8]}@example.com",
-----+                "name": "Test User",
-----+                "picture": "https://example.com/avatar.jpg",
-----+                "bio": "Test user for backend testing",
-----+                "is_premium": False,
-----+                "is_private": False,
-----+                "created_at": datetime.now(timezone.utc)
-----+            }
-----+            
-----+            db.users.insert_one(test_user)
-----+            
-----+            # Create session
-----+            session_doc = {
-----+                "user_id": self.user_id,
-----+                "session_token": self.session_token,
-----+                "expires_at": datetime.now(timezone.utc) + timedelta(days=1),
-----+                "created_at": datetime.now(timezone.utc)
-----+            }
-----+            
-----+            db.user_sessions.insert_one(session_doc)
-----+            client.close()
-----+            
-----+            # Verify authentication
-----+            headers = {"Authorization": f"Bearer {self.session_token}"}
-----+            response = requests.get(f"{self.base_url}/auth/me", headers=headers)
-----+            
-----+            if response.status_code == 200:
-----+                self.log("✅ Test user setup successful")
-----+                return True
-----+            else:
-----+                self.log("❌ Test user authentication failed")
-----+                return False
-----+                
-----+        except Exception as e:
-----+            self.log(f"❌ Test user setup failed: {e}")
-----+            return False
-----+    
-----+    def cleanup_test_user(self):
-----+        """Remove test user and session from MongoDB"""
-----+        try:
-----+            client = pymongo.MongoClient("mongodb://localhost:27017")
-----+            db = client["test_database"]
-----+            
-----+            # Clean up all test data
-----+            db.users.delete_one({"user_id": self.user_id})
-----+            db.user_sessions.delete_one({"session_token": self.session_token})
-----+            db.posts.delete_many({"user_id": self.user_id})
-----+            db.comments.delete_many({"user_id": self.user_id})
-----+            db.likes.delete_many({"user_id": self.user_id})
-----+            db.dislikes.delete_many({"user_id": self.user_id})
-----+            db.saved_posts.delete_many({"user_id": self.user_id})
-----+            db.comment_likes.delete_many({"user_id": self.user_id})
-----+            
-----+            client.close()
-----+            self.log("✅ Test cleanup completed")
-----+            
-----+        except Exception as e:
-----+            self.log(f"⚠️ Cleanup error: {e}")
-----+    
-----+    def make_request(self, method, endpoint, data=None, params=None):
-----+        """Make authenticated HTTP request"""
-----+        url = f"{self.base_url}{endpoint}"
-----+        headers = {"Authorization": f"Bearer {self.session_token}"}
-----+        
-----+        try:
-----+            if method.upper() == "GET":
-----+                response = requests.get(url, headers=headers, params=params, timeout=10)
-----+            elif method.upper() == "POST":
-----+                if data:
-----+                    response = requests.post(url, data=data, headers=headers, timeout=10)
-----+                elif params:
-----+                    response = requests.post(url, params=params, headers=headers, timeout=10)
-----+                else:
-----+                    response = requests.post(url, headers=headers, timeout=10)
-----+            elif method.upper() == "DELETE":
-----+                response = requests.delete(url, headers=headers, timeout=10)
-----+            else:
-----+                raise ValueError(f"Unsupported method: {method}")
-----+                
-----+            return response
-----+        except Exception as e:
-----+            self.log(f"Request error: {e}")
-----+            return None
-----+    
-----+    def create_test_post(self):
-----+        """Create a test post for comment testing"""
-----+        post_data = {
-----+            "content": "Test post for comprehensive backend testing",
-----+            "tagged_users": self.user_id,
-----+            "location": "San Francisco, CA"
-----+        }
-----+        
-----+        response = self.make_request("POST", "/posts", data=post_data)
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            self.test_post_id = result.get("post_id")
-----+            self.log(f"✅ Test post created: {self.test_post_id}")
-----+            return True
-----+        else:
-----+            self.log(f"❌ Test post creation failed: {response.status_code if response else 'No response'}")
-----+            return False
-----+    
-----+    def test_comments_system(self):
-----+        """Test complete comments system as per review request"""
-----+        self.log("\n=== Testing Comments System ===")
-----+        
-----+        if not self.test_post_id:
-----+            self.log("❌ No test post available", "comments_system", False)
-----+            return
-----+        
-----+        # Test 1: POST /api/posts/{post_id}/comments - Create a comment
-----+        self.log("1. Testing comment creation...")
-----+        comment_params = {"content": "This is a comprehensive test comment with detailed content!"}
-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/comments", params=comment_params)
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            self.test_comment_id = result.get("comment_id")
-----+            self.log(f"✅ Comment created successfully: {self.test_comment_id}", "comments_system", True)
-----+        else:
-----+            self.log(f"❌ Comment creation failed: {response.status_code if response else 'No response'}", "comments_system", False)
-----+            return
-----+        
-----+        # Test 2: GET /api/posts/{post_id}/comments - Get all comments for a post
-----+        self.log("2. Testing get comments for post...")
-----+        response = self.make_request("GET", f"/posts/{self.test_post_id}/comments")
-----+        
-----+        if response and response.status_code == 200:
-----+            comments = response.json()
-----+            if len(comments) > 0 and comments[0].get("comment_id") == self.test_comment_id:
-----+                self.log(f"✅ Retrieved {len(comments)} comments successfully", "comments_system", True)
-----+            else:
-----+                self.log("❌ Comments data validation failed", "comments_system", False)
-----+        else:
-----+            self.log(f"❌ Get comments failed: {response.status_code if response else 'No response'}", "comments_system", False)
-----+        
-----+        # Test 3: POST /api/posts/{post_id}/comments with parent_comment_id - Create a reply
-----+        self.log("3. Testing comment reply creation...")
-----+        reply_params = {
-----+            "content": "This is a reply to the test comment",
-----+            "parent_comment_id": self.test_comment_id
-----+        }
-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/comments", params=reply_params)
-----+        
-----+        reply_id = None
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            reply_id = result.get("comment_id")
-----+            self.log(f"✅ Reply created successfully: {reply_id}", "comments_system", True)
-----+        else:
-----+            self.log(f"❌ Reply creation failed: {response.status_code if response else 'No response'}", "comments_system", False)
-----+        
-----+        # Test 4: GET /api/comments/{comment_id}/replies - Get replies for a comment
-----+        self.log("4. Testing get comment replies...")
-----+        response = self.make_request("GET", f"/comments/{self.test_comment_id}/replies")
-----+        
-----+        if response and response.status_code == 200:
-----+            replies = response.json()
-----+            if len(replies) > 0 and reply_id and replies[0].get("comment_id") == reply_id:
-----+                self.log(f"✅ Retrieved {len(replies)} replies successfully", "comments_system", True)
-----+            else:
-----+                self.log("❌ Replies data validation failed", "comments_system", False)
-----+        else:
-----+            self.log(f"❌ Get replies failed: {response.status_code if response else 'No response'}", "comments_system", False)
-----+        
-----+        # Test 5: POST /api/comments/{comment_id}/like - Like/unlike a comment (toggle)
-----+        self.log("5. Testing comment like (first time)...")
-----+        response = self.make_request("POST", f"/comments/{self.test_comment_id}/like")
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            if result.get("liked") == True:
-----+                self.log("✅ Comment liked successfully", "comments_system", True)
-----+            else:
-----+                self.log("❌ Comment like response validation failed", "comments_system", False)
-----+        else:
-----+            self.log(f"❌ Comment like failed: {response.status_code if response else 'No response'}", "comments_system", False)
-----+        
-----+        # Test 6: POST /api/comments/{comment_id}/like - Unlike (toggle)
-----+        self.log("6. Testing comment unlike (toggle)...")
-----+        response = self.make_request("POST", f"/comments/{self.test_comment_id}/like")
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            if result.get("liked") == False:
-----+                self.log("✅ Comment unliked successfully (toggle working)", "comments_system", True)
-----+            else:
-----+                self.log("❌ Comment unlike toggle failed", "comments_system", False)
-----+        else:
-----+            self.log(f"❌ Comment unlike failed: {response.status_code if response else 'No response'}", "comments_system", False)
-----+        
-----+        # Test 7: DELETE /api/comments/{comment_id} - Delete own comment
-----+        self.log("7. Testing comment deletion...")
-----+        response = self.make_request("DELETE", f"/comments/{self.test_comment_id}")
-----+        
-----+        if response and response.status_code == 200:
-----+            self.log("✅ Comment deleted successfully", "comments_system", True)
-----+        else:
-----+            self.log(f"❌ Comment deletion failed: {response.status_code if response else 'No response'}", "comments_system", False)
-----+    
-----+    def test_post_interactions(self):
-----+        """Test post interactions as per review request"""
-----+        self.log("\n=== Testing Post Interactions ===")
-----+        
-----+        if not self.test_post_id:
-----+            self.log("❌ No test post available", "post_interactions", False)
-----+            return
-----+        
-----+        # Test 1: POST /api/posts/{post_id}/dislike - Dislike/undislike a post (toggle)
-----+        self.log("1. Testing post dislike...")
-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/dislike")
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            if result.get("disliked") == True:
-----+                self.log("✅ Post disliked successfully", "post_interactions", True)
-----+            else:
-----+                self.log("❌ Post dislike response validation failed", "post_interactions", False)
-----+        else:
-----+            self.log(f"❌ Post dislike failed: {response.status_code if response else 'No response'}", "post_interactions", False)
-----+        
-----+        # Test 2: POST /api/posts/{post_id}/dislike - Undislike (toggle)
-----+        self.log("2. Testing post undislike (toggle)...")
-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/dislike")
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            if result.get("disliked") == False:
-----+                self.log("✅ Post undisliked successfully (toggle working)", "post_interactions", True)
-----+            else:
-----+                self.log("❌ Post undislike toggle failed", "post_interactions", False)
-----+        else:
-----+            self.log(f"❌ Post undislike failed: {response.status_code if response else 'No response'}", "post_interactions", False)
-----+        
-----+        # Test 3: POST /api/posts/{post_id}/save - Save/unsave a post (toggle, bookmark)
-----+        self.log("3. Testing post save (bookmark)...")
-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/save")
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            if result.get("saved") == True:
-----+                self.log("✅ Post saved successfully (bookmarked)", "post_interactions", True)
-----+            else:
-----+                self.log("❌ Post save response validation failed", "post_interactions", False)
-----+        else:
-----+            self.log(f"❌ Post save failed: {response.status_code if response else 'No response'}", "post_interactions", False)
-----+        
-----+        # Test 4: GET /api/posts/saved - Get all saved posts for the current user
-----+        self.log("4. Testing get saved posts...")
-----+        response = self.make_request("GET", "/posts/saved")
-----+        
-----+        if response and response.status_code == 200:
-----+            saved_posts = response.json()
-----+            if len(saved_posts) > 0 and any(post.get("post_id") == self.test_post_id for post in saved_posts):
-----+                self.log(f"✅ Retrieved {len(saved_posts)} saved posts, test post found", "post_interactions", True)
-----+            else:
-----+                self.log("❌ Saved posts validation failed - test post not found", "post_interactions", False)
-----+        else:
-----+            self.log(f"❌ Get saved posts failed: {response.status_code if response else 'No response'}", "post_interactions", False)
-----+        
-----+        # Test 5: POST /api/posts/{post_id}/share - Share a post
-----+        self.log("5. Testing post share...")
-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/share")
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            if "shares_count" in result:
-----+                self.log(f"✅ Post shared successfully, shares count: {result.get('shares_count')}", "post_interactions", True)
-----+            else:
-----+                self.log("❌ Post share response validation failed", "post_interactions", False)
-----+        else:
-----+            self.log(f"❌ Post share failed: {response.status_code if response else 'No response'}", "post_interactions", False)
-----+        
-----+        # Test 6: POST /api/posts/{post_id}/save - Unsave (toggle)
-----+        self.log("6. Testing post unsave (toggle)...")
-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/save")
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            if result.get("saved") == False:
-----+                self.log("✅ Post unsaved successfully (toggle working)", "post_interactions", True)
-----+            else:
-----+                self.log("❌ Post unsave toggle failed", "post_interactions", False)
-----+        else:
-----+            self.log(f"❌ Post unsave failed: {response.status_code if response else 'No response'}", "post_interactions", False)
-----+    
-----+    def test_tagging_and_location(self):
-----+        """Test tagging and location features as per review request"""
-----+        self.log("\n=== Testing Tagging and Location ===")
-----+        
-----+        # Test 1: POST /api/posts with tagged_users and location fields
-----+        self.log("1. Testing post creation with tagging and location...")
-----+        post_data = {
-----+            "content": "Test post with comprehensive tagging and location features",
-----+            "tagged_users": f"{self.user_id},user_fake123,user_fake456",  # Multiple tags
-----+            "location": "Golden Gate Bridge, San Francisco, CA, USA"
-----+        }
-----+        
-----+        response = self.make_request("POST", "/posts", data=post_data)
-----+        tagged_post_id = None
-----+        
-----+        if response and response.status_code == 200:
-----+            result = response.json()
-----+            tagged_post_id = result.get("post_id")
-----+            self.log(f"✅ Tagged post created successfully: {tagged_post_id}", "tagging_location", True)
-----+        else:
-----+            self.log(f"❌ Tagged post creation failed: {response.status_code if response else 'No response'}", "tagging_location", False)
-----+            return
-----+        
-----+        # Test 2: Verify posts return with tagged_users and location in response
-----+        self.log("2. Testing post data retrieval with tags and location...")
-----+        response = self.make_request("GET", "/posts/feed")
-----+        
-----+        if response and response.status_code == 200:
-----+            posts = response.json()
-----+            tagged_post = None
-----+            
-----+            for post in posts:
-----+                if post.get("post_id") == tagged_post_id:
-----+                    tagged_post = post
-----+                    break
-----+            
-----+            if tagged_post:
-----+                location = tagged_post.get("location")
-----+                tagged_users = tagged_post.get("tagged_users", [])
-----+                
-----+                location_valid = location == "Golden Gate Bridge, San Francisco, CA, USA"
-----+                tags_valid = len(tagged_users) == 3 and self.user_id in tagged_users
-----+                
-----+                if location_valid and tags_valid:
-----+                    self.log(f"✅ Post data validation successful - Location: {location}, Tags: {len(tagged_users)}", "tagging_location", True)
-----+                else:
-----+                    self.log(f"❌ Post data validation failed - Location: {location}, Tags: {tagged_users}", "tagging_location", False)
-----+            else:
-----+                self.log("❌ Tagged post not found in feed", "tagging_location", False)
-----+        else:
-----+            self.log(f"❌ Get posts feed failed: {response.status_code if response else 'No response'}", "tagging_location", False)
-----+        
-----+        # Test 3: Test edge cases - empty tags and location
-----+        self.log("3. Testing edge cases (empty tags and location)...")
-----+        edge_post_data = {
-----+            "content": "Post with empty tags and location",
-----+            "tagged_users": "",
-----+            "location": ""
-----+        }
-----+        
-----+        response = self.make_request("POST", "/posts", data=edge_post_data)
-----+        
-----+        if response and response.status_code == 200:
-----+            self.log("✅ Post creation with empty tags/location successful", "tagging_location", True)
-----+        else:
-----+            self.log(f"❌ Edge case test failed: {response.status_code if response else 'No response'}", "tagging_location", False)
-----+    
-----+    def test_error_handling(self):
-----+        """Test error handling and edge cases"""
-----+        self.log("\n=== Testing Error Handling ===")
-----+        
-----+        # Test 1: Comment on non-existent post
-----+        self.log("1. Testing comment on non-existent post...")
-----+        fake_post_id = "post_nonexistent123"
-----+        comment_params = {"content": "This should fail"}
-----+        
-----+        response = self.make_request("POST", f"/posts/{fake_post_id}/comments", params=comment_params)
-----+        
-----+        if response and response.status_code == 404:
-----+            self.log("✅ Correctly returned 404 for non-existent post", "error_handling", True)
-----+        else:
-----+            self.log(f"❌ Expected 404, got: {response.status_code if response else 'No response'}", "error_handling", False)
-----+        
-----+        # Test 2: Like non-existent comment
-----+        self.log("2. Testing like on non-existent comment...")
-----+        fake_comment_id = "comment_nonexistent123"
-----+        
-----+        response = self.make_request("POST", f"/comments/{fake_comment_id}/like")
-----+        
-----+        if response and response.status_code == 404:
-----+            self.log("✅ Correctly returned 404 for non-existent comment", "error_handling", True)
-----+        else:
-----+            self.log(f"❌ Expected 404, got: {response.status_code if response else 'No response'}", "error_handling", False)
-----+        
-----+        # Test 3: Interact with non-existent post
-----+        self.log("3. Testing interactions on non-existent post...")
-----+        fake_post_id = "post_nonexistent456"
-----+        
-----+        response = self.make_request("POST", f"/posts/{fake_post_id}/dislike")
-----+        
-----+        if response and response.status_code == 404:
-----+            self.log("✅ Correctly returned 404 for non-existent post interaction", "error_handling", True)
-----+        else:
-----+            self.log(f"❌ Expected 404, got: {response.status_code if response else 'No response'}", "error_handling", False)
-----+    
-----+    def print_summary(self):
-----+        """Print comprehensive test summary"""
-----+        self.log("\n" + "="*60)
-----+        self.log("🏁 COMPREHENSIVE BACKEND TEST RESULTS")
-----+        self.log("="*60)
-----+        
-----+        total_passed = 0
-----+        total_tests = 0
-----+        
-----+        for category, data in self.results.items():
-----+            passed = data["passed"]
-----+            total = data["total"]
-----+            total_passed += passed
-----+            total_tests += total
-----+            
-----+            status = "✅ PASSED" if passed == total else "❌ FAILED"
-----+            category_name = category.replace("_", " ").title()
-----+            self.log(f"{category_name}: {passed}/{total} {status}")
-----+        
-----+        self.log("-" * 60)
-----+        overall_status = "✅ ALL TESTS PASSED" if total_passed == total_tests else "⚠️ SOME TESTS FAILED"
-----+        self.log(f"OVERALL: {total_passed}/{total_tests} {overall_status}")
-----+        
-----+        return total_passed == total_tests
-----+    
-----+    def run_comprehensive_tests(self):
-----+        """Run all comprehensive backend tests"""
-----+        self.log("🚀 Starting Comprehensive Grover Backend Testing")
-----+        self.log("Testing: Comments System, Post Interactions, Tagging & Location")
-----+        self.log("="*60)
-----+        
-----+        # Setup
-----+        if not self.setup_test_user():
-----+            return False
-----+        
-----+        if not self.create_test_post():
-----+            self.cleanup_test_user()
-----+            return False
-----+        
-----+        # Run all test suites
-----+        self.test_comments_system()
-----+        self.test_post_interactions()
-----+        self.test_tagging_and_location()
-----+        self.test_error_handling()
-----+        
-----+        # Results
-----+        success = self.print_summary()
-----+        
-----+        # Cleanup
-----+        self.cleanup_test_user()
-----+        
-----+        return success
-----+
-----+if __name__ == "__main__":
-----+    tester = GroverBackendTester()
-----+    success = tester.run_comprehensive_tests()
-----+    exit(0 if success else 1)
-----\ No newline at end of file
+---@@ -1,954 +0,0 @@
+----diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
+----index 4aeb4c3..71f0bbf 100644
+------- a/frontend/app/(tabs)/index.tsx
+----+++ b/frontend/app/(tabs)/index.tsx
+----@@ -83,11 +83,14 @@ export default function HomeScreen() {
+---- 
+----   const loadFeed = async () => {
+----     try {
+-----      const data = await api.getFeed();
+-----      setPosts(data);
+----+      const [feedData, storiesData] = await Promise.all([
+----+        api.getFeed(),
+----+        api.getStories().catch(() => [])
+----+      ]);
+----+      setPosts(feedData);
+----+      setStories(storiesData);
+----     } catch (error) {
+-----      console.error('Load feed error:', error);
+-----      Alert.alert('Error', 'Failed to load feed');
+----+      console.error('Feed load error:', error);
+----     } finally {
+----       setLoading(false);
+----       setRefreshing(false);
 ----diff --git a/model.patch b/model.patch
-----index c75cb66..c0ec672 100644
+----index 647072c..e69de29 100644
 ------- a/model.patch
 ----+++ b/model.patch
-----@@ -1,167 +0,0 @@
------diff --git a/backend/server.py b/backend/server.py
------index 651a0f3..6962521 100644
--------- a/backend/server.py
------+++ b/backend/server.py
------@@ -708,6 +708,79 @@ async def delete_product(product_id: str, current_user: User = Depends(require_a
------ 
------ # ============ ORDER ENDPOINTS ============
------ 
------+@api_router.post("/paypal/create-payment")
------+async def create_paypal_payment(
------+    product_id: str,
------+    current_user: User = Depends(require_auth)
------+):
------+    """Create a PayPal payment for a product"""
------+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
------+    if not product:
------+        raise HTTPException(status_code=404, detail="Product not found")
------+    
------+    # Create PayPal payment
------+    result = create_payment(
------+        amount=product["price"],
------+        currency="USD",
------+        description=f"Purchase: {product['name']}"
------+    )
------+    
------+    if result["success"]:
------+        return {
------+            "success": True,
------+            "payment_id": result["payment_id"],
------+            "approval_url": result["approval_url"]
------+        }
------+    else:
------+        raise HTTPException(status_code=500, detail=result.get("error", "Payment creation failed"))
+----@@ -1,926 +0,0 @@
+-----diff --git a/comprehensive_backend_test.py b/comprehensive_backend_test.py
+-----new file mode 100644
+-----index 0000000..dbfadff
+-------- /dev/null
+-----+++ b/comprehensive_backend_test.py
+-----@@ -0,0 +1,501 @@
+-----+#!/usr/bin/env python3
+-----+"""
+-----+Comprehensive Backend Testing for Grover Social Media App
+-----+Testing all requirements from the review request:
+-----+1. Comments System (create, get, reply, like, delete)
+-----+2. Post Interactions (dislike, save, share, get saved)
+-----+3. Tagging and Location in Posts
+-----+"""
 -----+
------+@api_router.post("/paypal/execute-payment")
------+async def execute_paypal_payment(
------+    payment_id: str,
------+    payer_id: str,
------+    product_id: str,
------+    current_user: User = Depends(require_auth)
------+):
------+    """Execute a PayPal payment after user approval"""
------+    result = execute_payment(payment_id, payer_id)
------+    
------+    if result["success"]:
------+        # Get product details
------+        product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
------+        if not product:
------+            raise HTTPException(status_code=404, detail="Product not found")
------+        
------+        # Create order in database
------+        order_id = f"order_{uuid.uuid4().hex[:12]}"
------+        await db.orders.insert_one({
------+            "order_id": order_id,
------+            "buyer_id": current_user.user_id,
------+            "seller_id": product["user_id"],
------+            "product_id": product_id,
------+            "amount": product["price"],
------+            "status": "completed",
------+            "paypal_payment_id": payment_id,
------+            "created_at": datetime.now(timezone.utc)
------+        })
------+        
------+        # Create notification
------+        await db.notifications.insert_one({
------+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
------+            "user_id": product["user_id"],
------+            "type": "purchase",
------+            "content": f"{current_user.name} purchased {product['name']}",
------+            "read": False,
------+            "created_at": datetime.now(timezone.utc)
------+        })
------+        
------+        return {
------+            "success": True,
------+            "order_id": order_id,
------+            "message": "Payment completed successfully"
------+        }
------+    else:
------+        raise HTTPException(status_code=500, detail=result.get("error", "Payment execution failed"))
+-----+import requests
+-----+import pymongo
+-----+import uuid
+-----+from datetime import datetime, timezone, timedelta
 -----+
------ @api_router.post("/orders")
------ async def create_order(
------     product_id: str,
+-----+class GroverBackendTester:
+-----+    def __init__(self):
+-----+        self.base_url = "http://localhost:8001/api"
+-----+        self.user_id = None
+-----+        self.session_token = None
+-----+        self.test_post_id = None
+-----+        self.test_comment_id = None
+-----+        self.results = {
+-----+            "comments_system": {"passed": 0, "total": 0, "details": []},
+-----+            "post_interactions": {"passed": 0, "total": 0, "details": []},
+-----+            "tagging_location": {"passed": 0, "total": 0, "details": []},
+-----+            "error_handling": {"passed": 0, "total": 0, "details": []}
+-----+        }
+-----+        
+-----+    def log(self, message, test_category=None, passed=None):
+-----+        """Log test results"""
+-----+        print(message)
+-----+        if test_category and passed is not None:
+-----+            self.results[test_category]["total"] += 1
+-----+            if passed:
+-----+                self.results[test_category]["passed"] += 1
+-----+            self.results[test_category]["details"].append({
+-----+                "message": message,
+-----+                "passed": passed
+-----+            })
+-----+    
+-----+    def setup_test_user(self):
+-----+        """Create test user and session in MongoDB"""
+-----+        try:
+-----+            client = pymongo.MongoClient("mongodb://localhost:27017")
+-----+            db = client["test_database"]
+-----+            
+-----+            self.user_id = f"user_{uuid.uuid4().hex[:12]}"
+-----+            self.session_token = f"test_token_{uuid.uuid4().hex}"
+-----+            
+-----+            # Create test user
+-----+            test_user = {
+-----+                "user_id": self.user_id,
+-----+                "email": f"testuser_{uuid.uuid4().hex[:8]}@example.com",
+-----+                "name": "Test User",
+-----+                "picture": "https://example.com/avatar.jpg",
+-----+                "bio": "Test user for backend testing",
+-----+                "is_premium": False,
+-----+                "is_private": False,
+-----+                "created_at": datetime.now(timezone.utc)
+-----+            }
+-----+            
+-----+            db.users.insert_one(test_user)
+-----+            
+-----+            # Create session
+-----+            session_doc = {
+-----+                "user_id": self.user_id,
+-----+                "session_token": self.session_token,
+-----+                "expires_at": datetime.now(timezone.utc) + timedelta(days=1),
+-----+                "created_at": datetime.now(timezone.utc)
+-----+            }
+-----+            
+-----+            db.user_sessions.insert_one(session_doc)
+-----+            client.close()
+-----+            
+-----+            # Verify authentication
+-----+            headers = {"Authorization": f"Bearer {self.session_token}"}
+-----+            response = requests.get(f"{self.base_url}/auth/me", headers=headers)
+-----+            
+-----+            if response.status_code == 200:
+-----+                self.log("✅ Test user setup successful")
+-----+                return True
+-----+            else:
+-----+                self.log("❌ Test user authentication failed")
+-----+                return False
+-----+                
+-----+        except Exception as e:
+-----+            self.log(f"❌ Test user setup failed: {e}")
+-----+            return False
+-----+    
+-----+    def cleanup_test_user(self):
+-----+        """Remove test user and session from MongoDB"""
+-----+        try:
+-----+            client = pymongo.MongoClient("mongodb://localhost:27017")
+-----+            db = client["test_database"]
+-----+            
+-----+            # Clean up all test data
+-----+            db.users.delete_one({"user_id": self.user_id})
+-----+            db.user_sessions.delete_one({"session_token": self.session_token})
+-----+            db.posts.delete_many({"user_id": self.user_id})
+-----+            db.comments.delete_many({"user_id": self.user_id})
+-----+            db.likes.delete_many({"user_id": self.user_id})
+-----+            db.dislikes.delete_many({"user_id": self.user_id})
+-----+            db.saved_posts.delete_many({"user_id": self.user_id})
+-----+            db.comment_likes.delete_many({"user_id": self.user_id})
+-----+            
+-----+            client.close()
+-----+            self.log("✅ Test cleanup completed")
+-----+            
+-----+        except Exception as e:
+-----+            self.log(f"⚠️ Cleanup error: {e}")
+-----+    
+-----+    def make_request(self, method, endpoint, data=None, params=None):
+-----+        """Make authenticated HTTP request"""
+-----+        url = f"{self.base_url}{endpoint}"
+-----+        headers = {"Authorization": f"Bearer {self.session_token}"}
+-----+        
+-----+        try:
+-----+            if method.upper() == "GET":
+-----+                response = requests.get(url, headers=headers, params=params, timeout=10)
+-----+            elif method.upper() == "POST":
+-----+                if data:
+-----+                    response = requests.post(url, data=data, headers=headers, timeout=10)
+-----+                elif params:
+-----+                    response = requests.post(url, params=params, headers=headers, timeout=10)
+-----+                else:
+-----+                    response = requests.post(url, headers=headers, timeout=10)
+-----+            elif method.upper() == "DELETE":
+-----+                response = requests.delete(url, headers=headers, timeout=10)
+-----+            else:
+-----+                raise ValueError(f"Unsupported method: {method}")
+-----+                
+-----+            return response
+-----+        except Exception as e:
+-----+            self.log(f"Request error: {e}")
+-----+            return None
+-----+    
+-----+    def create_test_post(self):
+-----+        """Create a test post for comment testing"""
+-----+        post_data = {
+-----+            "content": "Test post for comprehensive backend testing",
+-----+            "tagged_users": self.user_id,
+-----+            "location": "San Francisco, CA"
+-----+        }
+-----+        
+-----+        response = self.make_request("POST", "/posts", data=post_data)
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            self.test_post_id = result.get("post_id")
+-----+            self.log(f"✅ Test post created: {self.test_post_id}")
+-----+            return True
+-----+        else:
+-----+            self.log(f"❌ Test post creation failed: {response.status_code if response else 'No response'}")
+-----+            return False
+-----+    
+-----+    def test_comments_system(self):
+-----+        """Test complete comments system as per review request"""
+-----+        self.log("\n=== Testing Comments System ===")
+-----+        
+-----+        if not self.test_post_id:
+-----+            self.log("❌ No test post available", "comments_system", False)
+-----+            return
+-----+        
+-----+        # Test 1: POST /api/posts/{post_id}/comments - Create a comment
+-----+        self.log("1. Testing comment creation...")
+-----+        comment_params = {"content": "This is a comprehensive test comment with detailed content!"}
+-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/comments", params=comment_params)
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            self.test_comment_id = result.get("comment_id")
+-----+            self.log(f"✅ Comment created successfully: {self.test_comment_id}", "comments_system", True)
+-----+        else:
+-----+            self.log(f"❌ Comment creation failed: {response.status_code if response else 'No response'}", "comments_system", False)
+-----+            return
+-----+        
+-----+        # Test 2: GET /api/posts/{post_id}/comments - Get all comments for a post
+-----+        self.log("2. Testing get comments for post...")
+-----+        response = self.make_request("GET", f"/posts/{self.test_post_id}/comments")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            comments = response.json()
+-----+            if len(comments) > 0 and comments[0].get("comment_id") == self.test_comment_id:
+-----+                self.log(f"✅ Retrieved {len(comments)} comments successfully", "comments_system", True)
+-----+            else:
+-----+                self.log("❌ Comments data validation failed", "comments_system", False)
+-----+        else:
+-----+            self.log(f"❌ Get comments failed: {response.status_code if response else 'No response'}", "comments_system", False)
+-----+        
+-----+        # Test 3: POST /api/posts/{post_id}/comments with parent_comment_id - Create a reply
+-----+        self.log("3. Testing comment reply creation...")
+-----+        reply_params = {
+-----+            "content": "This is a reply to the test comment",
+-----+            "parent_comment_id": self.test_comment_id
+-----+        }
+-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/comments", params=reply_params)
+-----+        
+-----+        reply_id = None
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            reply_id = result.get("comment_id")
+-----+            self.log(f"✅ Reply created successfully: {reply_id}", "comments_system", True)
+-----+        else:
+-----+            self.log(f"❌ Reply creation failed: {response.status_code if response else 'No response'}", "comments_system", False)
+-----+        
+-----+        # Test 4: GET /api/comments/{comment_id}/replies - Get replies for a comment
+-----+        self.log("4. Testing get comment replies...")
+-----+        response = self.make_request("GET", f"/comments/{self.test_comment_id}/replies")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            replies = response.json()
+-----+            if len(replies) > 0 and reply_id and replies[0].get("comment_id") == reply_id:
+-----+                self.log(f"✅ Retrieved {len(replies)} replies successfully", "comments_system", True)
+-----+            else:
+-----+                self.log("❌ Replies data validation failed", "comments_system", False)
+-----+        else:
+-----+            self.log(f"❌ Get replies failed: {response.status_code if response else 'No response'}", "comments_system", False)
+-----+        
+-----+        # Test 5: POST /api/comments/{comment_id}/like - Like/unlike a comment (toggle)
+-----+        self.log("5. Testing comment like (first time)...")
+-----+        response = self.make_request("POST", f"/comments/{self.test_comment_id}/like")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            if result.get("liked") == True:
+-----+                self.log("✅ Comment liked successfully", "comments_system", True)
+-----+            else:
+-----+                self.log("❌ Comment like response validation failed", "comments_system", False)
+-----+        else:
+-----+            self.log(f"❌ Comment like failed: {response.status_code if response else 'No response'}", "comments_system", False)
+-----+        
+-----+        # Test 6: POST /api/comments/{comment_id}/like - Unlike (toggle)
+-----+        self.log("6. Testing comment unlike (toggle)...")
+-----+        response = self.make_request("POST", f"/comments/{self.test_comment_id}/like")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            if result.get("liked") == False:
+-----+                self.log("✅ Comment unliked successfully (toggle working)", "comments_system", True)
+-----+            else:
+-----+                self.log("❌ Comment unlike toggle failed", "comments_system", False)
+-----+        else:
+-----+            self.log(f"❌ Comment unlike failed: {response.status_code if response else 'No response'}", "comments_system", False)
+-----+        
+-----+        # Test 7: DELETE /api/comments/{comment_id} - Delete own comment
+-----+        self.log("7. Testing comment deletion...")
+-----+        response = self.make_request("DELETE", f"/comments/{self.test_comment_id}")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            self.log("✅ Comment deleted successfully", "comments_system", True)
+-----+        else:
+-----+            self.log(f"❌ Comment deletion failed: {response.status_code if response else 'No response'}", "comments_system", False)
+-----+    
+-----+    def test_post_interactions(self):
+-----+        """Test post interactions as per review request"""
+-----+        self.log("\n=== Testing Post Interactions ===")
+-----+        
+-----+        if not self.test_post_id:
+-----+            self.log("❌ No test post available", "post_interactions", False)
+-----+            return
+-----+        
+-----+        # Test 1: POST /api/posts/{post_id}/dislike - Dislike/undislike a post (toggle)
+-----+        self.log("1. Testing post dislike...")
+-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/dislike")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            if result.get("disliked") == True:
+-----+                self.log("✅ Post disliked successfully", "post_interactions", True)
+-----+            else:
+-----+                self.log("❌ Post dislike response validation failed", "post_interactions", False)
+-----+        else:
+-----+            self.log(f"❌ Post dislike failed: {response.status_code if response else 'No response'}", "post_interactions", False)
+-----+        
+-----+        # Test 2: POST /api/posts/{post_id}/dislike - Undislike (toggle)
+-----+        self.log("2. Testing post undislike (toggle)...")
+-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/dislike")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            if result.get("disliked") == False:
+-----+                self.log("✅ Post undisliked successfully (toggle working)", "post_interactions", True)
+-----+            else:
+-----+                self.log("❌ Post undislike toggle failed", "post_interactions", False)
+-----+        else:
+-----+            self.log(f"❌ Post undislike failed: {response.status_code if response else 'No response'}", "post_interactions", False)
+-----+        
+-----+        # Test 3: POST /api/posts/{post_id}/save - Save/unsave a post (toggle, bookmark)
+-----+        self.log("3. Testing post save (bookmark)...")
+-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/save")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            if result.get("saved") == True:
+-----+                self.log("✅ Post saved successfully (bookmarked)", "post_interactions", True)
+-----+            else:
+-----+                self.log("❌ Post save response validation failed", "post_interactions", False)
+-----+        else:
+-----+            self.log(f"❌ Post save failed: {response.status_code if response else 'No response'}", "post_interactions", False)
+-----+        
+-----+        # Test 4: GET /api/posts/saved - Get all saved posts for the current user
+-----+        self.log("4. Testing get saved posts...")
+-----+        response = self.make_request("GET", "/posts/saved")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            saved_posts = response.json()
+-----+            if len(saved_posts) > 0 and any(post.get("post_id") == self.test_post_id for post in saved_posts):
+-----+                self.log(f"✅ Retrieved {len(saved_posts)} saved posts, test post found", "post_interactions", True)
+-----+            else:
+-----+                self.log("❌ Saved posts validation failed - test post not found", "post_interactions", False)
+-----+        else:
+-----+            self.log(f"❌ Get saved posts failed: {response.status_code if response else 'No response'}", "post_interactions", False)
+-----+        
+-----+        # Test 5: POST /api/posts/{post_id}/share - Share a post
+-----+        self.log("5. Testing post share...")
+-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/share")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            if "shares_count" in result:
+-----+                self.log(f"✅ Post shared successfully, shares count: {result.get('shares_count')}", "post_interactions", True)
+-----+            else:
+-----+                self.log("❌ Post share response validation failed", "post_interactions", False)
+-----+        else:
+-----+            self.log(f"❌ Post share failed: {response.status_code if response else 'No response'}", "post_interactions", False)
+-----+        
+-----+        # Test 6: POST /api/posts/{post_id}/save - Unsave (toggle)
+-----+        self.log("6. Testing post unsave (toggle)...")
+-----+        response = self.make_request("POST", f"/posts/{self.test_post_id}/save")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            if result.get("saved") == False:
+-----+                self.log("✅ Post unsaved successfully (toggle working)", "post_interactions", True)
+-----+            else:
+-----+                self.log("❌ Post unsave toggle failed", "post_interactions", False)
+-----+        else:
+-----+            self.log(f"❌ Post unsave failed: {response.status_code if response else 'No response'}", "post_interactions", False)
+-----+    
+-----+    def test_tagging_and_location(self):
+-----+        """Test tagging and location features as per review request"""
+-----+        self.log("\n=== Testing Tagging and Location ===")
+-----+        
+-----+        # Test 1: POST /api/posts with tagged_users and location fields
+-----+        self.log("1. Testing post creation with tagging and location...")
+-----+        post_data = {
+-----+            "content": "Test post with comprehensive tagging and location features",
+-----+            "tagged_users": f"{self.user_id},user_fake123,user_fake456",  # Multiple tags
+-----+            "location": "Golden Gate Bridge, San Francisco, CA, USA"
+-----+        }
+-----+        
+-----+        response = self.make_request("POST", "/posts", data=post_data)
+-----+        tagged_post_id = None
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            result = response.json()
+-----+            tagged_post_id = result.get("post_id")
+-----+            self.log(f"✅ Tagged post created successfully: {tagged_post_id}", "tagging_location", True)
+-----+        else:
+-----+            self.log(f"❌ Tagged post creation failed: {response.status_code if response else 'No response'}", "tagging_location", False)
+-----+            return
+-----+        
+-----+        # Test 2: Verify posts return with tagged_users and location in response
+-----+        self.log("2. Testing post data retrieval with tags and location...")
+-----+        response = self.make_request("GET", "/posts/feed")
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            posts = response.json()
+-----+            tagged_post = None
+-----+            
+-----+            for post in posts:
+-----+                if post.get("post_id") == tagged_post_id:
+-----+                    tagged_post = post
+-----+                    break
+-----+            
+-----+            if tagged_post:
+-----+                location = tagged_post.get("location")
+-----+                tagged_users = tagged_post.get("tagged_users", [])
+-----+                
+-----+                location_valid = location == "Golden Gate Bridge, San Francisco, CA, USA"
+-----+                tags_valid = len(tagged_users) == 3 and self.user_id in tagged_users
+-----+                
+-----+                if location_valid and tags_valid:
+-----+                    self.log(f"✅ Post data validation successful - Location: {location}, Tags: {len(tagged_users)}", "tagging_location", True)
+-----+                else:
+-----+                    self.log(f"❌ Post data validation failed - Location: {location}, Tags: {tagged_users}", "tagging_location", False)
+-----+            else:
+-----+                self.log("❌ Tagged post not found in feed", "tagging_location", False)
+-----+        else:
+-----+            self.log(f"❌ Get posts feed failed: {response.status_code if response else 'No response'}", "tagging_location", False)
+-----+        
+-----+        # Test 3: Test edge cases - empty tags and location
+-----+        self.log("3. Testing edge cases (empty tags and location)...")
+-----+        edge_post_data = {
+-----+            "content": "Post with empty tags and location",
+-----+            "tagged_users": "",
+-----+            "location": ""
+-----+        }
+-----+        
+-----+        response = self.make_request("POST", "/posts", data=edge_post_data)
+-----+        
+-----+        if response and response.status_code == 200:
+-----+            self.log("✅ Post creation with empty tags/location successful", "tagging_location", True)
+-----+        else:
+-----+            self.log(f"❌ Edge case test failed: {response.status_code if response else 'No response'}", "tagging_location", False)
+-----+    
+-----+    def test_error_handling(self):
+-----+        """Test error handling and edge cases"""
+-----+        self.log("\n=== Testing Error Handling ===")
+-----+        
+-----+        # Test 1: Comment on non-existent post
+-----+        self.log("1. Testing comment on non-existent post...")
+-----+        fake_post_id = "post_nonexistent123"
+-----+        comment_params = {"content": "This should fail"}
+-----+        
+-----+        response = self.make_request("POST", f"/posts/{fake_post_id}/comments", params=comment_params)
+-----+        
+-----+        if response and response.status_code == 404:
+-----+            self.log("✅ Correctly returned 404 for non-existent post", "error_handling", True)
+-----+        else:
+-----+            self.log(f"❌ Expected 404, got: {response.status_code if response else 'No response'}", "error_handling", False)
+-----+        
+-----+        # Test 2: Like non-existent comment
+-----+        self.log("2. Testing like on non-existent comment...")
+-----+        fake_comment_id = "comment_nonexistent123"
+-----+        
+-----+        response = self.make_request("POST", f"/comments/{fake_comment_id}/like")
+-----+        
+-----+        if response and response.status_code == 404:
+-----+            self.log("✅ Correctly returned 404 for non-existent comment", "error_handling", True)
+-----+        else:
+-----+            self.log(f"❌ Expected 404, got: {response.status_code if response else 'No response'}", "error_handling", False)
+-----+        
+-----+        # Test 3: Interact with non-existent post
+-----+        self.log("3. Testing interactions on non-existent post...")
+-----+        fake_post_id = "post_nonexistent456"
+-----+        
+-----+        response = self.make_request("POST", f"/posts/{fake_post_id}/dislike")
+-----+        
+-----+        if response and response.status_code == 404:
+-----+            self.log("✅ Correctly returned 404 for non-existent post interaction", "error_handling", True)
+-----+        else:
+-----+            self.log(f"❌ Expected 404, got: {response.status_code if response else 'No response'}", "error_handling", False)
+-----+    
+-----+    def print_summary(self):
+-----+        """Print comprehensive test summary"""
+-----+        self.log("\n" + "="*60)
+-----+        self.log("🏁 COMPREHENSIVE BACKEND TEST RESULTS")
+-----+        self.log("="*60)
+-----+        
+-----+        total_passed = 0
+-----+        total_tests = 0
+-----+        
+-----+        for category, data in self.results.items():
+-----+            passed = data["passed"]
+-----+            total = data["total"]
+-----+            total_passed += passed
+-----+            total_tests += total
+-----+            
+-----+            status = "✅ PASSED" if passed == total else "❌ FAILED"
+-----+            category_name = category.replace("_", " ").title()
+-----+            self.log(f"{category_name}: {passed}/{total} {status}")
+-----+        
+-----+        self.log("-" * 60)
+-----+        overall_status = "✅ ALL TESTS PASSED" if total_passed == total_tests else "⚠️ SOME TESTS FAILED"
+-----+        self.log(f"OVERALL: {total_passed}/{total_tests} {overall_status}")
+-----+        
+-----+        return total_passed == total_tests
+-----+    
+-----+    def run_comprehensive_tests(self):
+-----+        """Run all comprehensive backend tests"""
+-----+        self.log("🚀 Starting Comprehensive Grover Backend Testing")
+-----+        self.log("Testing: Comments System, Post Interactions, Tagging & Location")
+-----+        self.log("="*60)
+-----+        
+-----+        # Setup
+-----+        if not self.setup_test_user():
+-----+            return False
+-----+        
+-----+        if not self.create_test_post():
+-----+            self.cleanup_test_user()
+-----+            return False
+-----+        
+-----+        # Run all test suites
+-----+        self.test_comments_system()
+-----+        self.test_post_interactions()
+-----+        self.test_tagging_and_location()
+-----+        self.test_error_handling()
+-----+        
+-----+        # Results
+-----+        success = self.print_summary()
+-----+        
+-----+        # Cleanup
+-----+        self.cleanup_test_user()
+-----+        
+-----+        return success
+-----+
+-----+if __name__ == "__main__":
+-----+    tester = GroverBackendTester()
+-----+    success = tester.run_comprehensive_tests()
+-----+    exit(0 if success else 1)
+-----\ No newline at end of file
 -----diff --git a/model.patch b/model.patch
------index 342b9ce..e69de29 100644
+-----index c75cb66..c0ec672 100644
 -------- a/model.patch
 -----+++ b/model.patch
------@@ -1,78 +0,0 @@
+-----@@ -1,167 +0,0 @@
+------diff --git a/backend/server.py b/backend/server.py
+------index 651a0f3..6962521 100644
+--------- a/backend/server.py
+------+++ b/backend/server.py
+------@@ -708,6 +708,79 @@ async def delete_product(product_id: str, current_user: User = Depends(require_a
+------ 
+------ # ============ ORDER ENDPOINTS ============
+------ 
+------+@api_router.post("/paypal/create-payment")
+------+async def create_paypal_payment(
+------+    product_id: str,
+------+    current_user: User = Depends(require_auth)
+------+):
+------+    """Create a PayPal payment for a product"""
+------+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+------+    if not product:
+------+        raise HTTPException(status_code=404, detail="Product not found")
+------+    
+------+    # Create PayPal payment
+------+    result = create_payment(
+------+        amount=product["price"],
+------+        currency="USD",
+------+        description=f"Purchase: {product['name']}"
+------+    )
+------+    
+------+    if result["success"]:
+------+        return {
+------+            "success": True,
+------+            "payment_id": result["payment_id"],
+------+            "approval_url": result["approval_url"]
+------+        }
+------+    else:
+------+        raise HTTPException(status_code=500, detail=result.get("error", "Payment creation failed"))
+------+
+------+@api_router.post("/paypal/execute-payment")
+------+async def execute_paypal_payment(
+------+    payment_id: str,
+------+    payer_id: str,
+------+    product_id: str,
+------+    current_user: User = Depends(require_auth)
+------+):
+------+    """Execute a PayPal payment after user approval"""
+------+    result = execute_payment(payment_id, payer_id)
+------+    
+------+    if result["success"]:
+------+        # Get product details
+------+        product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+------+        if not product:
+------+            raise HTTPException(status_code=404, detail="Product not found")
+------+        
+------+        # Create order in database
+------+        order_id = f"order_{uuid.uuid4().hex[:12]}"
+------+        await db.orders.insert_one({
+------+            "order_id": order_id,
+------+            "buyer_id": current_user.user_id,
+------+            "seller_id": product["user_id"],
+------+            "product_id": product_id,
+------+            "amount": product["price"],
+------+            "status": "completed",
+------+            "paypal_payment_id": payment_id,
+------+            "created_at": datetime.now(timezone.utc)
+------+        })
+------+        
+------+        # Create notification
+------+        await db.notifications.insert_one({
+------+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+------+            "user_id": product["user_id"],
+------+            "type": "purchase",
+------+            "content": f"{current_user.name} purchased {product['name']}",
+------+            "read": False,
+------+            "created_at": datetime.now(timezone.utc)
+------+        })
+------+        
+------+        return {
+------+            "success": True,
+------+            "order_id": order_id,
+------+            "message": "Payment completed successfully"
+------+        }
+------+    else:
+------+        raise HTTPException(status_code=500, detail=result.get("error", "Payment execution failed"))
+------+
+------ @api_router.post("/orders")
+------ async def create_order(
+------     product_id: str,
 ------diff --git a/model.patch b/model.patch
-------index 39be44a..e69de29 100644
+------index 342b9ce..e69de29 100644
 --------- a/model.patch
 ------+++ b/model.patch
-------@@ -1,73 +0,0 @@
--------diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
--------index eca94bb..552b491 100644
----------- a/frontend/app/(tabs)/index.tsx
--------+++ b/frontend/app/(tabs)/index.tsx
--------@@ -43,6 +43,8 @@ export default function HomeScreen() {
--------   const [newPostContent, setNewPostContent] = useState('');
--------   const [selectedMedia, setSelectedMedia] = useState<any>(null);
--------   const [uploading, setUploading] = useState(false);
--------+  const [taggedUsers, setTaggedUsers] = useState('');
--------+  const [location, setLocation] = useState('');
-------- 
--------   useEffect(() => {
--------     loadFeed();
+------@@ -1,78 +0,0 @@
 -------diff --git a/model.patch b/model.patch
--------index 1f822eb..e69de29 100644
+-------index 39be44a..e69de29 100644
 ---------- a/model.patch
 -------+++ b/model.patch
--------@@ -1,55 +0,0 @@
---------diff --git a/backend/server.py b/backend/server.py
---------index 5105bcb..cc32f7d 100644
------------ a/backend/server.py
---------+++ b/backend/server.py
---------@@ -350,6 +350,20 @@ async def get_feed(current_user: User = Depends(require_auth)):
---------             "post_id": post["post_id"]
---------         })
---------         post["liked"] = liked is not None
---------+        
---------+        # Check if current user disliked
---------+        disliked = await db.dislikes.find_one({
---------+            "user_id": current_user.user_id,
---------+            "post_id": post["post_id"]
---------+        })
---------+        post["disliked"] = disliked is not None
---------+        
---------+        # Check if current user saved
---------+        saved = await db.saved_posts.find_one({
---------+            "user_id": current_user.user_id,
---------+            "post_id": post["post_id"]
---------+        })
---------+        post["saved"] = saved is not None
---------     
---------     return posts
+-------@@ -1,73 +0,0 @@
+--------diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
+--------index eca94bb..552b491 100644
+----------- a/frontend/app/(tabs)/index.tsx
+--------+++ b/frontend/app/(tabs)/index.tsx
+--------@@ -43,6 +43,8 @@ export default function HomeScreen() {
+--------   const [newPostContent, setNewPostContent] = useState('');
+--------   const [selectedMedia, setSelectedMedia] = useState<any>(null);
+--------   const [uploading, setUploading] = useState(false);
+--------+  const [taggedUsers, setTaggedUsers] = useState('');
+--------+  const [location, setLocation] = useState('');
 -------- 
---------@@ -367,6 +381,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
---------             "post_id": post["post_id"]
---------         })
---------         post["liked"] = liked is not None
---------+        
---------+        # Check if current user disliked
---------+        disliked = await db.dislikes.find_one({
---------+            "user_id": current_user.user_id,
---------+            "post_id": post["post_id"]
---------+        })
---------+        post["disliked"] = disliked is not None
---------+        
---------+        # Check if current user saved
---------+        saved = await db.saved_posts.find_one({
---------+            "user_id": current_user.user_id,
---------+            "post_id": post["post_id"]
---------+        })
---------+        post["saved"] = saved is not None
---------     
---------     return posts
--------- 
---------@@ -587,7 +615,7 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
---------     
---------     # Add user data and liked status
---------     for post in posts:
----------        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
---------+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
---------         post["user"] = user
---------         
---------         liked = await db.likes.find_one({
-----diff --git a/simple_backend_test.py b/simple_backend_test.py
-----new file mode 100644
-----index 0000000..f368b5a
-------- /dev/null
-----+++ b/simple_backend_test.py
-----@@ -0,0 +1,153 @@
-----+#!/usr/bin/env python3
-----+"""
-----+Simple Backend Test for Grover - Direct MongoDB approach
-----+"""
-----+
-----+import requests
-----+import pymongo
-----+import uuid
-----+from datetime import datetime, timezone, timedelta
-----+
-----+def test_backend():
-----+    print("🚀 Starting Simple Backend Test")
-----+    
-----+    # Connect to MongoDB
-----+    client = pymongo.MongoClient("mongodb://localhost:27017")
-----+    db = client["test_database"]
-----+    
-----+    # Create test user
-----+    user_id = f"user_{uuid.uuid4().hex[:12]}"
-----+    session_token = f"test_token_{uuid.uuid4().hex}"
-----+    
-----+    print(f"Creating test user: {user_id}")
-----+    print(f"Session token: {session_token}")
-----+    
-----+    # Insert test user
-----+    test_user = {
-----+        "user_id": user_id,
-----+        "email": f"testuser_{uuid.uuid4().hex[:8]}@example.com",
-----+        "name": "Test User",
-----+        "picture": "https://example.com/avatar.jpg",
-----+        "bio": "Test user for backend testing",
-----+        "is_premium": False,
-----+        "is_private": False,
-----+        "created_at": datetime.now(timezone.utc)
-----+    }
-----+    
-----+    db.users.insert_one(test_user)
-----+    print("✅ User created in database")
-----+    
-----+    # Insert session
-----+    session_doc = {
-----+        "user_id": user_id,
-----+        "session_token": session_token,
-----+        "expires_at": datetime.now(timezone.utc) + timedelta(days=1),
-----+        "created_at": datetime.now(timezone.utc)
-----+    }
-----+    
-----+    db.user_sessions.insert_one(session_doc)
-----+    print("✅ Session created in database")
-----+    
-----+    # Test authentication
-----+    headers = {"Authorization": f"Bearer {session_token}"}
-----+    response = requests.get("http://localhost:8001/api/auth/me", headers=headers)
-----+    
-----+    if response.status_code == 200:
-----+        user_data = response.json()
-----+        print(f"✅ Authentication successful: {user_data['name']}")
-----+        
-----+        # Test post creation
-----+        print("\n📝 Testing post creation...")
-----+        post_data = {
-----+            "content": "Test post for comments",
-----+            "tagged_users": user_id,
-----+            "location": "Test Location"
-----+        }
-----+        
-----+        response = requests.post("http://localhost:8001/api/posts", data=post_data, headers=headers)
-----+        
-----+        if response.status_code == 200:
-----+            result = response.json()
-----+            post_id = result.get("post_id")
-----+            print(f"✅ Post created: {post_id}")
-----+            
-----+            # Test comment creation
-----+            print("\n💬 Testing comment creation...")
-----+            comment_params = {"content": "This is a test comment"}
-----+            
-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/comments", 
-----+                                   params=comment_params, headers=headers)
-----+            
-----+            if response.status_code == 200:
-----+                result = response.json()
-----+                comment_id = result.get("comment_id")
-----+                print(f"✅ Comment created: {comment_id}")
-----+                
-----+                # Test get comments
-----+                response = requests.get(f"http://localhost:8001/api/posts/{post_id}/comments", headers=headers)
-----+                if response.status_code == 200:
-----+                    comments = response.json()
-----+                    print(f"✅ Retrieved {len(comments)} comments")
-----+                else:
-----+                    print(f"❌ Get comments failed: {response.status_code}")
-----+                    
-----+                # Test comment like
-----+                response = requests.post(f"http://localhost:8001/api/comments/{comment_id}/like", headers=headers)
-----+                if response.status_code == 200:
-----+                    print("✅ Comment like successful")
-----+                else:
-----+                    print(f"❌ Comment like failed: {response.status_code}")
-----+                    
-----+            else:
-----+                print(f"❌ Comment creation failed: {response.status_code}")
-----+                print(f"Response: {response.text}")
-----+                
-----+            # Test post interactions
-----+            print("\n🔄 Testing post interactions...")
-----+            
-----+            # Test dislike
-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/dislike", headers=headers)
-----+            if response.status_code == 200:
-----+                print("✅ Post dislike successful")
-----+            else:
-----+                print(f"❌ Post dislike failed: {response.status_code}")
-----+                
-----+            # Test save
-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/save", headers=headers)
-----+            if response.status_code == 200:
-----+                print("✅ Post save successful")
-----+            else:
-----+                print(f"❌ Post save failed: {response.status_code}")
-----+                
-----+            # Test share
-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/share", headers=headers)
-----+            if response.status_code == 200:
-----+                print("✅ Post share successful")
-----+            else:
-----+                print(f"❌ Post share failed: {response.status_code}")
-----+                
-----+            # Test get saved posts
-----+            response = requests.get("http://localhost:8001/api/posts/saved", headers=headers)
-----+            if response.status_code == 200:
-----+                saved_posts = response.json()
-----+                print(f"✅ Retrieved {len(saved_posts)} saved posts")
-----+            else:
-----+                print(f"❌ Get saved posts failed: {response.status_code}")
-----+                
-----+        else:
-----+            print(f"❌ Post creation failed: {response.status_code}")
-----+            print(f"Response: {response.text}")
-----+            
-----+    else:
-----+        print(f"❌ Authentication failed: {response.status_code}")
-----+        print(f"Response: {response.text}")
-----+    
-----+    # Cleanup
-----+    db.users.delete_one({"user_id": user_id})
-----+    db.user_sessions.delete_one({"session_token": session_token})
-----+    client.close()
-----+    
-----+    print("\n🧹 Cleanup completed")
-----+
-----+if __name__ == "__main__":
-----+    test_backend()
-----\ No newline at end of file
-----diff --git a/test_result.md b/test_result.md
-----index a6c2a44..dec4109 100644
-------- a/test_result.md
-----+++ b/test_result.md
-----@@ -239,27 +239,33 @@ backend:
----- 
-----   - task: "Comments System (Backend)"
-----     implemented: true
------    working: "NA"
-----+    working: true
-----     file: "/app/backend/server.py"
-----     stuck_count: 0
-----     priority: "high"
------    needs_retesting: true
-----+    needs_retesting: false
-----     status_history:
-----       - working: "NA"
-----         agent: "main"
-----         comment: "Implemented complete comments system with create, read, like, delete, and reply (threading) functionality. Comments are linked to posts and support nested replies."
-----+      - working: true
-----+        agent: "testing"
-----+        comment: "✅ ALL COMMENT ENDPOINTS TESTED SUCCESSFULLY: POST /api/posts/{post_id}/comments (create comment), GET /api/posts/{post_id}/comments (get comments), POST with parent_comment_id (create reply), GET /api/comments/{comment_id}/replies (get replies), POST /api/comments/{comment_id}/like (like/unlike toggle), DELETE /api/comments/{comment_id} (delete comment). All 7 tests passed with proper response validation."
----- 
-----   - task: "Post Interactions: Dislike, Save, Share"
-----     implemented: true
------    working: "NA"
-----+    working: true
-----     file: "/app/backend/server.py"
-----     stuck_count: 0
-----     priority: "high"
------    needs_retesting: true
-----+    needs_retesting: false
-----     status_history:
-----       - working: "NA"
-----         agent: "main"
-----         comment: "Implemented dislike (toggle), save (bookmark), and share endpoints for posts. All endpoints track user interactions in separate collections."
-----+      - working: true
-----+        agent: "testing"
-----+        comment: "✅ ALL POST INTERACTION ENDPOINTS TESTED SUCCESSFULLY: POST /api/posts/{post_id}/dislike (dislike/undislike toggle), POST /api/posts/{post_id}/save (save/unsave bookmark toggle), POST /api/posts/{post_id}/share (share post), GET /api/posts/saved (get saved posts). All 6 tests passed with proper toggle behavior and response validation."
----- 
----- frontend:
-----   - task: "Auth Flow with Emergent OAuth"
-----@@ -423,15 +429,18 @@ frontend:
----- 
-----   - task: "Tagging and Location in Posts"
-----     implemented: true
------    working: "NA"
------    file: "/app/frontend/app/(tabs)/index.tsx"
-----+    working: true
-----+    file: "/app/backend/server.py"
-----     stuck_count: 0
-----     priority: "high"
------    needs_retesting: true
-----+    needs_retesting: false
-----     status_history:
-----       - working: "NA"
-----         agent: "main"
-----         comment: "Added input fields for tagging users (comma-separated IDs) and location in the create post modal. Post cards now display location and tagged user count with appropriate icons."
-----+      - working: true
-----+        agent: "testing"
-----+        comment: "✅ TAGGING AND LOCATION BACKEND TESTED SUCCESSFULLY: POST /api/posts with tagged_users (comma-separated IDs) and location fields working correctly. Posts return with tagged_users array and location string in response. Verified with multiple tags and location data. Edge cases with empty tags/location also handled properly. All 3 tests passed."
----- 
----- metadata:
-----   created_by: "main_agent"
-----@@ -441,11 +450,8 @@ metadata:
----- 
----- test_plan:
-----   current_focus:
------    - "Comments System (Backend)"
-----     - "Comments UI System"
------    - "Post Interactions: Dislike, Save, Share"
-----     - "Post Interactions UI (Dislike, Share, Save)"
------    - "Tagging and Location in Posts"
-----   stuck_tasks: []
-----   test_all: false
-----   test_priority: "high_first"
-----@@ -454,4 +460,6 @@ agent_communication:
-----   - agent: "main"
-----     message: "Phase 1 Complete: Built complete Grover social media platform with all core features. Backend includes Emergent OAuth, posts, products, orders, real-time chat (Socket.IO), messages, notifications, analytics, premium, and search. Frontend includes full mobile app with 5 screens, auth flow, real-time messaging, store, and premium features. All using vibrant violet/fuchsia/cyan gradients and dark theme. Ready for comprehensive testing. PayPal credentials need to be configured later by admin."
-----   - agent: "main"
------    message: "Phase 2 Complete: Implemented complete comments system with modal UI, reply/threading, like/delete functionality. Added dislike, share, and save interactions to posts with proper UI buttons and state management. Added tagging and location features to post creation. All features connected to existing backend endpoints. Frontend restarted. Ready for backend testing of new comment and interaction endpoints."
-----\ No newline at end of file
-----+    message: "Phase 2 Complete: Implemented complete comments system with modal UI, reply/threading, like/delete functionality. Added dislike, share, and save interactions to posts with proper UI buttons and state management. Added tagging and location features to post creation. All features connected to existing backend endpoints. Frontend restarted. Ready for backend testing of new comment and interaction endpoints."
-----+  - agent: "testing"
-----+    message: "✅ BACKEND TESTING COMPLETE: All requested backend features tested successfully. Comments System (7/7 tests passed): create comment, get comments, create reply, get replies, like/unlike toggle, delete comment. Post Interactions (6/6 tests passed): dislike/undislike toggle, save/unsave bookmark toggle, share post, get saved posts. Tagging & Location (3/3 tests passed): post creation with tags and location, data validation, edge cases. All endpoints working correctly with proper authentication, response validation, and toggle behavior. Ready for frontend UI testing."
-----\ No newline at end of file
-diff --git a/setup_test_data.py b/setup_test_data.py
-new file mode 100644
-index 0000000..c91416d
---- /dev/null
-+++ b/setup_test_data.py
-@@ -0,0 +1,88 @@
-+#!/usr/bin/env python3
-+
-+import asyncio
-+from motor.motor_asyncio import AsyncIOMotorClient
-+from datetime import datetime, timezone, timedelta
-+import uuid
-+import os
-+from dotenv import load_dotenv
-+
-+# Load environment variables
-+load_dotenv('/app/backend/.env')
-+
-+async def setup_test_data():
-+    """Setup test data for reactions testing"""
-+    
-+    # MongoDB connection
-+    mongo_url = os.environ['MONGO_URL']
-+    client = AsyncIOMotorClient(mongo_url)
-+    db = client[os.environ['DB_NAME']]
-+    
-+    # Create test user
-+    test_user = {
-+        "user_id": "test_user_123",
-+        "email": "test@example.com",
-+        "name": "Test User",
-+        "picture": None,
-+        "bio": "Test user for reactions",
-+        "is_premium": False,
-+        "is_private": False,
-+        "created_at": datetime.now(timezone.utc)
-+    }
-+    
-+    # Insert or update test user
-+    await db.users.update_one(
-+        {"user_id": test_user["user_id"]},
-+        {"$set": test_user},
-+        upsert=True
-+    )
-+    
-+    # Create test session
-+    test_session = {
-+        "user_id": "test_user_123",
-+        "session_token": "test_token_123",
-+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
-+        "created_at": datetime.now(timezone.utc)
-+    }
-+    
-+    await db.user_sessions.update_one(
-+        {"session_token": test_session["session_token"]},
-+        {"$set": test_session},
-+        upsert=True
-+    )
-+    
-+    # Create test post
-+    test_post = {
-+        "post_id": "test_post_123",
-+        "user_id": "test_user_123",
-+        "content": "This is a test post for reactions! 🎉",
-+        "media_url": None,
-+        "media_type": None,
-+        "likes_count": 0,
-+        "dislikes_count": 0,
-+        "shares_count": 0,
-+        "comments_count": 0,
-+        "repost_count": 0,
-+        "reaction_counts": {},
-+        "tagged_users": [],
-+        "location": None,
-+        "is_repost": False,
-+        "has_poll": False,
-+        "created_at": datetime.now(timezone.utc)
-+    }
-+    
-+    await db.posts.update_one(
-+        {"post_id": test_post["post_id"]},
-+        {"$set": test_post},
-+        upsert=True
-+    )
-+    
-+    print("✅ Test data setup complete!")
-+    print(f"Test user: {test_user['user_id']}")
-+    print(f"Test session token: {test_session['session_token']}")
-+    print(f"Test post: {test_post['post_id']}")
-+    
-+    client.close()
-+
-+if __name__ == "__main__":
-+    asyncio.run(setup_test_data())
-\ No newline at end of file
-diff --git a/test_collections.py b/test_collections.py
-new file mode 100644
-index 0000000..4cf3a4c
---- /dev/null
-+++ b/test_collections.py
-@@ -0,0 +1,124 @@
-+#!/usr/bin/env python3
-+
-+import asyncio
-+import httpx
-+import json
-+
-+async def test_collections():
-+    """Test the new collections system"""
-+    base_url = "http://localhost:8001/api"
-+    
-+    # Test data
-+    test_user = {
-+        "user_id": "test_user_123",
-+        "session_token": "test_token_123"
-+    }
-+    
-+    async with httpx.AsyncClient() as client:
-+        print("Testing Collections System...")
-+        
-+        # 1. Create a collection
-+        print("\n1. Creating a collection:")
-+        response = await client.post(
-+            f"{base_url}/collections",
-+            params={
-+                "name": "My Favorite Posts",
-+                "description": "A collection of my favorite posts",
-+                "is_public": True
-+            },
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            collection_data = response.json()
-+            print(f"Response: {collection_data}")
-+            collection_id = collection_data["collection_id"]
-+        else:
-+            print(f"Error: {response.text}")
-+            return
-+        
-+        # 2. Get my collections
-+        print("\n2. Getting my collections:")
-+        response = await client.get(
-+            f"{base_url}/collections",
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # 3. Add post to collection
-+        print("\n3. Adding post to collection:")
-+        response = await client.post(
-+            f"{base_url}/collections/{collection_id}/posts/test_post_123",
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # 4. Get collection with posts
-+        print("\n4. Getting collection with posts:")
-+        response = await client.get(
-+            f"{base_url}/collections/{collection_id}",
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            collection_with_posts = response.json()
-+            print(f"Collection: {collection_with_posts['name']}")
-+            print(f"Posts count: {len(collection_with_posts.get('posts', []))}")
-+            if collection_with_posts.get('posts'):
-+                print(f"First post: {collection_with_posts['posts'][0]['content']}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # 5. Get public collections
-+        print("\n5. Getting public collections:")
-+        response = await client.get(
-+            f"{base_url}/collections/public",
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            public_collections = response.json()
-+            print(f"Public collections count: {len(public_collections)}")
-+            if public_collections:
-+                print(f"First collection: {public_collections[0]['name']}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # 6. Update collection
-+        print("\n6. Updating collection:")
-+        response = await client.put(
-+            f"{base_url}/collections/{collection_id}",
-+            params={
-+                "name": "My Updated Favorite Posts",
-+                "description": "Updated description"
-+            },
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # 7. Remove post from collection
-+        print("\n7. Removing post from collection:")
-+        response = await client.delete(
-+            f"{base_url}/collections/{collection_id}/posts/test_post_123",
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+
-+if __name__ == "__main__":
-+    asyncio.run(test_collections())
-\ No newline at end of file
-diff --git a/test_reactions.py b/test_reactions.py
-new file mode 100644
-index 0000000..b16bce3
---- /dev/null
-+++ b/test_reactions.py
-@@ -0,0 +1,77 @@
-+#!/usr/bin/env python3
-+
-+import asyncio
-+import httpx
-+import json
-+from datetime import datetime, timezone
-+import uuid
-+
-+async def test_reactions():
-+    """Test the new reactions system"""
-+    base_url = "http://localhost:8001/api"
-+    
-+    # Test data
-+    test_user = {
-+        "user_id": "test_user_123",
-+        "email": "test@example.com", 
-+        "name": "Test User",
-+        "session_token": "test_token_123"
-+    }
-+    
-+    # Create a test post first
-+    async with httpx.AsyncClient() as client:
-+        # Test the new react endpoint
-+        print("Testing new reactions system...")
-+        
-+        # Test reacting with 'like'
-+        print("\n1. Testing 'like' reaction:")
-+        response = await client.post(
-+            f"{base_url}/posts/test_post_123/react",
-+            params={"reaction_type": "like"},
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # Test reacting with 'love'
-+        print("\n2. Testing 'love' reaction:")
-+        response = await client.post(
-+            f"{base_url}/posts/test_post_123/react",
-+            params={"reaction_type": "love"},
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # Test getting reactions
-+        print("\n3. Testing get reactions:")
-+        response = await client.get(
-+            f"{base_url}/posts/test_post_123/reactions",
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+        
-+        # Test legacy like endpoint
-+        print("\n4. Testing legacy like endpoint:")
-+        response = await client.post(
-+            f"{base_url}/posts/test_post_123/like",
-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
-+        )
-+        print(f"Status: {response.status_code}")
-+        if response.status_code == 200:
-+            print(f"Response: {response.json()}")
-+        else:
-+            print(f"Error: {response.text}")
-+
-+if __name__ == "__main__":
-+    asyncio.run(test_reactions())
-\ No newline at end of file
+--------   useEffect(() => {
+--------     loadFeed();
+--------diff --git a/model.patch b/model.patch
+--------index 1f822eb..e69de29 100644
+----------- a/model.patch
+--------+++ b/model.patch
+--------@@ -1,55 +0,0 @@
+---------diff --git a/backend/server.py b/backend/server.py
+---------index 5105bcb..cc32f7d 100644
+------------ a/backend/server.py
+---------+++ b/backend/server.py
+---------@@ -350,6 +350,20 @@ async def get_feed(current_user: User = Depends(require_auth)):
+---------             "post_id": post["post_id"]
+---------         })
+---------         post["liked"] = liked is not None
+---------+        
+---------+        # Check if current user disliked
+---------+        disliked = await db.dislikes.find_one({
+---------+            "user_id": current_user.user_id,
+---------+            "post_id": post["post_id"]
+---------+        })
+---------+        post["disliked"] = disliked is not None
+---------+        
+---------+        # Check if current user saved
+---------+        saved = await db.saved_posts.find_one({
+---------+            "user_id": current_user.user_id,
+---------+            "post_id": post["post_id"]
+---------+        })
+---------+        post["saved"] = saved is not None
+---------     
+---------     return posts
+--------- 
+---------@@ -367,6 +381,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
+---------             "post_id": post["post_id"]
+---------         })
+---------         post["liked"] = liked is not None
+---------+        
+---------+        # Check if current user disliked
+---------+        disliked = await db.dislikes.find_one({
+---------+            "user_id": current_user.user_id,
+---------+            "post_id": post["post_id"]
+---------+        })
+---------+        post["disliked"] = disliked is not None
+---------+        
+---------+        # Check if current user saved
+---------+        saved = await db.saved_posts.find_one({
+---------+            "user_id": current_user.user_id,
+---------+            "post_id": post["post_id"]
+---------+        })
+---------+        post["saved"] = saved is not None
+---------     
+---------     return posts
+--------- 
+---------@@ -587,7 +615,7 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
+---------     
+---------     # Add user data and liked status
+---------     for post in posts:
+----------        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
+---------+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+---------         post["user"] = user
+---------         
+---------         liked = await db.likes.find_one({
+-----diff --git a/simple_backend_test.py b/simple_backend_test.py
+-----new file mode 100644
+-----index 0000000..f368b5a
+-------- /dev/null
+-----+++ b/simple_backend_test.py
+-----@@ -0,0 +1,153 @@
+-----+#!/usr/bin/env python3
+-----+"""
+-----+Simple Backend Test for Grover - Direct MongoDB approach
+-----+"""
+-----+
+-----+import requests
+-----+import pymongo
+-----+import uuid
+-----+from datetime import datetime, timezone, timedelta
+-----+
+-----+def test_backend():
+-----+    print("🚀 Starting Simple Backend Test")
+-----+    
+-----+    # Connect to MongoDB
+-----+    client = pymongo.MongoClient("mongodb://localhost:27017")
+-----+    db = client["test_database"]
+-----+    
+-----+    # Create test user
+-----+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+-----+    session_token = f"test_token_{uuid.uuid4().hex}"
+-----+    
+-----+    print(f"Creating test user: {user_id}")
+-----+    print(f"Session token: {session_token}")
+-----+    
+-----+    # Insert test user
+-----+    test_user = {
+-----+        "user_id": user_id,
+-----+        "email": f"testuser_{uuid.uuid4().hex[:8]}@example.com",
+-----+        "name": "Test User",
+-----+        "picture": "https://example.com/avatar.jpg",
+-----+        "bio": "Test user for backend testing",
+-----+        "is_premium": False,
+-----+        "is_private": False,
+-----+        "created_at": datetime.now(timezone.utc)
+-----+    }
+-----+    
+-----+    db.users.insert_one(test_user)
+-----+    print("✅ User created in database")
+-----+    
+-----+    # Insert session
+-----+    session_doc = {
+-----+        "user_id": user_id,
+-----+        "session_token": session_token,
+-----+        "expires_at": datetime.now(timezone.utc) + timedelta(days=1),
+-----+        "created_at": datetime.now(timezone.utc)
+-----+    }
+-----+    
+-----+    db.user_sessions.insert_one(session_doc)
+-----+    print("✅ Session created in database")
+-----+    
+-----+    # Test authentication
+-----+    headers = {"Authorization": f"Bearer {session_token}"}
+-----+    response = requests.get("http://localhost:8001/api/auth/me", headers=headers)
+-----+    
+-----+    if response.status_code == 200:
+-----+        user_data = response.json()
+-----+        print(f"✅ Authentication successful: {user_data['name']}")
+-----+        
+-----+        # Test post creation
+-----+        print("\n📝 Testing post creation...")
+-----+        post_data = {
+-----+            "content": "Test post for comments",
+-----+            "tagged_users": user_id,
+-----+            "location": "Test Location"
+-----+        }
+-----+        
+-----+        response = requests.post("http://localhost:8001/api/posts", data=post_data, headers=headers)
+-----+        
+-----+        if response.status_code == 200:
+-----+            result = response.json()
+-----+            post_id = result.get("post_id")
+-----+            print(f"✅ Post created: {post_id}")
+-----+            
+-----+            # Test comment creation
+-----+            print("\n💬 Testing comment creation...")
+-----+            comment_params = {"content": "This is a test comment"}
+-----+            
+-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/comments", 
+-----+                                   params=comment_params, headers=headers)
+-----+            
+-----+            if response.status_code == 200:
+-----+                result = response.json()
+-----+                comment_id = result.get("comment_id")
+-----+                print(f"✅ Comment created: {comment_id}")
+-----+                
+-----+                # Test get comments
+-----+                response = requests.get(f"http://localhost:8001/api/posts/{post_id}/comments", headers=headers)
+-----+                if response.status_code == 200:
+-----+                    comments = response.json()
+-----+                    print(f"✅ Retrieved {len(comments)} comments")
+-----+                else:
+-----+                    print(f"❌ Get comments failed: {response.status_code}")
+-----+                    
+-----+                # Test comment like
+-----+                response = requests.post(f"http://localhost:8001/api/comments/{comment_id}/like", headers=headers)
+-----+                if response.status_code == 200:
+-----+                    print("✅ Comment like successful")
+-----+                else:
+-----+                    print(f"❌ Comment like failed: {response.status_code}")
+-----+                    
+-----+            else:
+-----+                print(f"❌ Comment creation failed: {response.status_code}")
+-----+                print(f"Response: {response.text}")
+-----+                
+-----+            # Test post interactions
+-----+            print("\n🔄 Testing post interactions...")
+-----+            
+-----+            # Test dislike
+-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/dislike", headers=headers)
+-----+            if response.status_code == 200:
+-----+                print("✅ Post dislike successful")
+-----+            else:
+-----+                print(f"❌ Post dislike failed: {response.status_code}")
+-----+                
+-----+            # Test save
+-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/save", headers=headers)
+-----+            if response.status_code == 200:
+-----+                print("✅ Post save successful")
+-----+            else:
+-----+                print(f"❌ Post save failed: {response.status_code}")
+-----+                
+-----+            # Test share
+-----+            response = requests.post(f"http://localhost:8001/api/posts/{post_id}/share", headers=headers)
+-----+            if response.status_code == 200:
+-----+                print("✅ Post share successful")
+-----+            else:
+-----+                print(f"❌ Post share failed: {response.status_code}")
+-----+                
+-----+            # Test get saved posts
+-----+            response = requests.get("http://localhost:8001/api/posts/saved", headers=headers)
+-----+            if response.status_code == 200:
+-----+                saved_posts = response.json()
+-----+                print(f"✅ Retrieved {len(saved_posts)} saved posts")
+-----+            else:
+-----+                print(f"❌ Get saved posts failed: {response.status_code}")
+-----+                
+-----+        else:
+-----+            print(f"❌ Post creation failed: {response.status_code}")
+-----+            print(f"Response: {response.text}")
+-----+            
+-----+    else:
+-----+        print(f"❌ Authentication failed: {response.status_code}")
+-----+        print(f"Response: {response.text}")
+-----+    
+-----+    # Cleanup
+-----+    db.users.delete_one({"user_id": user_id})
+-----+    db.user_sessions.delete_one({"session_token": session_token})
+-----+    client.close()
+-----+    
+-----+    print("\n🧹 Cleanup completed")
+-----+
+-----+if __name__ == "__main__":
+-----+    test_backend()
+-----\ No newline at end of file
+-----diff --git a/test_result.md b/test_result.md
+-----index a6c2a44..dec4109 100644
+-------- a/test_result.md
+-----+++ b/test_result.md
+-----@@ -239,27 +239,33 @@ backend:
+----- 
+-----   - task: "Comments System (Backend)"
+-----     implemented: true
+------    working: "NA"
+-----+    working: true
+-----     file: "/app/backend/server.py"
+-----     stuck_count: 0
+-----     priority: "high"
+------    needs_retesting: true
+-----+    needs_retesting: false
+-----     status_history:
+-----       - working: "NA"
+-----         agent: "main"
+-----         comment: "Implemented complete comments system with create, read, like, delete, and reply (threading) functionality. Comments are linked to posts and support nested replies."
+-----+      - working: true
+-----+        agent: "testing"
+-----+        comment: "✅ ALL COMMENT ENDPOINTS TESTED SUCCESSFULLY: POST /api/posts/{post_id}/comments (create comment), GET /api/posts/{post_id}/comments (get comments), POST with parent_comment_id (create reply), GET /api/comments/{comment_id}/replies (get replies), POST /api/comments/{comment_id}/like (like/unlike toggle), DELETE /api/comments/{comment_id} (delete comment). All 7 tests passed with proper response validation."
+----- 
+-----   - task: "Post Interactions: Dislike, Save, Share"
+-----     implemented: true
+------    working: "NA"
+-----+    working: true
+-----     file: "/app/backend/server.py"
+-----     stuck_count: 0
+-----     priority: "high"
+------    needs_retesting: true
+-----+    needs_retesting: false
+-----     status_history:
+-----       - working: "NA"
+-----         agent: "main"
+-----         comment: "Implemented dislike (toggle), save (bookmark), and share endpoints for posts. All endpoints track user interactions in separate collections."
+-----+      - working: true
+-----+        agent: "testing"
+-----+        comment: "✅ ALL POST INTERACTION ENDPOINTS TESTED SUCCESSFULLY: POST /api/posts/{post_id}/dislike (dislike/undislike toggle), POST /api/posts/{post_id}/save (save/unsave bookmark toggle), POST /api/posts/{post_id}/share (share post), GET /api/posts/saved (get saved posts). All 6 tests passed with proper toggle behavior and response validation."
+----- 
+----- frontend:
+-----   - task: "Auth Flow with Emergent OAuth"
+-----@@ -423,15 +429,18 @@ frontend:
+----- 
+-----   - task: "Tagging and Location in Posts"
+-----     implemented: true
+------    working: "NA"
+------    file: "/app/frontend/app/(tabs)/index.tsx"
+-----+    working: true
+-----+    file: "/app/backend/server.py"
+-----     stuck_count: 0
+-----     priority: "high"
+------    needs_retesting: true
+-----+    needs_retesting: false
+-----     status_history:
+-----       - working: "NA"
+-----         agent: "main"
+-----         comment: "Added input fields for tagging users (comma-separated IDs) and location in the create post modal. Post cards now display location and tagged user count with appropriate icons."
+-----+      - working: true
+-----+        agent: "testing"
+-----+        comment: "✅ TAGGING AND LOCATION BACKEND TESTED SUCCESSFULLY: POST /api/posts with tagged_users (comma-separated IDs) and location fields working correctly. Posts return with tagged_users array and location string in response. Verified with multiple tags and location data. Edge cases with empty tags/location also handled properly. All 3 tests passed."
+----- 
+----- metadata:
+-----   created_by: "main_agent"
+-----@@ -441,11 +450,8 @@ metadata:
+----- 
+----- test_plan:
+-----   current_focus:
+------    - "Comments System (Backend)"
+-----     - "Comments UI System"
+------    - "Post Interactions: Dislike, Save, Share"
+-----     - "Post Interactions UI (Dislike, Share, Save)"
+------    - "Tagging and Location in Posts"
+-----   stuck_tasks: []
+-----   test_all: false
+-----   test_priority: "high_first"
+-----@@ -454,4 +460,6 @@ agent_communication:
+-----   - agent: "main"
+-----     message: "Phase 1 Complete: Built complete Grover social media platform with all core features. Backend includes Emergent OAuth, posts, products, orders, real-time chat (Socket.IO), messages, notifications, analytics, premium, and search. Frontend includes full mobile app with 5 screens, auth flow, real-time messaging, store, and premium features. All using vibrant violet/fuchsia/cyan gradients and dark theme. Ready for comprehensive testing. PayPal credentials need to be configured later by admin."
+-----   - agent: "main"
+------    message: "Phase 2 Complete: Implemented complete comments system with modal UI, reply/threading, like/delete functionality. Added dislike, share, and save interactions to posts with proper UI buttons and state management. Added tagging and location features to post creation. All features connected to existing backend endpoints. Frontend restarted. Ready for backend testing of new comment and interaction endpoints."
+-----\ No newline at end of file
+-----+    message: "Phase 2 Complete: Implemented complete comments system with modal UI, reply/threading, like/delete functionality. Added dislike, share, and save interactions to posts with proper UI buttons and state management. Added tagging and location features to post creation. All features connected to existing backend endpoints. Frontend restarted. Ready for backend testing of new comment and interaction endpoints."
+-----+  - agent: "testing"
+-----+    message: "✅ BACKEND TESTING COMPLETE: All requested backend features tested successfully. Comments System (7/7 tests passed): create comment, get comments, create reply, get replies, like/unlike toggle, delete comment. Post Interactions (6/6 tests passed): dislike/undislike toggle, save/unsave bookmark toggle, share post, get saved posts. Tagging & Location (3/3 tests passed): post creation with tags and location, data validation, edge cases. All endpoints working correctly with proper authentication, response validation, and toggle behavior. Ready for frontend UI testing."
+-----\ No newline at end of file
+-diff --git a/setup_test_data.py b/setup_test_data.py
+-new file mode 100644
+-index 0000000..c91416d
+---- /dev/null
+-+++ b/setup_test_data.py
+-@@ -0,0 +1,88 @@
+-+#!/usr/bin/env python3
+-+
+-+import asyncio
+-+from motor.motor_asyncio import AsyncIOMotorClient
+-+from datetime import datetime, timezone, timedelta
+-+import uuid
+-+import os
+-+from dotenv import load_dotenv
+-+
+-+# Load environment variables
+-+load_dotenv('/app/backend/.env')
+-+
+-+async def setup_test_data():
+-+    """Setup test data for reactions testing"""
+-+    
+-+    # MongoDB connection
+-+    mongo_url = os.environ['MONGO_URL']
+-+    client = AsyncIOMotorClient(mongo_url)
+-+    db = client[os.environ['DB_NAME']]
+-+    
+-+    # Create test user
+-+    test_user = {
+-+        "user_id": "test_user_123",
+-+        "email": "test@example.com",
+-+        "name": "Test User",
+-+        "picture": None,
+-+        "bio": "Test user for reactions",
+-+        "is_premium": False,
+-+        "is_private": False,
+-+        "created_at": datetime.now(timezone.utc)
+-+    }
+-+    
+-+    # Insert or update test user
+-+    await db.users.update_one(
+-+        {"user_id": test_user["user_id"]},
+-+        {"$set": test_user},
+-+        upsert=True
+-+    )
+-+    
+-+    # Create test session
+-+    test_session = {
+-+        "user_id": "test_user_123",
+-+        "session_token": "test_token_123",
+-+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+-+        "created_at": datetime.now(timezone.utc)
+-+    }
+-+    
+-+    await db.user_sessions.update_one(
+-+        {"session_token": test_session["session_token"]},
+-+        {"$set": test_session},
+-+        upsert=True
+-+    )
+-+    
+-+    # Create test post
+-+    test_post = {
+-+        "post_id": "test_post_123",
+-+        "user_id": "test_user_123",
+-+        "content": "This is a test post for reactions! 🎉",
+-+        "media_url": None,
+-+        "media_type": None,
+-+        "likes_count": 0,
+-+        "dislikes_count": 0,
+-+        "shares_count": 0,
+-+        "comments_count": 0,
+-+        "repost_count": 0,
+-+        "reaction_counts": {},
+-+        "tagged_users": [],
+-+        "location": None,
+-+        "is_repost": False,
+-+        "has_poll": False,
+-+        "created_at": datetime.now(timezone.utc)
+-+    }
+-+    
+-+    await db.posts.update_one(
+-+        {"post_id": test_post["post_id"]},
+-+        {"$set": test_post},
+-+        upsert=True
+-+    )
+-+    
+-+    print("✅ Test data setup complete!")
+-+    print(f"Test user: {test_user['user_id']}")
+-+    print(f"Test session token: {test_session['session_token']}")
+-+    print(f"Test post: {test_post['post_id']}")
+-+    
+-+    client.close()
+-+
+-+if __name__ == "__main__":
+-+    asyncio.run(setup_test_data())
+-\ No newline at end of file
+-diff --git a/test_collections.py b/test_collections.py
+-new file mode 100644
+-index 0000000..4cf3a4c
+---- /dev/null
+-+++ b/test_collections.py
+-@@ -0,0 +1,124 @@
+-+#!/usr/bin/env python3
+-+
+-+import asyncio
+-+import httpx
+-+import json
+-+
+-+async def test_collections():
+-+    """Test the new collections system"""
+-+    base_url = "http://localhost:8001/api"
+-+    
+-+    # Test data
+-+    test_user = {
+-+        "user_id": "test_user_123",
+-+        "session_token": "test_token_123"
+-+    }
+-+    
+-+    async with httpx.AsyncClient() as client:
+-+        print("Testing Collections System...")
+-+        
+-+        # 1. Create a collection
+-+        print("\n1. Creating a collection:")
+-+        response = await client.post(
+-+            f"{base_url}/collections",
+-+            params={
+-+                "name": "My Favorite Posts",
+-+                "description": "A collection of my favorite posts",
+-+                "is_public": True
+-+            },
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            collection_data = response.json()
+-+            print(f"Response: {collection_data}")
+-+            collection_id = collection_data["collection_id"]
+-+        else:
+-+            print(f"Error: {response.text}")
+-+            return
+-+        
+-+        # 2. Get my collections
+-+        print("\n2. Getting my collections:")
+-+        response = await client.get(
+-+            f"{base_url}/collections",
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # 3. Add post to collection
+-+        print("\n3. Adding post to collection:")
+-+        response = await client.post(
+-+            f"{base_url}/collections/{collection_id}/posts/test_post_123",
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # 4. Get collection with posts
+-+        print("\n4. Getting collection with posts:")
+-+        response = await client.get(
+-+            f"{base_url}/collections/{collection_id}",
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            collection_with_posts = response.json()
+-+            print(f"Collection: {collection_with_posts['name']}")
+-+            print(f"Posts count: {len(collection_with_posts.get('posts', []))}")
+-+            if collection_with_posts.get('posts'):
+-+                print(f"First post: {collection_with_posts['posts'][0]['content']}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # 5. Get public collections
+-+        print("\n5. Getting public collections:")
+-+        response = await client.get(
+-+            f"{base_url}/collections/public",
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            public_collections = response.json()
+-+            print(f"Public collections count: {len(public_collections)}")
+-+            if public_collections:
+-+                print(f"First collection: {public_collections[0]['name']}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # 6. Update collection
+-+        print("\n6. Updating collection:")
+-+        response = await client.put(
+-+            f"{base_url}/collections/{collection_id}",
+-+            params={
+-+                "name": "My Updated Favorite Posts",
+-+                "description": "Updated description"
+-+            },
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # 7. Remove post from collection
+-+        print("\n7. Removing post from collection:")
+-+        response = await client.delete(
+-+            f"{base_url}/collections/{collection_id}/posts/test_post_123",
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+
+-+if __name__ == "__main__":
+-+    asyncio.run(test_collections())
+-\ No newline at end of file
+-diff --git a/test_reactions.py b/test_reactions.py
+-new file mode 100644
+-index 0000000..b16bce3
+---- /dev/null
+-+++ b/test_reactions.py
+-@@ -0,0 +1,77 @@
+-+#!/usr/bin/env python3
+-+
+-+import asyncio
+-+import httpx
+-+import json
+-+from datetime import datetime, timezone
+-+import uuid
+-+
+-+async def test_reactions():
+-+    """Test the new reactions system"""
+-+    base_url = "http://localhost:8001/api"
+-+    
+-+    # Test data
+-+    test_user = {
+-+        "user_id": "test_user_123",
+-+        "email": "test@example.com", 
+-+        "name": "Test User",
+-+        "session_token": "test_token_123"
+-+    }
+-+    
+-+    # Create a test post first
+-+    async with httpx.AsyncClient() as client:
+-+        # Test the new react endpoint
+-+        print("Testing new reactions system...")
+-+        
+-+        # Test reacting with 'like'
+-+        print("\n1. Testing 'like' reaction:")
+-+        response = await client.post(
+-+            f"{base_url}/posts/test_post_123/react",
+-+            params={"reaction_type": "like"},
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # Test reacting with 'love'
+-+        print("\n2. Testing 'love' reaction:")
+-+        response = await client.post(
+-+            f"{base_url}/posts/test_post_123/react",
+-+            params={"reaction_type": "love"},
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # Test getting reactions
+-+        print("\n3. Testing get reactions:")
+-+        response = await client.get(
+-+            f"{base_url}/posts/test_post_123/reactions",
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+        
+-+        # Test legacy like endpoint
+-+        print("\n4. Testing legacy like endpoint:")
+-+        response = await client.post(
+-+            f"{base_url}/posts/test_post_123/like",
+-+            headers={"Authorization": f"Bearer {test_user['session_token']}"}
+-+        )
+-+        print(f"Status: {response.status_code}")
+-+        if response.status_code == 200:
+-+            print(f"Response: {response.json()}")
+-+        else:
+-+            print(f"Error: {response.text}")
+-+
+-+if __name__ == "__main__":
+-+    asyncio.run(test_reactions())
+-\ No newline at end of file
