@@ -29,6 +29,7 @@ interface Post {
   media_url?: string;
   media_type?: string;
   likes_count: number;
+  comments_count?: number;
   created_at: string;
   user?: any;
   liked?: boolean;
