@@ -464,8 +464,13 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
 # ============ POST ENDPOINTS ============
 
 @api_router.get("/posts")
-async def get_posts(current_user: User = Depends(require_auth)):
-    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+async def get_posts(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get all posts with pagination"""
+    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return posts
 
 @api_router.get("/posts/feed")
