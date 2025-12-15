@@ -72,7 +72,7 @@ export default function ExploreScreen() {
     await loadContent();
   };
 
-  const handleLike = async (postId: string) => {
+  const handleLike = async (postId) => {
     try {
       const result = await api.likePost(postId);
       setPosts(posts.map(p => 
