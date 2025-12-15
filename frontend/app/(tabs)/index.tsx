@@ -800,6 +800,60 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Repost Modal */}
+      <Modal
+        visible={repostModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setRepostModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Repost</Text>
+              <TouchableOpacity onPress={() => {
+                setRepostModalVisible(false);
+                setRepostComment('');
+                setSelectedRepostPost(null);
+              }}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedRepostPost && (
+              <View style={styles.repostPreview}>
+                <View style={styles.repostPreviewHeader}>
+                  <Image
+                    source={{ uri: selectedRepostPost.user?.picture || 'https://via.placeholder.com/32' }}
+                    style={styles.commentAvatar}
+                  />
+                  <Text style={styles.repostPreviewUsername}>{selectedRepostPost.user?.name || 'Unknown'}</Text>
+                </View>
+                <Text style={styles.repostPreviewContent} numberOfLines={3}>
+                  {selectedRepostPost.content}
+                </Text>
+              </View>
+            )}
+
+            <TextInput
+              style={styles.repostInput}
+              placeholder="Add your commentary (optional)..."
+              placeholderTextColor={Colors.textSecondary}
+              multiline
+              value={repostComment}
+              onChangeText={setRepostComment}
+            />
+
+            <TouchableOpacity
+              style={styles.submitButton}
+              onPress={handleRepost}
+            >
+              <Text style={styles.submitButtonText}>Repost</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
