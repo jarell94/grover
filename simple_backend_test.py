@@ -64,7 +64,7 @@ def test_backend():
             "location": "Test Location"
         }
         
-        response = requests.post("http://localhost:8001/api/posts", json=post_data, headers=headers)
+        response = requests.post("http://localhost:8001/api/posts", data=post_data, headers=headers)
         
         if response.status_code == 200:
             result = response.json()
