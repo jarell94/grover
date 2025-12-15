@@ -394,19 +394,46 @@ export default function HomeScreen() {
 
   const renderPost = ({ item }: { item: Post }) => (
     <View style={styles.postCard}>
+      {item.is_repost && item.original_post && (
+        <View style={styles.repostHeader}>
+          <Ionicons name="repeat" size={16} color={Colors.primary} />
+          <Text style={styles.repostText}>
+            {item.user?.name || 'Unknown'} reposted
+          </Text>
+        </View>
+      )}
+
       <View style={styles.postHeader}>
         <Image
-          source={{ uri: item.user?.picture || 'https://via.placeholder.com/40' }}
+          source={{ 
+            uri: item.is_repost && item.original_post 
+              ? item.original_post.user?.picture 
+              : item.user?.picture || 'https://via.placeholder.com/40' 
+          }}
           style={styles.avatar}
         />
         <View style={styles.postHeaderText}>
-          <Text style={styles.username}>{item.user?.name || 'Unknown'}</Text>
-          <Text style={styles.timestamp}>{new Date(item.created_at).toLocaleDateString()}</Text>
+          <Text style={styles.username}>
+            {item.is_repost && item.original_post 
+              ? item.original_post.user?.name 
+              : item.user?.name || 'Unknown'}
+          </Text>
+          <Text style={styles.timestamp}>
+            {new Date(item.is_repost && item.original_post 
+              ? item.original_post.created_at 
+              : item.created_at).toLocaleDateString()}
+          </Text>
         </View>
-        {item.user?.is_premium && (
+        {((item.is_repost && item.original_post?.user?.is_premium) || item.user?.is_premium) && (
           <Ionicons name="star" size={20} color={Colors.accent} />
         )}
       </View>
+
+      {item.repost_comment && (
+        <View style={styles.repostCommentBox}>
+          <Text style={styles.repostCommentText}>{item.repost_comment}</Text>
+        </View>
+      )}
 
       <Text style={styles.postContent}>{item.content}</Text>
 
