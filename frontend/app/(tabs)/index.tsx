@@ -216,6 +216,72 @@ export default function HomeScreen() {
     }
   };
 
+  const handleOpenRepost = (post: Post) => {
+    // If post is already a repost, repost the original
+    const targetPost = post.is_repost && post.original_post ? post.original_post : post;
+    setSelectedRepostPost(targetPost);
+    setRepostModalVisible(true);
+  };
+
+  const handleRepost = async () => {
+    if (!selectedRepostPost) return;
+
+    try {
+      const result = await api.repostPost(
+        selectedRepostPost.post_id,
+        repostComment.trim() || undefined
+      );
+      
+      // Update repost count in local state
+      setPosts(posts.map(p =>
+        p.post_id === selectedRepostPost.post_id
+          ? { ...p, repost_count: (p.repost_count || 0) + 1, reposted: true }
+          : p
+      ));
+
+      setRepostComment('');
+      setRepostModalVisible(false);
+      setSelectedRepostPost(null);
+      Alert.alert('Success', 'Post reposted to your feed!');
+      loadFeed(); // Refresh to show the repost
+    } catch (error: any) {
+      console.error('Repost error:', error);
+      const message = error.message?.includes('already reposted')
+        ? 'You have already reposted this'
+        : 'Failed to repost';
+      Alert.alert('Error', message);
+    }
+  };
+
+  const handleUnrepost = async (postId: string) => {
+    Alert.alert(
+      'Remove Repost',
+      'Are you sure you want to remove this repost?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.unrepostPost(postId);
+              setPosts(posts.map(p =>
+                p.post_id === postId
+                  ? { ...p, repost_count: Math.max(0, (p.repost_count || 0) - 1), reposted: false }
+                  : p
+              ));
+              Alert.alert('Success', 'Repost removed');
+              loadFeed();
+            } catch (error) {
+              console.error('Unrepost error:', error);
+              Alert.alert('Error', 'Failed to remove repost');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const pickMedia = async (type: 'image' | 'video' | 'audio') => {
     try {
       if (type === 'audio') {
