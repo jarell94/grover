@@ -26,6 +26,10 @@ export default function ProfileScreen() {
   const [name, setName] = useState(user?.name || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [isPrivate, setIsPrivate] = useState(user?.is_private || false);
+  const [website, setWebsite] = useState(user?.website || '');
+  const [twitter, setTwitter] = useState(user?.twitter || '');
+  const [instagram, setInstagram] = useState(user?.instagram || '');
+  const [linkedin, setLinkedin] = useState(user?.linkedin || '');
   const [showPremiumModal, setShowPremiumModal] = useState(false);
 
   useEffect(() => {
