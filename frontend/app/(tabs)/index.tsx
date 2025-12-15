@@ -348,6 +348,20 @@ export default function HomeScreen() {
 
         <TouchableOpacity
           style={styles.actionButton}
+          onPress={() => handleDislike(item.post_id)}
+        >
+          <Ionicons
+            name={item.disliked ? 'heart-dislike' : 'heart-dislike-outline'}
+            size={24}
+            color={item.disliked ? Colors.secondary : Colors.textSecondary}
+          />
+          <Text style={[styles.actionText, item.disliked && { color: Colors.secondary }]}>
+            {item.dislikes_count || 0}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
           onPress={() => {
             setSelectedPost(item);
             setCommentsModalVisible(true);
@@ -356,6 +370,24 @@ export default function HomeScreen() {
         >
           <Ionicons name="chatbubble-outline" size={24} color={Colors.textSecondary} />
           <Text style={styles.actionText}>{item.comments_count || 0}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => handleShare(item.post_id)}
+        >
+          <Ionicons name="share-outline" size={24} color={Colors.textSecondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => handleSave(item.post_id)}
+        >
+          <Ionicons
+            name={item.saved ? 'bookmark' : 'bookmark-outline'}
+            size={24}
+            color={item.saved ? Colors.accent : Colors.textSecondary}
+          />
         </TouchableOpacity>
       </View>
     </View>
