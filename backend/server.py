@@ -1764,6 +1764,156 @@ async def get_user_highlights(user_id: str, current_user: User = Depends(require
     
     return grouped
 
+# ============ LIVE STREAMING ENDPOINTS ============
+
+@api_router.post("/streams/start")
+async def start_stream(
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    enable_super_chat: bool = Form(False),
+    enable_shopping: bool = Form(False),
+    current_user: User = Depends(require_auth)
+):
+    """Start a live stream"""
+    stream_id = f"stream_{uuid.uuid4().hex[:12]}"
+    
+    # In production, you would generate Agora token here
+    # For now, we'll use a placeholder
+    stream_data = {
+        "stream_id": stream_id,
+        "user_id": current_user.user_id,
+        "title": title,
+        "description": description,
+        "enable_super_chat": enable_super_chat,
+        "enable_shopping": enable_shopping,
+        "status": "live",
+        "viewers_count": 0,
+        "started_at": datetime.now(timezone.utc),
+        "channel_name": stream_id,  # Agora channel name
+        "agora_token": "temp_token",  # Would generate real token in production
+    }
+    
+    await db.streams.insert_one(stream_data)
+    
+    # Notify followers
+    followers = await db.follows.find(
+        {"following_id": current_user.user_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    for follower in followers:
+        await create_notification(
+            follower["follower_id"],
+            "live",
+            f"{current_user.name} just went live: {title}",
+            stream_id
+        )
+    
+    return {
+        "stream_id": stream_id,
+        "channel_name": stream_id,
+        "token": "temp_token",
+        "message": "Stream started successfully"
+    }
+
+@api_router.post("/streams/{stream_id}/end")
+async def end_stream(stream_id: str, current_user: User = Depends(require_auth)):
+    """End a live stream"""
+    stream = await db.streams.find_one({"stream_id": stream_id})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    if stream["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.streams.update_one(
+        {"stream_id": stream_id},
+        {
+            "$set": {
+                "status": "ended",
+                "ended_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    return {"message": "Stream ended"}
+
+@api_router.get("/streams/live")
+async def get_live_streams(current_user: User = Depends(require_auth)):
+    """Get all currently live streams"""
+    streams = await db.streams.find(
+        {"status": "live"},
+        {"_id": 0}
+    ).sort("started_at", -1).to_list(100)
+    
+    # Add user data
+    for stream in streams:
+        user = await db.users.find_one({"user_id": stream["user_id"]}, {"_id": 0})
+        stream["user"] = user
+    
+    return streams
+
+@api_router.get("/streams/{stream_id}")
+async def get_stream(stream_id: str, current_user: User = Depends(require_auth)):
+    """Get stream details and join token"""
+    stream = await db.streams.find_one({"stream_id": stream_id}, {"_id": 0})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    # Add user data
+    user = await db.users.find_one({"user_id": stream["user_id"]}, {"_id": 0})
+    stream["user"] = user
+    
+    # Increment viewers count
+    await db.streams.update_one(
+        {"stream_id": stream_id},
+        {"$inc": {"viewers_count": 1}}
+    )
+    
+    # Generate viewer token (would be real Agora token in production)
+    return {
+        **stream,
+        "viewer_token": "temp_viewer_token",
+        "channel_name": stream["channel_name"]
+    }
+
+@api_router.post("/streams/{stream_id}/super-chat")
+async def send_super_chat(
+    stream_id: str,
+    amount: float,
+    message: str,
+    current_user: User = Depends(require_auth)
+):
+    """Send a paid super chat message"""
+    stream = await db.streams.find_one({"stream_id": stream_id})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    if not stream.get("enable_super_chat"):
+        raise HTTPException(status_code=400, detail="Super chat not enabled")
+    
+    # In production, process PayPal payment here
+    super_chat_id = f"superchat_{uuid.uuid4().hex[:12]}"
+    
+    await db.super_chats.insert_one({
+        "super_chat_id": super_chat_id,
+        "stream_id": stream_id,
+        "user_id": current_user.user_id,
+        "amount": amount,
+        "message": message,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Notify streamer
+    await create_notification(
+        stream["user_id"],
+        "super_chat",
+        f"{current_user.name} sent ${amount}: {message}",
+        super_chat_id
+    )
+    
+    return {"message": "Super chat sent", "super_chat_id": super_chat_id}
+
 # ============ POLLS ENDPOINTS ============
 
 @api_router.post("/posts/{post_id}/vote")
