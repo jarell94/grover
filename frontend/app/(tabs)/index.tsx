@@ -268,6 +268,18 @@ export default function HomeScreen() {
     }
   };
 
+  const handleVotePoll = async (postId: string, optionIndex: number) => {
+    try {
+      const result = await api.voteOnPoll(postId, optionIndex);
+      // Refresh post to show updated votes
+      const updatedPosts = await api.getFeed();
+      setPosts(updatedPosts);
+    } catch (error) {
+      console.error('Vote error:', error);
+      Alert.alert('Error', 'Failed to vote on poll');
+    }
+  };
+
   const handleUnrepost = async (postId: string) => {
     Alert.alert(
       'Remove Repost',
