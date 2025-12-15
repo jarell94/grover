@@ -190,7 +190,7 @@ export default function ExploreScreen() {
           <Text style={styles.categoryCount}>{item.post_count} posts</Text>
         </TouchableOpacity>
       )}
-      keyExtractor={(item: any) => item.category_id}
+      keyExtractor={(item) => item.category_id}
       numColumns={2}
       contentContainerStyle={styles.categoriesGrid}
       refreshControl={
