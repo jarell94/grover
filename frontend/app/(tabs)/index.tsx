@@ -18,6 +18,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../services/api';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import MediaDisplay from '../../components/MediaDisplay';
 
 interface Post {
   post_id: string;
