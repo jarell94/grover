@@ -52,6 +52,43 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ============ HELPER FUNCTIONS ============
+
+async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
+    """Create a notification only if user has that type enabled"""
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        return
+    
+    # Map notification types to user preferences
+    pref_map = {
+        "follow": "notify_followers",
+        "like": "notify_likes",
+        "comment": "notify_comments",
+        "message": "notify_messages",
+        "sale": "notify_sales",
+        "mention": "notify_mentions",
+        "repost": "notify_reposts",
+        "share": "notify_reposts",  # Treat shares like reposts
+    }
+    
+    pref_field = pref_map.get(notification_type, "notify_followers")
+    
+    # Check if user has this notification type enabled (default to True)
+    if user.get(pref_field, True):
+        notification_data = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "type": notification_type,
+            "content": content,
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        if related_id:
+            notification_data["related_id"] = related_id
+        
+        await db.notifications.insert_one(notification_data)
+
 # ============ MODELS ============
 
 class User(BaseModel):
