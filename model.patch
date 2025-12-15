@@ -1,73 +1,78 @@
-diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
-index eca94bb..552b491 100644
---- a/frontend/app/(tabs)/index.tsx
-+++ b/frontend/app/(tabs)/index.tsx
-@@ -43,6 +43,8 @@ export default function HomeScreen() {
-   const [newPostContent, setNewPostContent] = useState('');
-   const [selectedMedia, setSelectedMedia] = useState<any>(null);
-   const [uploading, setUploading] = useState(false);
-+  const [taggedUsers, setTaggedUsers] = useState('');
-+  const [location, setLocation] = useState('');
- 
-   useEffect(() => {
-     loadFeed();
 diff --git a/model.patch b/model.patch
-index 1f822eb..e69de29 100644
+index 39be44a..e69de29 100644
 --- a/model.patch
 +++ b/model.patch
-@@ -1,55 +0,0 @@
--diff --git a/backend/server.py b/backend/server.py
--index 5105bcb..cc32f7d 100644
----- a/backend/server.py
--+++ b/backend/server.py
--@@ -350,6 +350,20 @@ async def get_feed(current_user: User = Depends(require_auth)):
--             "post_id": post["post_id"]
--         })
--         post["liked"] = liked is not None
--+        
--+        # Check if current user disliked
--+        disliked = await db.dislikes.find_one({
--+            "user_id": current_user.user_id,
--+            "post_id": post["post_id"]
--+        })
--+        post["disliked"] = disliked is not None
--+        
--+        # Check if current user saved
--+        saved = await db.saved_posts.find_one({
--+            "user_id": current_user.user_id,
--+            "post_id": post["post_id"]
--+        })
--+        post["saved"] = saved is not None
--     
--     return posts
+@@ -1,73 +0,0 @@
+-diff --git a/frontend/app/(tabs)/index.tsx b/frontend/app/(tabs)/index.tsx
+-index eca94bb..552b491 100644
+---- a/frontend/app/(tabs)/index.tsx
+-+++ b/frontend/app/(tabs)/index.tsx
+-@@ -43,6 +43,8 @@ export default function HomeScreen() {
+-   const [newPostContent, setNewPostContent] = useState('');
+-   const [selectedMedia, setSelectedMedia] = useState<any>(null);
+-   const [uploading, setUploading] = useState(false);
+-+  const [taggedUsers, setTaggedUsers] = useState('');
+-+  const [location, setLocation] = useState('');
 - 
--@@ -367,6 +381,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
--             "post_id": post["post_id"]
--         })
--         post["liked"] = liked is not None
--+        
--+        # Check if current user disliked
--+        disliked = await db.dislikes.find_one({
--+            "user_id": current_user.user_id,
--+            "post_id": post["post_id"]
--+        })
--+        post["disliked"] = disliked is not None
--+        
--+        # Check if current user saved
--+        saved = await db.saved_posts.find_one({
--+            "user_id": current_user.user_id,
--+            "post_id": post["post_id"]
--+        })
--+        post["saved"] = saved is not None
--     
--     return posts
-- 
--@@ -587,7 +615,7 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
--     
--     # Add user data and liked status
--     for post in posts:
---        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
--+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
--         post["user"] = user
--         
--         liked = await db.likes.find_one({
+-   useEffect(() => {
+-     loadFeed();
+-diff --git a/model.patch b/model.patch
+-index 1f822eb..e69de29 100644
+---- a/model.patch
+-+++ b/model.patch
+-@@ -1,55 +0,0 @@
+--diff --git a/backend/server.py b/backend/server.py
+--index 5105bcb..cc32f7d 100644
+----- a/backend/server.py
+--+++ b/backend/server.py
+--@@ -350,6 +350,20 @@ async def get_feed(current_user: User = Depends(require_auth)):
+--             "post_id": post["post_id"]
+--         })
+--         post["liked"] = liked is not None
+--+        
+--+        # Check if current user disliked
+--+        disliked = await db.dislikes.find_one({
+--+            "user_id": current_user.user_id,
+--+            "post_id": post["post_id"]
+--+        })
+--+        post["disliked"] = disliked is not None
+--+        
+--+        # Check if current user saved
+--+        saved = await db.saved_posts.find_one({
+--+            "user_id": current_user.user_id,
+--+            "post_id": post["post_id"]
+--+        })
+--+        post["saved"] = saved is not None
+--     
+--     return posts
+-- 
+--@@ -367,6 +381,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
+--             "post_id": post["post_id"]
+--         })
+--         post["liked"] = liked is not None
+--+        
+--+        # Check if current user disliked
+--+        disliked = await db.dislikes.find_one({
+--+            "user_id": current_user.user_id,
+--+            "post_id": post["post_id"]
+--+        })
+--+        post["disliked"] = disliked is not None
+--+        
+--+        # Check if current user saved
+--+        saved = await db.saved_posts.find_one({
+--+            "user_id": current_user.user_id,
+--+            "post_id": post["post_id"]
+--+        })
+--+        post["saved"] = saved is not None
+--     
+--     return posts
+-- 
+--@@ -587,7 +615,7 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
+--     
+--     # Add user data and liked status
+--     for post in posts:
+---        user = await db.users.find_one({" user_id": post["user_id"]}, {"_id": 0})
+--+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+--         post["user"] = user
+--         
+--         liked = await db.likes.find_one({
