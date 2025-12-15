@@ -1,0 +1,224 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors } from '../../constants/Colors';
+import { api } from '../../services/api';
+
+interface Notification {
+  notification_id: string;
+  type: string;
+  content: string;
+  read: boolean;
+  created_at: string;
+}
+
+export default function NotificationsScreen() {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const loadNotifications = async () => {
+    try {
+      const data = await api.getNotifications();
+      setNotifications(data);
+    } catch (error) {
+      console.error('Load notifications error:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadNotifications();
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.markNotificationsRead();
+      setNotifications(notifications.map(n => ({ ...n, read: true })));
+    } catch (error) {
+      console.error('Mark all read error:', error);
+    }
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'like':
+        return { name: 'heart', color: Colors.error };
+      case 'follow':
+        return { name: 'person-add', color: Colors.primary };
+      case 'purchase':
+        return { name: 'cart', color: Colors.success };
+      default:
+        return { name: 'notifications', color: Colors.accent };
+    }
+  };
+
+  const renderNotification = ({ item }: { item: Notification }) => {
+    const icon = getNotificationIcon(item.type);
+
+    return (
+      <View style={[styles.notificationCard, !item.read && styles.unreadCard]}>
+        <View style={[styles.iconContainer, { backgroundColor: `${icon.color}20` }]}>
+          <Ionicons name={icon.name as any} size={24} color={icon.color} />
+        </View>
+        <View style={styles.notificationContent}>
+          <Text style={styles.notificationText}>{item.content}</Text>
+          <Text style={styles.notificationTime}>
+            {new Date(item.created_at).toLocaleString()}
+          </Text>
+        </View>
+        {!item.read && <View style={styles.unreadDot} />}
+      </View>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Notifications</Text>
+        {notifications.some(n => !n.read) && (
+          <TouchableOpacity style={styles.markAllButton} onPress={handleMarkAllRead}>
+            <Text style={styles.markAllText}>Mark all read</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <FlatList
+        data={notifications}
+        renderItem={renderNotification}
+        keyExtractor={(item) => item.notification_id}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={Colors.primary}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="notifications-outline" size={64} color={Colors.textSecondary} />
+            <Text style={styles.emptyText}>No notifications yet</Text>
+            <Text style={styles.emptySubtext}>We'll notify you when something happens</Text>
+          </View>
+        }
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: Colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  markAllButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: Colors.primary,
+  },
+  markAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  list: {
+    padding: 16,
+  },
+  notificationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  unreadCard: {
+    backgroundColor: `${Colors.primary}10`,
+    borderColor: Colors.primary,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationText: {
+    fontSize: 14,
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  notificationTime: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.primary,
+    marginLeft: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 64,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.text,
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+});
