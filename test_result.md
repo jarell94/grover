@@ -237,6 +237,30 @@ backend:
         agent: "main"
         comment: "Created search endpoint with regex support for users (name, email) and posts (content)."
 
+  - task: "Comments System (Backend)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented complete comments system with create, read, like, delete, and reply (threading) functionality. Comments are linked to posts and support nested replies."
+
+  - task: "Post Interactions: Dislike, Save, Share"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented dislike (toggle), save (bookmark), and share endpoints for posts. All endpoints track user interactions in separate collections."
+
 frontend:
   - task: "Auth Flow with Emergent OAuth"
     implemented: true
