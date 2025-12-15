@@ -181,4 +181,10 @@ export const api = {
 
   // Search
   search: (query: string) => apiRequest(`/search?q=${encodeURIComponent(query)}`),
+
+  // Post interactions
+  dislikePost: (postId: string) => apiRequest(`/posts/${postId}/dislike`, { method: 'POST' }),
+  savePost: (postId: string) => apiRequest(`/posts/${postId}/save`, { method: 'POST' }),
+  sharePost: (postId: string) => apiRequest(`/posts/${postId}/share`, { method: 'POST' }),
+  getSavedPosts: () => apiRequest('/posts/saved'),
 };
