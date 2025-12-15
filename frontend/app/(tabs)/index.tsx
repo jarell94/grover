@@ -458,6 +458,22 @@ export default function HomeScreen() {
               onChangeText={setNewPostContent}
             />
 
+            <TextInput
+              style={styles.tagInput}
+              placeholder="Tag users (comma separated user IDs)"
+              placeholderTextColor={Colors.textSecondary}
+              value={taggedUsers}
+              onChangeText={setTaggedUsers}
+            />
+
+            <TextInput
+              style={styles.tagInput}
+              placeholder="Add location (optional)"
+              placeholderTextColor={Colors.textSecondary}
+              value={location}
+              onChangeText={setLocation}
+            />
+
             {selectedMedia && (
               <View style={styles.mediaPreview}>
                 {selectedMedia.type === 'audio' ? (
