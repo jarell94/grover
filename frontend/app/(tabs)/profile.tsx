@@ -73,7 +73,14 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', onPress: logout, style: 'destructive' },
+      { 
+        text: 'Logout', 
+        onPress: async () => {
+          await logout();
+          router.replace('/');
+        }, 
+        style: 'destructive' 
+      },
     ]);
   };
 
