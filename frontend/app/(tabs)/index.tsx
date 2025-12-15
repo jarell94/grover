@@ -219,6 +219,18 @@ export default function HomeScreen() {
             {item.likes_count}
           </Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => {
+            setSelectedPost(item);
+            setCommentsModalVisible(true);
+            loadComments(item.post_id);
+          }}
+        >
+          <Ionicons name="chatbubble-outline" size={24} color={Colors.textSecondary} />
+          <Text style={styles.actionText}>{item.comments_count || 0}</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
