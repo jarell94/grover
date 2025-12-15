@@ -215,4 +215,11 @@ export const api = {
   }),
   unrepostPost: (postId: string) => apiRequest(`/posts/${postId}/unrepost`, { method: 'DELETE' }),
   getReposts: (postId: string) => apiRequest(`/posts/${postId}/reposts`),
+
+  // Notification Settings
+  getNotificationSettings: () => apiRequest('/users/me/notification-settings'),
+  updateNotificationSettings: (settings: any) => apiRequest('/users/me/notification-settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  }),
 };
