@@ -248,6 +248,57 @@ export default function ProfileScreen() {
               onChangeText={setBio}
             />
 
+            <Text style={styles.sectionLabel}>Social Media Links</Text>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="globe-outline" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="Website URL"
+                placeholderTextColor={Colors.textSecondary}
+                value={website}
+                onChangeText={setWebsite}
+                autoCapitalize="none"
+                keyboardType="url"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-twitter" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="Twitter username (without @)"
+                placeholderTextColor={Colors.textSecondary}
+                value={twitter}
+                onChangeText={setTwitter}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-instagram" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="Instagram username (without @)"
+                placeholderTextColor={Colors.textSecondary}
+                value={instagram}
+                onChangeText={setInstagram}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-linkedin" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="LinkedIn profile URL or username"
+                placeholderTextColor={Colors.textSecondary}
+                value={linkedin}
+                onChangeText={setLinkedin}
+                autoCapitalize="none"
+              />
+            </View>
+
             <TouchableOpacity style={styles.saveButton} onPress={handleUpdateProfile}>
               <Text style={styles.saveButtonText}>Save Changes</Text>
             </TouchableOpacity>
