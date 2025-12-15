@@ -381,6 +381,20 @@ async def get_explore(current_user: User = Depends(require_auth)):
             "post_id": post["post_id"]
         })
         post["liked"] = liked is not None
+        
+        # Check if current user disliked
+        disliked = await db.dislikes.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["disliked"] = disliked is not None
+        
+        # Check if current user saved
+        saved = await db.saved_posts.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["saved"] = saved is not None
     
     return posts
 
