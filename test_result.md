@@ -285,6 +285,9 @@ frontend:
       - working: "NA"
         agent: "main"
         comment: "Built feed screen with post list, create post modal, image picker, base64 upload, like functionality, and pull-to-refresh."
+      - working: "NA"
+        agent: "main"
+        comment: "Added complete comments system with modal UI, reply functionality, like comments, delete comments, and user info display. Added dislike, share, save, and bookmark functionality. Added tagging and location features to post creation."
 
   - task: "Explore Screen"
     implemented: true
