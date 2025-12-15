@@ -1522,6 +1522,525 @@ async def get_messages(user_id: str, current_user: User = Depends(require_auth))
     
     return {"conversation_id": conv["conversation_id"], "messages": messages}
 
+# ============ RICH MESSAGES ENDPOINTS ============
+
+@api_router.post("/messages/send-post")
+async def send_post_in_dm(
+    receiver_id: str,
+    post_id: str,
+    message_text: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Send a post in DM"""
+    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    message_id = f"msg_{uuid.uuid4().hex[:12]}"
+    
+    await db.messages.insert_one({
+        "message_id": message_id,
+        "sender_id": current_user.user_id,
+        "receiver_id": receiver_id,
+        "content": message_text or "",
+        "type": "post",
+        "shared_post_id": post_id,
+        "shared_post": post,
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    await create_notification(receiver_id, "message", f"{current_user.name} shared a post with you", message_id)
+    
+    return {"message_id": message_id, "message": "Post sent"}
+
+@api_router.post("/messages/send-voice")
+async def send_voice_message(
+    receiver_id: str,
+    audio: UploadFile,
+    duration: int = Form(...),
+    current_user: User = Depends(require_auth)
+):
+    """Send voice message"""
+    audio_content = await audio.read()
+    audio_base64 = base64.b64encode(audio_content).decode('utf-8')
+    
+    message_id = f"msg_{uuid.uuid4().hex[:12]}"
+    
+    await db.messages.insert_one({
+        "message_id": message_id,
+        "sender_id": current_user.user_id,
+        "receiver_id": receiver_id,
+        "content": "",
+        "type": "voice",
+        "voice_data": audio_base64,
+        "duration": duration,
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    await create_notification(receiver_id, "message", f"{current_user.name} sent a voice message", message_id)
+    
+    return {"message_id": message_id, "message": "Voice message sent"}
+
+@api_router.post("/messages/send-video")
+async def send_video_message(
+    receiver_id: str,
+    video: UploadFile,
+    thumbnail: Optional[UploadFile] = None,
+    duration: int = Form(...),
+    current_user: User = Depends(require_auth)
+):
+    """Send video message"""
+    video_content = await video.read()
+    video_base64 = base64.b64encode(video_content).decode('utf-8')
+    
+    thumbnail_base64 = None
+    if thumbnail:
+        thumbnail_content = await thumbnail.read()
+        thumbnail_base64 = base64.b64encode(thumbnail_content).decode('utf-8')
+    
+    message_id = f"msg_{uuid.uuid4().hex[:12]}"
+    
+    await db.messages.insert_one({
+        "message_id": message_id,
+        "sender_id": current_user.user_id,
+        "receiver_id": receiver_id,
+        "content": "",
+        "type": "video",
+        "video_data": video_base64,
+        "thumbnail": thumbnail_base64,
+        "duration": duration,
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    await create_notification(receiver_id, "message", f"{current_user.name} sent a video", message_id)
+    
+    return {"message_id": message_id, "message": "Video message sent"}
+
+@api_router.post("/messages/send-gif")
+async def send_gif_message(
+    receiver_id: str,
+    gif_url: str,
+    current_user: User = Depends(require_auth)
+):
+    """Send GIF message"""
+    message_id = f"msg_{uuid.uuid4().hex[:12]}"
+    
+    await db.messages.insert_one({
+        "message_id": message_id,
+        "sender_id": current_user.user_id,
+        "receiver_id": receiver_id,
+        "content": "",
+        "type": "gif",
+        "gif_url": gif_url,
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"message_id": message_id, "message": "GIF sent"}
+
+# ============ GROUP CHATS ENDPOINTS ============
+
+@api_router.post("/groups/create")
+async def create_group(
+    name: str,
+    description: Optional[str] = None,
+    member_ids: str = Form(...),  # Comma-separated
+    photo: Optional[UploadFile] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Create a group chat"""
+    member_list = [m.strip() for m in member_ids.split(',') if m.strip()]
+    
+    if len(member_list) > 50:
+        raise HTTPException(status_code=400, detail="Maximum 50 members allowed")
+    
+    # Add creator to members
+    if current_user.user_id not in member_list:
+        member_list.append(current_user.user_id)
+    
+    photo_base64 = None
+    if photo:
+        photo_content = await photo.read()
+        photo_base64 = base64.b64encode(photo_content).decode('utf-8')
+    
+    group_id = f"group_{uuid.uuid4().hex[:12]}"
+    
+    await db.groups.insert_one({
+        "group_id": group_id,
+        "name": name,
+        "description": description,
+        "photo": photo_base64,
+        "creator_id": current_user.user_id,
+        "admin_ids": [current_user.user_id],
+        "member_ids": member_list,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    })
+    
+    # Notify members
+    for member_id in member_list:
+        if member_id != current_user.user_id:
+            await create_notification(member_id, "group_invite", f"{current_user.name} added you to '{name}'", group_id)
+    
+    return {"group_id": group_id, "message": "Group created"}
+
+@api_router.get("/groups/{group_id}")
+async def get_group(group_id: str, current_user: User = Depends(require_auth)):
+    """Get group details"""
+    group = await db.groups.find_one({"group_id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    if current_user.user_id not in group["member_ids"]:
+        raise HTTPException(status_code=403, detail="Not a member")
+    
+    # Add member data
+    members = []
+    for member_id in group["member_ids"]:
+        user = await db.users.find_one({"user_id": member_id}, {"_id": 0, "name": 1, "picture": 1})
+        if user:
+            user["is_admin"] = member_id in group.get("admin_ids", [])
+            members.append(user)
+    
+    group["members"] = members
+    group["is_admin"] = current_user.user_id in group.get("admin_ids", [])
+    
+    return group
+
+@api_router.post("/groups/{group_id}/messages")
+async def send_group_message(
+    group_id: str,
+    content: str,
+    current_user: User = Depends(require_auth)
+):
+    """Send message to group"""
+    group = await db.groups.find_one({"group_id": group_id})
+    if not group or current_user.user_id not in group["member_ids"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    message_id = f"gmsg_{uuid.uuid4().hex[:12]}"
+    
+    await db.group_messages.insert_one({
+        "message_id": message_id,
+        "group_id": group_id,
+        "sender_id": current_user.user_id,
+        "content": content,
+        "read_by": [current_user.user_id],
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"message_id": message_id, "message": "Message sent"}
+
+@api_router.get("/groups/{group_id}/messages")
+async def get_group_messages(group_id: str, current_user: User = Depends(require_auth)):
+    """Get group messages"""
+    group = await db.groups.find_one({"group_id": group_id})
+    if not group or current_user.user_id not in group["member_ids"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    messages = await db.group_messages.find(
+        {"group_id": group_id},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    
+    # Add sender data
+    for msg in messages:
+        user = await db.users.find_one({"user_id": msg["sender_id"]}, {"_id": 0, "name": 1, "picture": 1})
+        msg["sender"] = user
+    
+    return messages[::-1]
+
+@api_router.post("/groups/{group_id}/members/add")
+async def add_group_member(
+    group_id: str,
+    user_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Add member to group (admin only)"""
+    group = await db.groups.find_one({"group_id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    if current_user.user_id not in group.get("admin_ids", []):
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    if len(group["member_ids"]) >= 50:
+        raise HTTPException(status_code=400, detail="Group is full")
+    
+    await db.groups.update_one(
+        {"group_id": group_id},
+        {"$addToSet": {"member_ids": user_id}}
+    )
+    
+    await create_notification(user_id, "group_invite", f"You were added to '{group['name']}'", group_id)
+    
+    return {"message": "Member added"}
+
+@api_router.delete("/groups/{group_id}/members/{user_id}")
+async def remove_group_member(
+    group_id: str,
+    user_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Remove member from group (admin only)"""
+    group = await db.groups.find_one({"group_id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    if current_user.user_id not in group.get("admin_ids", []) and user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    await db.groups.update_one(
+        {"group_id": group_id},
+        {"$pull": {"member_ids": user_id}}
+    )
+    
+    return {"message": "Member removed"}
+
+# ============ COMMUNITIES ENDPOINTS ============
+
+@api_router.post("/communities/create")
+async def create_community(
+    name: str,
+    description: str,
+    category: str,
+    is_private: bool = False,
+    cover_image: Optional[UploadFile] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Create an interest-based community"""
+    cover_base64 = None
+    if cover_image:
+        cover_content = await cover_image.read()
+        cover_base64 = base64.b64encode(cover_content).decode('utf-8')
+    
+    community_id = f"community_{uuid.uuid4().hex[:12]}"
+    
+    await db.communities.insert_one({
+        "community_id": community_id,
+        "name": name,
+        "description": description,
+        "category": category,
+        "is_private": is_private,
+        "cover_image": cover_base64,
+        "creator_id": current_user.user_id,
+        "moderator_ids": [current_user.user_id],
+        "member_ids": [current_user.user_id],
+        "member_count": 1,
+        "post_count": 0,
+        "rules": [],
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"community_id": community_id, "message": "Community created"}
+
+@api_router.get("/communities/{community_id}")
+async def get_community(community_id: str, current_user: User = Depends(require_auth)):
+    """Get community details"""
+    community = await db.communities.find_one({"community_id": community_id}, {"_id": 0})
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    
+    if community.get("is_private") and current_user.user_id not in community["member_ids"]:
+        raise HTTPException(status_code=403, detail="Private community")
+    
+    community["is_member"] = current_user.user_id in community["member_ids"]
+    community["is_moderator"] = current_user.user_id in community.get("moderator_ids", [])
+    
+    return community
+
+@api_router.post("/communities/{community_id}/join")
+async def join_community(community_id: str, current_user: User = Depends(require_auth)):
+    """Join a community"""
+    community = await db.communities.find_one({"community_id": community_id})
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    
+    if community.get("is_private"):
+        raise HTTPException(status_code=400, detail="Private community - request needed")
+    
+    await db.communities.update_one(
+        {"community_id": community_id},
+        {
+            "$addToSet": {"member_ids": current_user.user_id},
+            "$inc": {"member_count": 1}
+        }
+    )
+    
+    return {"message": "Joined community"}
+
+@api_router.post("/communities/{community_id}/posts")
+async def create_community_post(
+    community_id: str,
+    content: str,
+    media: Optional[UploadFile] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Create post in community"""
+    community = await db.communities.find_one({"community_id": community_id})
+    if not community or current_user.user_id not in community["member_ids"]:
+        raise HTTPException(status_code=403, detail="Not a member")
+    
+    media_url = None
+    if media:
+        media_content = await media.read()
+        media_url = base64.b64encode(media_content).decode('utf-8')
+    
+    post_id = f"cpost_{uuid.uuid4().hex[:12]}"
+    
+    await db.community_posts.insert_one({
+        "post_id": post_id,
+        "community_id": community_id,
+        "user_id": current_user.user_id,
+        "content": content,
+        "media_url": media_url,
+        "likes_count": 0,
+        "comments_count": 0,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    await db.communities.update_one(
+        {"community_id": community_id},
+        {"$inc": {"post_count": 1}}
+    )
+    
+    return {"post_id": post_id, "message": "Posted to community"}
+
+@api_router.get("/communities/{community_id}/posts")
+async def get_community_posts(community_id: str, current_user: User = Depends(require_auth)):
+    """Get community posts"""
+    community = await db.communities.find_one({"community_id": community_id})
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    
+    if community.get("is_private") and current_user.user_id not in community["member_ids"]:
+        raise HTTPException(status_code=403, detail="Private community")
+    
+    posts = await db.community_posts.find(
+        {"community_id": community_id},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(50)
+    
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+    
+    return posts
+
+@api_router.get("/communities/discover")
+async def discover_communities(current_user: User = Depends(require_auth)):
+    """Discover public communities"""
+    communities = await db.communities.find(
+        {"is_private": False},
+        {"_id": 0}
+    ).sort("member_count", -1).limit(20).to_list(20)
+    
+    for community in communities:
+        community["is_member"] = current_user.user_id in community.get("member_ids", [])
+    
+    return communities
+
+# ============ VOICE/VIDEO CALLS ENDPOINTS ============
+
+@api_router.post("/calls/initiate")
+async def initiate_call(
+    receiver_id: str,
+    call_type: str,  # "voice" or "video"
+    current_user: User = Depends(require_auth)
+):
+    """Initiate a voice or video call"""
+    receiver = await db.users.find_one({"user_id": receiver_id})
+    if not receiver:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    call_id = f"call_{uuid.uuid4().hex[:12]}"
+    channel_name = call_id
+    
+    # In production, generate Agora token here
+    call_data = {
+        "call_id": call_id,
+        "caller_id": current_user.user_id,
+        "receiver_id": receiver_id,
+        "type": call_type,
+        "status": "ringing",
+        "channel_name": channel_name,
+        "agora_token": "temp_token",
+        "started_at": datetime.now(timezone.utc)
+    }
+    
+    await db.calls.insert_one(call_data)
+    
+    # Notify receiver
+    await create_notification(
+        receiver_id,
+        "call",
+        f"{current_user.name} is calling you",
+        call_id
+    )
+    
+    return {
+        "call_id": call_id,
+        "channel_name": channel_name,
+        "token": "temp_token"
+    }
+
+@api_router.post("/calls/{call_id}/answer")
+async def answer_call(call_id: str, current_user: User = Depends(require_auth)):
+    """Answer an incoming call"""
+    call = await db.calls.find_one({"call_id": call_id})
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    
+    if call["receiver_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.calls.update_one(
+        {"call_id": call_id},
+        {"$set": {"status": "active", "answered_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {
+        "channel_name": call["channel_name"],
+        "token": call["agora_token"]
+    }
+
+@api_router.post("/calls/{call_id}/end")
+async def end_call(call_id: str, current_user: User = Depends(require_auth)):
+    """End a call"""
+    call = await db.calls.find_one({"call_id": call_id})
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    
+    if current_user.user_id not in [call["caller_id"], call["receiver_id"]]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.calls.update_one(
+        {"call_id": call_id},
+        {"$set": {"status": "ended", "ended_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"message": "Call ended"}
+
+@api_router.get("/calls/history")
+async def get_call_history(current_user: User = Depends(require_auth)):
+    """Get call history"""
+    calls = await db.calls.find(
+        {"$or": [{"caller_id": current_user.user_id}, {"receiver_id": current_user.user_id}]},
+        {"_id": 0}
+    ).sort("started_at", -1).limit(50).to_list(50)
+    
+    for call in calls:
+        # Add user data
+        other_user_id = call["receiver_id"] if call["caller_id"] == current_user.user_id else call["caller_id"]
+        user = await db.users.find_one({"user_id": other_user_id}, {"_id": 0, "name": 1, "picture": 1})
+        call["other_user"] = user
+        call["is_incoming"] = call["receiver_id"] == current_user.user_id
+    
+    return calls
+
 # ============ ANALYTICS ENDPOINTS ============
 
 @api_router.get("/analytics/revenue")
