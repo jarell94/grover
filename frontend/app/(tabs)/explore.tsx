@@ -17,14 +17,15 @@ import { api } from '../../services/api';
 
 const { width } = Dimensions.get('window');
 
-type Post = {
-  post_id: string;
-  content: string;
-  media_url?: string;
-  media_type?: string;
-  likes_count: number;
-  liked?: boolean;
-  user?: any;
+// Post interface
+const PostType = {
+  post_id: '',
+  content: '',
+  media_url: '',
+  media_type: '',
+  likes_count: 0,
+  liked: false,
+  user: null,
 };
 
 export default function ExploreScreen() {
