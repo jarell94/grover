@@ -187,4 +187,14 @@ export const api = {
   savePost: (postId: string) => apiRequest(`/posts/${postId}/save`, { method: 'POST' }),
   sharePost: (postId: string) => apiRequest(`/posts/${postId}/share`, { method: 'POST' }),
   getSavedPosts: () => apiRequest('/posts/saved'),
+
+  // PayPal
+  createPayPalPayment: (productId: string) => apiRequest('/paypal/create-payment', {
+    method: 'POST',
+    body: JSON.stringify({ product_id: productId }),
+  }),
+  executePayPalPayment: (paymentId: string, payerId: string, productId: string) => apiRequest('/paypal/execute-payment', {
+    method: 'POST',
+    body: JSON.stringify({ payment_id: paymentId, payer_id: payerId, product_id: productId }),
+  }),
 };
