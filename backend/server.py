@@ -745,14 +745,12 @@ async def share_post(post_id: str, current_user: User = Depends(require_auth)):
     
     # Create notification
     if post["user_id"] != current_user.user_id:
-        await db.notifications.insert_one({
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-            "user_id": post["user_id"],
-            "type": "share",
-            "content": f"{current_user.name} shared your post",
-            "read": False,
-            "created_at": datetime.now(timezone.utc)
-        })
+        await create_notification(
+            post["user_id"],
+            "share",
+            f"{current_user.name} shared your post",
+            post_id
+        )
     
     return {"message": "Post shared", "shares_count": post.get("shares_count", 0) + 1}
 
