@@ -1971,7 +1971,7 @@ async def initiate_call(
     call_type: str,  # "voice" or "video"
     current_user: User = Depends(require_auth)
 ):
-    """Initiate a voice or video call"""
+    """Initiate a voice or video call - Available to all users"""
     receiver = await db.users.find_one({"user_id": receiver_id})
     if not receiver:
         raise HTTPException(status_code=404, detail="User not found")
