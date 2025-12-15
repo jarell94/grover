@@ -74,6 +74,82 @@ export default function HomeScreen() {
     loadFeed();
   };
 
+  const loadComments = async (postId: string) => {
+    setLoadingComments(true);
+    try {
+      const data = await api.getComments(postId);
+      setComments(data);
+    } catch (error) {
+      console.error('Load comments error:', error);
+      Alert.alert('Error', 'Failed to load comments');
+    } finally {
+      setLoadingComments(false);
+    }
+  };
+
+  const handleCommentSubmit = async () => {
+    if (!commentText.trim()) return;
+
+    try {
+      await api.createComment(
+        selectedPost!.post_id,
+        commentText,
+        replyingTo?.comment_id
+      );
+      setCommentText('');
+      setReplyingTo(null);
+      loadComments(selectedPost!.post_id);
+      
+      // Update comment count in feed
+      setPosts(posts.map(p =>
+        p.post_id === selectedPost!.post_id
+          ? { ...p, comments_count: (p.comments_count || 0) + 1 }
+          : p
+      ));
+    } catch (error) {
+      console.error('Comment submit error:', error);
+      Alert.alert('Error', 'Failed to post comment');
+    }
+  };
+
+  const handleCommentLike = async (commentId: string) => {
+    try {
+      const result = await api.likeComment(commentId);
+      setComments(comments.map(c =>
+        c.comment_id === commentId
+          ? { ...c, liked: result.liked, likes_count: c.likes_count + (result.liked ? 1 : -1) }
+          : c
+      ));
+    } catch (error) {
+      console.error('Comment like error:', error);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    Alert.alert('Delete Comment', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteComment(commentId);
+            setComments(comments.filter(c => c.comment_id !== commentId));
+            
+            // Update comment count
+            setPosts(posts.map(p =>
+              p.post_id === selectedPost!.post_id
+                ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) }
+                : p
+            ));
+          } catch (error) {
+            Alert.alert('Error', 'Failed to delete comment');
+          }
+        },
+      },
+    ]);
+  };
+
   const handleLike = async (postId: string) => {
     try {
       const result = await api.likePost(postId);
