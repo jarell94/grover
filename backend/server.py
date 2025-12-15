@@ -1020,7 +1020,6 @@ async def create_comment(
                 f"{current_user.name} replied to your comment",
                 comment_id
             )
-            })
     
     return {"comment_id": comment_id, "message": "Comment created"}
 
