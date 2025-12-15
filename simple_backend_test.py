@@ -73,10 +73,10 @@ def test_backend():
             
             # Test comment creation
             print("\n💬 Testing comment creation...")
-            comment_data = {"content": "This is a test comment"}
+            comment_params = {"content": "This is a test comment"}
             
             response = requests.post(f"http://localhost:8001/api/posts/{post_id}/comments", 
-                                   json=comment_data, headers=headers)
+                                   params=comment_params, headers=headers)
             
             if response.status_code == 200:
                 result = response.json()
