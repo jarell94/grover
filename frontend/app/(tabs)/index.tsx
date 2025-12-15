@@ -288,10 +288,17 @@ export default function HomeScreen() {
 
             {selectedMedia && (
               <View style={styles.mediaPreview}>
-                <Image
-                  source={{ uri: selectedMedia.uri }}
-                  style={styles.mediaPreviewImage}
-                />
+                {selectedMedia.type === 'audio' ? (
+                  <View style={styles.audioPreview}>
+                    <Ionicons name="musical-notes" size={48} color={Colors.primary} />
+                    <Text style={styles.audioPreviewText}>{selectedMedia.name || 'Audio file'}</Text>
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: selectedMedia.uri }}
+                    style={styles.mediaPreviewImage}
+                  />
+                )}
                 <TouchableOpacity
                   style={styles.removeMediaButton}
                   onPress={() => setSelectedMedia(null)}
@@ -301,10 +308,23 @@ export default function HomeScreen() {
               </View>
             )}
 
-            <TouchableOpacity style={styles.mediaButton} onPress={pickImage}>
-              <Ionicons name="image-outline" size={24} color={Colors.primary} />
-              <Text style={styles.mediaButtonText}>Add Media</Text>
-            </TouchableOpacity>
+            <Text style={styles.mediaSectionTitle}>Add Media</Text>
+            <View style={styles.mediaButtonsGrid}>
+              <TouchableOpacity style={styles.mediaTypeButton} onPress={() => pickMedia('image')}>
+                <Ionicons name="image-outline" size={28} color={Colors.primary} />
+                <Text style={styles.mediaTypeText}>Photo</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.mediaTypeButton} onPress={() => pickMedia('video')}>
+                <Ionicons name="videocam-outline" size={28} color={Colors.secondary} />
+                <Text style={styles.mediaTypeText}>Video</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.mediaTypeButton} onPress={() => pickMedia('audio')}>
+                <Ionicons name="musical-notes-outline" size={28} color={Colors.accent} />
+                <Text style={styles.mediaTypeText}>Audio</Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={[styles.submitButton, uploading && styles.submitButtonDisabled]}
