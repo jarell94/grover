@@ -143,9 +143,9 @@ export const api = {
   followUser: (userId: string) => apiRequest(`/users/${userId}/follow`, { method: 'POST' }),
 
   // Posts
-  getPosts: () => apiRequest('/posts'),
-  getFeed: () => apiRequest('/posts/feed'),
-  getExplore: () => apiRequest('/posts/explore'),
+  getPosts: (limit = 20, skip = 0) => apiRequest(`/posts?limit=${limit}&skip=${skip}`),
+  getFeed: (limit = 20, skip = 0) => apiRequest(`/posts/feed?limit=${limit}&skip=${skip}`),
+  getExplore: (limit = 20, skip = 0) => apiRequest(`/posts/explore?limit=${limit}&skip=${skip}`),
   createPost: (formData: FormData) => apiFormRequest('/posts', formData),
   likePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'POST' }),
   deletePost: (postId: string) => apiRequest(`/posts/${postId}`, { method: 'DELETE' }),
