@@ -118,7 +118,14 @@ export default function HomeScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadFeed();
+    loadFeed(true);
+  };
+
+  const loadMore = () => {
+    if (!loadingMore && hasMore) {
+      setLoadingMore(true);
+      loadFeed(false);
+    }
   };
 
   const loadComments = async (postId: string) => {
