@@ -71,6 +71,10 @@ export default function HomeScreen() {
   const [repostModalVisible, setRepostModalVisible] = useState(false);
   const [repostComment, setRepostComment] = useState('');
   const [selectedRepostPost, setSelectedRepostPost] = useState<Post | null>(null);
+  const [showPollOption, setShowPollOption] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [pollDuration, setPollDuration] = useState(24);
 
   useEffect(() => {
     loadFeed();
