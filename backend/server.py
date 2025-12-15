@@ -1906,6 +1906,372 @@ async def cancel_premium(current_user: User = Depends(require_auth)):
     )
     return {"message": "Premium subscription cancelled"}
 
+# ============ SCHEDULED POSTS ENDPOINTS ============
+
+@api_router.post("/posts/schedule")
+async def schedule_post(
+    content: str = Form(...),
+    scheduled_time: str = Form(...),  # ISO format datetime
+    media: Optional[UploadFile] = File(None),
+    tagged_users: Optional[str] = Form(None),
+    location: Optional[str] = Form(None),
+    poll_question: Optional[str] = Form(None),
+    poll_options: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Schedule a post for future publishing"""
+    scheduled_dt = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+    
+    if scheduled_dt <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+    
+    # Process media if present
+    media_url = None
+    media_type = None
+    if media:
+        media_content = await media.read()
+        media_url = base64.b64encode(media_content).decode('utf-8')
+        media_type = 'video' if media.content_type.startswith('video') else 'audio' if media.content_type.startswith('audio') else 'image'
+    
+    # Parse poll data
+    has_poll = False
+    poll_options_list = None
+    if poll_question and poll_options:
+        has_poll = True
+        import json
+        poll_options_list = json.loads(poll_options) if isinstance(poll_options, str) else poll_options
+    
+    scheduled_post_id = f"scheduled_{uuid.uuid4().hex[:12]}"
+    
+    await db.scheduled_posts.insert_one({
+        "scheduled_post_id": scheduled_post_id,
+        "user_id": current_user.user_id,
+        "content": content,
+        "media_url": media_url,
+        "media_type": media_type,
+        "tagged_users": tagged_users.split(',') if tagged_users else [],
+        "location": location,
+        "has_poll": has_poll,
+        "poll_question": poll_question,
+        "poll_options": poll_options_list,
+        "scheduled_time": scheduled_dt,
+        "status": "scheduled",
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"scheduled_post_id": scheduled_post_id, "scheduled_time": scheduled_dt, "message": "Post scheduled"}
+
+@api_router.get("/posts/scheduled")
+async def get_scheduled_posts(current_user: User = Depends(require_auth)):
+    """Get all scheduled posts for current user"""
+    posts = await db.scheduled_posts.find(
+        {"user_id": current_user.user_id, "status": "scheduled"},
+        {"_id": 0}
+    ).sort("scheduled_time", 1).to_list(100)
+    
+    return posts
+
+@api_router.delete("/posts/scheduled/{scheduled_post_id}")
+async def delete_scheduled_post(scheduled_post_id: str, current_user: User = Depends(require_auth)):
+    """Cancel a scheduled post"""
+    post = await db.scheduled_posts.find_one({"scheduled_post_id": scheduled_post_id})
+    if not post or post["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=404, detail="Scheduled post not found")
+    
+    await db.scheduled_posts.delete_one({"scheduled_post_id": scheduled_post_id})
+    return {"message": "Scheduled post cancelled"}
+
+# ============ TIPS/DONATIONS ENDPOINTS ============
+
+@api_router.post("/users/{user_id}/tip")
+async def send_tip(
+    user_id: str,
+    amount: float,
+    message: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Send a tip/donation to a creator"""
+    if amount < 1:
+        raise HTTPException(status_code=400, detail="Minimum tip is $1")
+    
+    recipient = await db.users.find_one({"user_id": user_id})
+    if not recipient:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # In production, process PayPal payment here
+    tip_id = f"tip_{uuid.uuid4().hex[:12]}"
+    
+    await db.tips.insert_one({
+        "tip_id": tip_id,
+        "from_user_id": current_user.user_id,
+        "to_user_id": user_id,
+        "amount": amount,
+        "message": message,
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Notify recipient
+    await create_notification(
+        user_id,
+        "tip",
+        f"{current_user.name} sent you ${amount}!" + (f" '{message}'" if message else ""),
+        tip_id
+    )
+    
+    return {"tip_id": tip_id, "message": "Tip sent successfully"}
+
+@api_router.get("/users/{user_id}/tips/leaderboard")
+async def get_top_supporters(user_id: str, current_user: User = Depends(require_auth)):
+    """Get top supporters (tip leaderboard) for a user"""
+    # Aggregate tips by sender
+    pipeline = [
+        {"$match": {"to_user_id": user_id, "status": "completed"}},
+        {"$group": {
+            "_id": "$from_user_id",
+            "total_amount": {"$sum": "$amount"},
+            "tip_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_amount": -1}},
+        {"$limit": 10}
+    ]
+    
+    results = await db.tips.aggregate(pipeline).to_list(10)
+    
+    # Add user data
+    leaderboard = []
+    for result in results:
+        user = await db.users.find_one({"user_id": result["_id"]}, {"_id": 0, "name": 1, "picture": 1})
+        leaderboard.append({
+            "user": user,
+            "total_amount": result["total_amount"],
+            "tip_count": result["tip_count"]
+        })
+    
+    return leaderboard
+
+# ============ ANALYTICS ENDPOINTS ============
+
+@api_router.get("/analytics/overview")
+async def get_analytics_overview(current_user: User = Depends(require_auth)):
+    """Get analytics overview for creator"""
+    # Get date range (last 30 days)
+    end_date = datetime.now(timezone.utc)
+    start_date = end_date - timedelta(days=30)
+    
+    # Total posts
+    total_posts = await db.posts.count_documents({"user_id": current_user.user_id})
+    
+    # Total reactions
+    total_reactions = await db.reactions.count_documents({"post_id": {"$regex": f"^post_"}})
+    user_posts = await db.posts.find({"user_id": current_user.user_id}, {"post_id": 1}).to_list(1000)
+    post_ids = [p["post_id"] for p in user_posts]
+    total_reactions = await db.reactions.count_documents({"post_id": {"$in": post_ids}})
+    
+    # Total followers
+    total_followers = await db.follows.count_documents({"following_id": current_user.user_id})
+    
+    # Total revenue (tips + sales)
+    tips_pipeline = [
+        {"$match": {"to_user_id": current_user.user_id, "status": "completed"}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]
+    tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
+    total_tips = tips_result[0]["total"] if tips_result else 0
+    
+    # Get follower growth (last 7 days)
+    follower_growth = []
+    for i in range(7):
+        day = end_date - timedelta(days=i)
+        day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        
+        count = await db.follows.count_documents({
+            "following_id": current_user.user_id,
+            "created_at": {"$gte": day_start, "$lt": day_end}
+        })
+        
+        follower_growth.append({
+            "date": day_start.isoformat(),
+            "new_followers": count
+        })
+    
+    return {
+        "total_posts": total_posts,
+        "total_reactions": total_reactions,
+        "total_followers": total_followers,
+        "total_revenue": total_tips,
+        "follower_growth": follower_growth[::-1]
+    }
+
+@api_router.get("/analytics/content-performance")
+async def get_content_performance(current_user: User = Depends(require_auth)):
+    """Get top performing posts"""
+    posts = await db.posts.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("likes_count", -1).limit(10).to_list(10)
+    
+    for post in posts:
+        # Calculate engagement rate
+        reaction_counts = post.get("reaction_counts", {})
+        total_reactions = sum(reaction_counts.values())
+        post["total_reactions"] = total_reactions
+        post["engagement_score"] = total_reactions + post.get("comments_count", 0) + post.get("shares_count", 0)
+    
+    return posts
+
+# ============ CATEGORIES ENDPOINTS ============
+
+@api_router.get("/categories")
+async def get_categories(current_user: User = Depends(require_auth)):
+    """Get all content categories"""
+    categories = [
+        {"id": "music", "name": "Music", "icon": "musical-notes", "color": "#E91E63"},
+        {"id": "art", "name": "Art & Design", "icon": "color-palette", "color": "#9C27B0"},
+        {"id": "tech", "name": "Technology", "icon": "hardware-chip", "color": "#2196F3"},
+        {"id": "fashion", "name": "Fashion", "icon": "shirt", "color": "#FF9800"},
+        {"id": "food", "name": "Food & Cooking", "icon": "restaurant", "color": "#4CAF50"},
+        {"id": "fitness", "name": "Fitness", "icon": "fitness", "color": "#F44336"},
+        {"id": "gaming", "name": "Gaming", "icon": "game-controller", "color": "#673AB7"},
+        {"id": "education", "name": "Education", "icon": "school", "color": "#009688"},
+        {"id": "business", "name": "Business", "icon": "briefcase", "color": "#607D8B"},
+        {"id": "entertainment", "name": "Entertainment", "icon": "film", "color": "#FF5722"}
+    ]
+    
+    return categories
+
+@api_router.get("/categories/{category_id}/posts")
+async def get_category_posts(category_id: str, current_user: User = Depends(require_auth)):
+    """Get posts in a category"""
+    # In a real implementation, posts would have category tags
+    # For now, return trending posts
+    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20)
+    
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+    
+    return posts
+
+# ============ DISCOVERY & TRENDING ENDPOINTS ============
+
+@api_router.get("/discover/for-you")
+async def get_for_you_feed(current_user: User = Depends(require_auth)):
+    """Get personalized 'For You' feed"""
+    # Simple algorithm: Mix of followed users + popular posts + random discovery
+    
+    # Get posts from followed users
+    follows = await db.follows.find({"follower_id": current_user.user_id}, {"_id": 0}).to_list(1000)
+    followed_ids = [f["following_id"] for f in follows]
+    
+    followed_posts = await db.posts.find(
+        {"user_id": {"$in": followed_ids}},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(10).to_list(10)
+    
+    # Get trending posts (high engagement)
+    trending_posts = await db.posts.find({}, {"_id": 0}).sort("likes_count", -1).limit(10).to_list(10)
+    
+    # Get random discovery posts
+    random_posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(10).limit(10).to_list(10)
+    
+    # Mix them
+    all_posts = followed_posts + trending_posts + random_posts
+    
+    # Remove duplicates and add user data
+    seen = set()
+    unique_posts = []
+    for post in all_posts:
+        if post["post_id"] not in seen:
+            seen.add(post["post_id"])
+            user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+            post["user"] = user
+            
+            # Check reactions
+            user_reaction = await db.reactions.find_one({
+                "user_id": current_user.user_id,
+                "post_id": post["post_id"]
+            })
+            post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+            post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+            
+            unique_posts.append(post)
+    
+    return unique_posts[:30]
+
+@api_router.get("/discover/trending")
+async def get_trending(current_user: User = Depends(require_auth)):
+    """Get trending posts, creators, and topics"""
+    # Trending posts (last 24 hours with high engagement)
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    
+    trending_posts = await db.posts.find(
+        {"created_at": {"$gte": yesterday}},
+        {"_id": 0}
+    ).sort("likes_count", -1).limit(10).to_list(10)
+    
+    for post in trending_posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+    
+    # Rising creators (new users with growing followers)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    new_users = await db.users.find(
+        {"created_at": {"$gte": week_ago}},
+        {"_id": 0}
+    ).limit(10).to_list(10)
+    
+    rising_creators = []
+    for user in new_users:
+        follower_count = await db.follows.count_documents({"following_id": user["user_id"]})
+        if follower_count > 0:
+            user["follower_count"] = follower_count
+            rising_creators.append(user)
+    
+    rising_creators.sort(key=lambda x: x["follower_count"], reverse=True)
+    
+    return {
+        "trending_posts": trending_posts,
+        "rising_creators": rising_creators[:5]
+    }
+
+@api_router.get("/discover/suggested-users")
+async def get_suggested_users(current_user: User = Depends(require_auth)):
+    """Get suggested users to follow"""
+    # Get users followed by people you follow (2nd degree connections)
+    follows = await db.follows.find({"follower_id": current_user.user_id}, {"_id": 0}).to_list(1000)
+    followed_ids = [f["following_id"] for f in follows]
+    followed_ids.append(current_user.user_id)  # Exclude self
+    
+    # Get who they follow
+    second_degree = await db.follows.find(
+        {"follower_id": {"$in": followed_ids}},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Count occurrences
+    suggestions = {}
+    for follow in second_degree:
+        user_id = follow["following_id"]
+        if user_id not in followed_ids:  # Not already following
+            suggestions[user_id] = suggestions.get(user_id, 0) + 1
+    
+    # Get top suggestions
+    sorted_suggestions = sorted(suggestions.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    # Add user data
+    suggested_users = []
+    for user_id, mutual_count in sorted_suggestions:
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        if user:
+            user["mutual_followers"] = mutual_count
+            follower_count = await db.follows.count_documents({"following_id": user_id})
+            user["follower_count"] = follower_count
+            suggested_users.append(user)
+    
+    return suggested_users
+
 # ============ SEARCH ENDPOINT ============
 
 @api_router.get("/search")
