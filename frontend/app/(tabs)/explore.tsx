@@ -17,7 +17,7 @@ import { api } from '../../services/api';
 
 const { width } = Dimensions.get('window');
 
-interface Post {
+type Post = {
   post_id: string;
   content: string;
   media_url?: string;
@@ -25,7 +25,7 @@ interface Post {
   likes_count: number;
   liked?: boolean;
   user?: any;
-}
+};
 
 export default function ExploreScreen() {
   const [activeTab, setActiveTab] = useState('foryou'); // 'foryou', 'trending', 'categories'
