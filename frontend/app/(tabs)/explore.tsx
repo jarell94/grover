@@ -342,4 +342,63 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginTop: 16,
   },
+  emptySubtext: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 32,
+  },
+  creatorCard: {
+    backgroundColor: Colors.card,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  creatorInfo: {
+    flex: 1,
+  },
+  creatorName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  creatorStats: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  categoriesGrid: {
+    padding: 16,
+  },
+  categoryCard: {
+    flex: 1,
+    backgroundColor: Colors.card,
+    padding: 20,
+    borderRadius: 16,
+    margin: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    minHeight: 120,
+    justifyContent: 'center',
+  },
+  categoryEmoji: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  categoryName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  categoryCount: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
 });
