@@ -130,6 +130,12 @@ class Post(BaseModel):
     is_repost: bool = False
     original_post_id: Optional[str] = None  # If this is a repost, reference to original
     repost_comment: Optional[str] = None  # User's commentary on the repost
+    # Poll data (optional)
+    has_poll: bool = False
+    poll_question: Optional[str] = None
+    poll_options: Optional[List[str]] = None
+    poll_votes: Optional[dict] = None  # {option_index: vote_count}
+    poll_expires_at: Optional[datetime] = None
     created_at: datetime
 
 class Story(BaseModel):
