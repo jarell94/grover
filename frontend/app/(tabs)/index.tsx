@@ -268,6 +268,14 @@ export default function HomeScreen() {
       const formData = new FormData();
       formData.append('content', newPostContent);
 
+      if (taggedUsers.trim()) {
+        formData.append('tagged_users', taggedUsers.trim());
+      }
+
+      if (location.trim()) {
+        formData.append('location', location.trim());
+      }
+
       if (selectedMedia) {
         let fileType = 'application/octet-stream';
         let fileName = 'media';
@@ -295,6 +303,8 @@ export default function HomeScreen() {
 
       await api.createPost(formData);
       setNewPostContent('');
+      setTaggedUsers('');
+      setLocation('');
       setSelectedMedia(null);
       setCreateModalVisible(false);
       loadFeed();
