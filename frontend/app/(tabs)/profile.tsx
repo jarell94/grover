@@ -43,6 +43,7 @@ export default function ProfileScreen() {
       setTwitter(user.twitter || '');
       setInstagram(user.instagram || '');
       setLinkedin(user.linkedin || '');
+      setPaypalEmail(user.paypal_email || '');
     }
   }, [user]);
 
