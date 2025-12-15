@@ -592,6 +592,9 @@ async def create_post(
     media: Optional[UploadFile] = File(None),
     tagged_users: Optional[str] = Form(None),
     location: Optional[str] = Form(None),
+    poll_question: Optional[str] = Form(None),
+    poll_options: Optional[str] = Form(None),  # JSON string
+    poll_duration_hours: Optional[int] = Form(24),
     current_user: User = Depends(require_auth)
 ):
     media_url = None
