@@ -206,35 +206,41 @@ export default function ExploreScreen() {
     );
   }
 
+  const renderContent = () => {
+    if (activeTab === 'trending') {
+      return renderTrendingContent();
+    } else if (activeTab === 'categories') {
+      return renderCategoriesContent();
+    } else {
+      // For You tab
+      return (
+        <FlatList
+          data={posts}
+          renderItem={renderPost}
+          keyExtractor={(item) => item.post_id}
+          numColumns={3}
+          contentContainerStyle={styles.grid}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="heart-outline" size={64} color={Colors.textSecondary} />
+              <Text style={styles.emptyText}>No personalized content yet</Text>
+              <Text style={styles.emptySubtext}>
+                Like and interact with posts to improve your For You feed
+              </Text>
+            </View>
+          }
+        />
+      );
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={Colors.textSecondary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search posts and users..."
-            placeholderTextColor={Colors.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmitEditing={handleSearch}
-          />
-        </View>
-      </View>
-
-      <FlatList
-        data={posts}
-        renderItem={renderPost}
-        keyExtractor={(item) => item.post_id}
-        numColumns={3}
-        contentContainerStyle={styles.grid}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="search-outline" size={64} color={Colors.textSecondary} />
-            <Text style={styles.emptyText}>No posts found</Text>
-          </View>
-        }
-      />
+      {renderTabBar()}
+      {renderContent()}
     </View>
   );
 }
