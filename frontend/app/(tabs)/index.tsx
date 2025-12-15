@@ -745,7 +745,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.text,
     lineHeight: 20,
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  postMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
+  },
+  postMetaText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   postImage: {
     width: '100%',
