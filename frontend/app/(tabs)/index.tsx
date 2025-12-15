@@ -43,6 +43,8 @@ export default function HomeScreen() {
   const [newPostContent, setNewPostContent] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+  const [taggedUsers, setTaggedUsers] = useState('');
+  const [location, setLocation] = useState('');
 
   useEffect(() => {
     loadFeed();
