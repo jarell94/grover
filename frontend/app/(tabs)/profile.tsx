@@ -19,6 +19,7 @@ import { api } from '../../services/api';
 
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
+  const router = useRouter();
   const [stats, setStats] = useState({ posts: 0, followers: 0, following: 0 });
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [name, setName] = useState(user?.name || '');
