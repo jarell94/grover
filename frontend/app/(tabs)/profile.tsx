@@ -58,7 +58,15 @@ export default function ProfileScreen() {
 
   const handleUpdateProfile = async () => {
     try {
-      await api.updateProfile({ name, bio, is_private: isPrivate });
+      await api.updateProfile({ 
+        name, 
+        bio, 
+        is_private: isPrivate,
+        website,
+        twitter,
+        instagram,
+        linkedin
+      });
       await refreshUser();
       setEditModalVisible(false);
       Alert.alert('Success', 'Profile updated');
