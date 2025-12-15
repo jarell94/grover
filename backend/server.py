@@ -708,6 +708,79 @@ async def delete_product(product_id: str, current_user: User = Depends(require_a
 
 # ============ ORDER ENDPOINTS ============
 
+@api_router.post("/paypal/create-payment")
+async def create_paypal_payment(
+    product_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Create a PayPal payment for a product"""
+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Create PayPal payment
+    result = create_payment(
+        amount=product["price"],
+        currency="USD",
+        description=f"Purchase: {product['name']}"
+    )
+    
+    if result["success"]:
+        return {
+            "success": True,
+            "payment_id": result["payment_id"],
+            "approval_url": result["approval_url"]
+        }
+    else:
+        raise HTTPException(status_code=500, detail=result.get("error", "Payment creation failed"))
+
+@api_router.post("/paypal/execute-payment")
+async def execute_paypal_payment(
+    payment_id: str,
+    payer_id: str,
+    product_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Execute a PayPal payment after user approval"""
+    result = execute_payment(payment_id, payer_id)
+    
+    if result["success"]:
+        # Get product details
+        product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        # Create order in database
+        order_id = f"order_{uuid.uuid4().hex[:12]}"
+        await db.orders.insert_one({
+            "order_id": order_id,
+            "buyer_id": current_user.user_id,
+            "seller_id": product["user_id"],
+            "product_id": product_id,
+            "amount": product["price"],
+            "status": "completed",
+            "paypal_payment_id": payment_id,
+            "created_at": datetime.now(timezone.utc)
+        })
+        
+        # Create notification
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": product["user_id"],
+            "type": "purchase",
+            "content": f"{current_user.name} purchased {product['name']}",
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        })
+        
+        return {
+            "success": True,
+            "order_id": order_id,
+            "message": "Payment completed successfully"
+        }
+    else:
+        raise HTTPException(status_code=500, detail=result.get("error", "Payment execution failed"))
+
 @api_router.post("/orders")
 async def create_order(
     product_id: str,
