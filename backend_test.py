@@ -62,7 +62,7 @@ class GroverBackendTester:
     def test_health_check(self):
         """Test basic health check"""
         self.log("Testing health check...")
-        response = requests.get("https://creator-hub-308.preview.emergentagent.com/health", timeout=10)
+        response = requests.get(HEALTH_URL, timeout=10)
         
         if response and response.status_code == 200:
             self.log("✅ Health check passed")
