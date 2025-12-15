@@ -33,20 +33,38 @@ export default function GoLiveScreen() {
   const [enableShop, setEnableShop] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleGoLive = () => {
+  const handleGoLive = async () => {
     if (!streamTitle.trim()) {
       Alert.alert('Error', 'Please enter a title for your stream');
       return;
     }
 
-    Alert.alert(
-      'Live Streaming Coming Soon!',
-      'Live streaming requires integration with a video streaming service (Agora, AWS IVS, or Twitch). This feature will be available soon!',
-      [
-        { text: 'Schedule Stream', onPress: () => router.push('/schedule-stream') },
-        { text: 'OK', onPress: () => router.back() },
-      ]
-    );
+    setIsLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('title', streamTitle);
+      if (streamDescription.trim()) {
+        formData.append('description', streamDescription);
+      }
+      formData.append('enable_super_chat', enableSuperChat.toString());
+      formData.append('enable_shopping', enableShop.toString());
+
+      const result = await api.startStream(formData);
+      
+      router.push({
+        pathname: '/live-stream',
+        params: {
+          streamId: result.stream_id,
+          channelName: result.channel_name,
+          isHost: 'true',
+        },
+      });
+    } catch (error) {
+      console.error('Start stream error:', error);
+      Alert.alert('Error', 'Failed to start stream. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
