@@ -309,6 +309,56 @@ async def update_profile(
     
     return {"message": "Profile updated"}
 
+@api_router.put("/users/me/notification-settings")
+async def update_notification_settings(
+    notify_followers: Optional[bool] = None,
+    notify_likes: Optional[bool] = None,
+    notify_comments: Optional[bool] = None,
+    notify_messages: Optional[bool] = None,
+    notify_sales: Optional[bool] = None,
+    notify_mentions: Optional[bool] = None,
+    notify_reposts: Optional[bool] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Update notification preferences"""
+    update_data = {}
+    if notify_followers is not None:
+        update_data["notify_followers"] = notify_followers
+    if notify_likes is not None:
+        update_data["notify_likes"] = notify_likes
+    if notify_comments is not None:
+        update_data["notify_comments"] = notify_comments
+    if notify_messages is not None:
+        update_data["notify_messages"] = notify_messages
+    if notify_sales is not None:
+        update_data["notify_sales"] = notify_sales
+    if notify_mentions is not None:
+        update_data["notify_mentions"] = notify_mentions
+    if notify_reposts is not None:
+        update_data["notify_reposts"] = notify_reposts
+    
+    if update_data:
+        await db.users.update_one(
+            {"user_id": current_user.user_id},
+            {"$set": update_data}
+        )
+    
+    return {"message": "Notification settings updated", "settings": update_data}
+
+@api_router.get("/users/me/notification-settings")
+async def get_notification_settings(current_user: User = Depends(require_auth)):
+    """Get current notification preferences"""
+    user = await db.users.find_one({"user_id": current_user.user_id}, {"_id": 0})
+    return {
+        "notify_followers": user.get("notify_followers", True),
+        "notify_likes": user.get("notify_likes", True),
+        "notify_comments": user.get("notify_comments", True),
+        "notify_messages": user.get("notify_messages", True),
+        "notify_sales": user.get("notify_sales", True),
+        "notify_mentions": user.get("notify_mentions", True),
+        "notify_reposts": user.get("notify_reposts", True),
+    }
+
 @api_router.post("/users/{user_id}/follow")
 async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
     if user_id == current_user.user_id:
