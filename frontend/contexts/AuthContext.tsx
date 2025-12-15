@@ -59,19 +59,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async () => {
     try {
-      const redirectUrl = Platform.OS === 'web'
-        ? window.location.origin + '/'
-        : Linking.createURL('/');
+      let redirectUrl = '';
+      
+      if (Platform.OS === 'web') {
+        if (typeof window !== 'undefined') {
+          redirectUrl = window.location.origin + '/';
+        } else {
+          redirectUrl = 'http://localhost:3000/';
+        }
+      } else {
+        redirectUrl = Linking.createURL('/');
+      }
 
+      console.log('Login - Redirect URL:', redirectUrl);
       const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+      console.log('Login - Auth URL:', authUrl);
 
       if (Platform.OS === 'web') {
-        window.location.href = authUrl;
+        if (typeof window !== 'undefined') {
+          window.location.href = authUrl;
+        }
       } else {
         const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
+        console.log('Login - WebBrowser result:', result);
         
         if (result.type === 'success' && result.url) {
           await processRedirectUrl(result.url);
+        } else if (result.type === 'cancel') {
+          console.log('Login cancelled by user');
         }
       }
     } catch (error) {
