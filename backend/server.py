@@ -241,7 +241,16 @@ async def get_user_stats(user_id: str, current_user: User = Depends(require_auth
     }
 
 @api_router.put("/users/me")
-async def update_profile(name: Optional[str] = None, bio: Optional[str] = None, is_private: Optional[bool] = None, current_user: User = Depends(require_auth)):
+async def update_profile(
+    name: Optional[str] = None, 
+    bio: Optional[str] = None, 
+    is_private: Optional[bool] = None,
+    website: Optional[str] = None,
+    twitter: Optional[str] = None,
+    instagram: Optional[str] = None,
+    linkedin: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
     update_data = {}
     if name is not None:
         update_data["name"] = name
@@ -249,6 +258,14 @@ async def update_profile(name: Optional[str] = None, bio: Optional[str] = None, 
         update_data["bio"] = bio
     if is_private is not None:
         update_data["is_private"] = is_private
+    if website is not None:
+        update_data["website"] = website
+    if twitter is not None:
+        update_data["twitter"] = twitter
+    if instagram is not None:
+        update_data["instagram"] = instagram
+    if linkedin is not None:
+        update_data["linkedin"] = linkedin
     
     if update_data:
         await db.users.update_one(
