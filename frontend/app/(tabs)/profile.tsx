@@ -302,6 +302,24 @@ export default function ProfileScreen() {
               />
             </View>
 
+            <Text style={styles.sectionLabel}>Payment Information</Text>
+
+            <View style={styles.paypalContainer}>
+              <Ionicons name="logo-paypal" size={24} color="#003087" style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="PayPal email (to receive payments)"
+                placeholderTextColor={Colors.textSecondary}
+                value={paypalEmail}
+                onChangeText={setPaypalEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+            </View>
+            <Text style={styles.helperText}>
+              Add your PayPal email to receive payments when someone buys your products
+            </Text>
+
             <TouchableOpacity style={styles.saveButton} onPress={handleUpdateProfile}>
               <Text style={styles.saveButtonText}>Save Changes</Text>
             </TouchableOpacity>
