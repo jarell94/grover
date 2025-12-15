@@ -9,12 +9,25 @@ import { Ionicons } from '@expo/vector-icons';
 export default function Index() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
+  const [loggingIn, setLoggingIn] = React.useState(false);
 
   useEffect(() => {
     if (!loading && user) {
       router.replace('/(tabs)');
     }
   }, [user, loading]);
+
+  const handleLogin = async () => {
+    try {
+      setLoggingIn(true);
+      await login();
+    } catch (error) {
+      console.error('Login failed:', error);
+      alert('Login failed. Please try again.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
 
   if (loading) {
     return (
