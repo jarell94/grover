@@ -65,6 +65,7 @@ class User(BaseModel):
     twitter: Optional[str] = None
     instagram: Optional[str] = None
     linkedin: Optional[str] = None
+    paypal_email: Optional[str] = None
     created_at: datetime
 
 class Post(BaseModel):
