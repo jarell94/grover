@@ -401,6 +401,10 @@ export default function HomeScreen() {
       setTaggedUsers('');
       setLocation('');
       setSelectedMedia(null);
+      setShowPollOption(false);
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      setPollDuration(24);
       setCreateModalVisible(false);
       loadFeed();
       Alert.alert('Success', 'Post created successfully!');
