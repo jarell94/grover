@@ -207,4 +207,12 @@ export const api = {
   }),
   likeComment: (commentId: string) => apiRequest(`/comments/${commentId}/like`, { method: 'POST' }),
   deleteComment: (commentId: string) => apiRequest(`/comments/${commentId}`, { method: 'DELETE' }),
+
+  // Repost
+  repostPost: (postId: string, repostComment?: string) => apiRequest(`/posts/${postId}/repost`, {
+    method: 'POST',
+    body: JSON.stringify({ repost_comment: repostComment }),
+  }),
+  unrepostPost: (postId: string) => apiRequest(`/posts/${postId}/unrepost`, { method: 'DELETE' }),
+  getReposts: (postId: string) => apiRequest(`/posts/${postId}/reposts`),
 };
