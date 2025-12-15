@@ -197,4 +197,14 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ payment_id: paymentId, payer_id: payerId, product_id: productId }),
   }),
+
+  // Comments
+  getComments: (postId: string) => apiRequest(`/posts/${postId}/comments`),
+  getReplies: (commentId: string) => apiRequest(`/comments/${commentId}/replies`),
+  createComment: (postId: string, content: string, parentCommentId?: string) => apiRequest(`/posts/${postId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ content, parent_comment_id: parentCommentId }),
+  }),
+  likeComment: (commentId: string) => apiRequest(`/comments/${commentId}/like`, { method: 'POST' }),
+  deleteComment: (commentId: string) => apiRequest(`/comments/${commentId}`, { method: 'DELETE' }),
 };
