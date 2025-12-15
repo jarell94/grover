@@ -66,15 +66,9 @@ export default function ExploreScreen() {
     }
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    
-    try {
-      const results = await api.search(searchQuery);
-      setPosts(results.posts || []);
-    } catch (error) {
-      console.error('Search error:', error);
-    }
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadContent();
   };
 
   const handleLike = async (postId: string) => {
