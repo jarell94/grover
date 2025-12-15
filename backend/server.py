@@ -40,6 +40,9 @@ sio = socketio.AsyncServer(
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
+# Add GZip compression middleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
