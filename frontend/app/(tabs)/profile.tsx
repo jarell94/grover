@@ -67,7 +67,8 @@ export default function ProfileScreen() {
         website,
         twitter,
         instagram,
-        linkedin
+        linkedin,
+        paypal_email: paypalEmail
       });
       await refreshUser();
       setEditModalVisible(false);
