@@ -1350,4 +1350,52 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  storiesContainer: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  storiesContent: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  storyItem: {
+    alignItems: 'center',
+    width: 80,
+  },
+  storyRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    padding: 2,
+    marginBottom: 8,
+  },
+  storyRingUnviewed: {
+    borderColor: Colors.primary,
+    borderWidth: 3,
+  },
+  createStoryRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  storyAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  storyUsername: {
+    fontSize: 12,
+    color: Colors.text,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
 });
