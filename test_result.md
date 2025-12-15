@@ -239,15 +239,18 @@ backend:
 
   - task: "Comments System (Backend)"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Implemented complete comments system with create, read, like, delete, and reply (threading) functionality. Comments are linked to posts and support nested replies."
+      - working: true
+        agent: "testing"
+        comment: "✅ ALL COMMENT ENDPOINTS TESTED SUCCESSFULLY: POST /api/posts/{post_id}/comments (create comment), GET /api/posts/{post_id}/comments (get comments), POST with parent_comment_id (create reply), GET /api/comments/{comment_id}/replies (get replies), POST /api/comments/{comment_id}/like (like/unlike toggle), DELETE /api/comments/{comment_id} (delete comment). All 7 tests passed with proper response validation."
 
   - task: "Post Interactions: Dislike, Save, Share"
     implemented: true
