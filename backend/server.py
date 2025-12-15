@@ -1501,6 +1501,342 @@ async def search(q: str, current_user: User = Depends(require_auth)):
     
     return {"users": users, "posts": posts}
 
+# ============ STORIES ENDPOINTS ============
+
+@api_router.post("/stories")
+async def create_story(
+    media: UploadFile,
+    caption: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Create a 24-hour disappearing story"""
+    story_id = f"story_{uuid.uuid4().hex[:12]}"
+    
+    # Read and encode media
+    media_content = await media.read()
+    media_base64 = base64.b64encode(media_content).decode('utf-8')
+    media_type = 'video' if media.content_type.startswith('video') else 'image'
+    
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    story_data = {
+        "story_id": story_id,
+        "user_id": current_user.user_id,
+        "media_url": media_base64,
+        "media_type": media_type,
+        "caption": caption,
+        "views_count": 0,
+        "reactions_count": 0,
+        "replies_count": 0,
+        "is_highlighted": False,
+        "highlight_title": None,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.stories.insert_one(story_data)
+    return {"story_id": story_id, "message": "Story created", "expires_at": expires_at}
+
+@api_router.get("/stories")
+async def get_active_stories(current_user: User = Depends(require_auth)):
+    """Get all active stories (not expired) from followed users"""
+    # Get followed users
+    follows = await db.follows.find(
+        {"follower_id": current_user.user_id},
+        {"_id": 0}
+    ).to_list(1000)
+    followed_ids = [f["following_id"] for f in follows]
+    followed_ids.append(current_user.user_id)  # Include own stories
+    
+    # Get non-expired stories
+    stories = await db.stories.find(
+        {
+            "user_id": {"$in": followed_ids},
+            "expires_at": {"$gt": datetime.now(timezone.utc)}
+        },
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    
+    # Group by user and add user data
+    stories_by_user = {}
+    for story in stories:
+        user_id = story["user_id"]
+        if user_id not in stories_by_user:
+            user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+            stories_by_user[user_id] = {
+                "user": user,
+                "stories": []
+            }
+        
+        # Check if current user viewed this story
+        viewed = await db.story_views.find_one({
+            "story_id": story["story_id"],
+            "user_id": current_user.user_id
+        })
+        story["viewed"] = viewed is not None
+        stories_by_user[user_id]["stories"].append(story)
+    
+    return list(stories_by_user.values())
+
+@api_router.post("/stories/{story_id}/view")
+async def view_story(story_id: str, current_user: User = Depends(require_auth)):
+    """Record a story view"""
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Check if already viewed
+    existing = await db.story_views.find_one({
+        "story_id": story_id,
+        "user_id": current_user.user_id
+    })
+    
+    if not existing:
+        await db.story_views.insert_one({
+            "story_id": story_id,
+            "user_id": current_user.user_id,
+            "viewed_at": datetime.now(timezone.utc)
+        })
+        await db.stories.update_one(
+            {"story_id": story_id},
+            {"$inc": {"views_count": 1}}
+        )
+    
+    return {"message": "View recorded", "views_count": story.get("views_count", 0) + 1}
+
+@api_router.post("/stories/{story_id}/react")
+async def react_to_story(
+    story_id: str,
+    reaction: str,
+    current_user: User = Depends(require_auth)
+):
+    """React to a story (emoji)"""
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Check if already reacted
+    existing = await db.story_reactions.find_one({
+        "story_id": story_id,
+        "user_id": current_user.user_id
+    })
+    
+    if existing:
+        # Update reaction
+        await db.story_reactions.update_one(
+            {"story_id": story_id, "user_id": current_user.user_id},
+            {"$set": {"reaction": reaction}}
+        )
+    else:
+        await db.story_reactions.insert_one({
+            "story_id": story_id,
+            "user_id": current_user.user_id,
+            "reaction": reaction,
+            "created_at": datetime.now(timezone.utc)
+        })
+        await db.stories.update_one(
+            {"story_id": story_id},
+            {"$inc": {"reactions_count": 1}}
+        )
+        
+        # Notify story owner
+        if story["user_id"] != current_user.user_id:
+            await create_notification(
+                story["user_id"],
+                "reaction",
+                f"{current_user.name} reacted {reaction} to your story",
+                story_id
+            )
+    
+    return {"message": "Reaction added"}
+
+@api_router.post("/stories/{story_id}/reply")
+async def reply_to_story(
+    story_id: str,
+    message: str,
+    current_user: User = Depends(require_auth)
+):
+    """Reply to a story (sends as DM to story owner)"""
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Create message to story owner
+    message_id = f"msg_{uuid.uuid4().hex[:12]}"
+    await db.messages.insert_one({
+        "message_id": message_id,
+        "sender_id": current_user.user_id,
+        "receiver_id": story["user_id"],
+        "content": f"Replied to your story: {message}",
+        "story_reply": True,
+        "story_id": story_id,
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    await db.stories.update_one(
+        {"story_id": story_id},
+        {"$inc": {"replies_count": 1}}
+    )
+    
+    # Notify story owner
+    if story["user_id"] != current_user.user_id:
+        await create_notification(
+            story["user_id"],
+            "message",
+            f"{current_user.name} replied to your story",
+            message_id
+        )
+    
+    return {"message": "Reply sent"}
+
+@api_router.post("/stories/{story_id}/highlight")
+async def highlight_story(
+    story_id: str,
+    title: str,
+    current_user: User = Depends(require_auth)
+):
+    """Add story to highlights (permanent)"""
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    if story["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.stories.update_one(
+        {"story_id": story_id},
+        {"$set": {"is_highlighted": True, "highlight_title": title}}
+    )
+    
+    return {"message": "Story added to highlights"}
+
+@api_router.delete("/stories/{story_id}")
+async def delete_story(story_id: str, current_user: User = Depends(require_auth)):
+    """Delete a story"""
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    if story["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.stories.delete_one({"story_id": story_id})
+    return {"message": "Story deleted"}
+
+@api_router.get("/users/{user_id}/highlights")
+async def get_user_highlights(user_id: str, current_user: User = Depends(require_auth)):
+    """Get user's highlighted stories"""
+    highlights = await db.stories.find(
+        {"user_id": user_id, "is_highlighted": True},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Group by highlight title
+    grouped = {}
+    for story in highlights:
+        title = story.get("highlight_title", "Untitled")
+        if title not in grouped:
+            grouped[title] = []
+        grouped[title].append(story)
+    
+    return grouped
+
+# ============ POLLS ENDPOINTS ============
+
+@api_router.post("/posts/{post_id}/vote")
+async def vote_on_poll(
+    post_id: str,
+    option_index: int,
+    current_user: User = Depends(require_auth)
+):
+    """Vote on a poll in a post"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("has_poll"):
+        raise HTTPException(status_code=400, detail="Post does not have a poll")
+    
+    # Check if poll expired
+    if post.get("poll_expires_at") and post["poll_expires_at"] < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Poll has expired")
+    
+    # Check if user already voted
+    existing_vote = await db.poll_votes.find_one({
+        "post_id": post_id,
+        "user_id": current_user.user_id
+    })
+    
+    if existing_vote:
+        # Update vote
+        old_option = existing_vote["option_index"]
+        await db.poll_votes.update_one(
+            {"post_id": post_id, "user_id": current_user.user_id},
+            {"$set": {"option_index": option_index}}
+        )
+        
+        # Update counts
+        poll_votes = post.get("poll_votes", {})
+        poll_votes[str(old_option)] = poll_votes.get(str(old_option), 0) - 1
+        poll_votes[str(option_index)] = poll_votes.get(str(option_index), 0) + 1
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$set": {"poll_votes": poll_votes}}
+        )
+    else:
+        # New vote
+        await db.poll_votes.insert_one({
+            "post_id": post_id,
+            "user_id": current_user.user_id,
+            "option_index": option_index,
+            "created_at": datetime.now(timezone.utc)
+        })
+        
+        # Update count
+        poll_votes = post.get("poll_votes", {})
+        poll_votes[str(option_index)] = poll_votes.get(str(option_index), 0) + 1
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$set": {"poll_votes": poll_votes}}
+        )
+    
+    return {"message": "Vote recorded", "poll_votes": poll_votes}
+
+@api_router.get("/posts/{post_id}/poll-results")
+async def get_poll_results(post_id: str, current_user: User = Depends(require_auth)):
+    """Get poll results with percentages"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post or not post.get("has_poll"):
+        raise HTTPException(status_code=404, detail="Poll not found")
+    
+    poll_votes = post.get("poll_votes", {})
+    total_votes = sum(poll_votes.values())
+    
+    results = []
+    for idx, option in enumerate(post.get("poll_options", [])):
+        votes = poll_votes.get(str(idx), 0)
+        percentage = (votes / total_votes * 100) if total_votes > 0 else 0
+        results.append({
+            "option": option,
+            "votes": votes,
+            "percentage": round(percentage, 1)
+        })
+    
+    # Check if current user voted
+    user_vote = await db.poll_votes.find_one({
+        "post_id": post_id,
+        "user_id": current_user.user_id
+    })
+    
+    return {
+        "results": results,
+        "total_votes": total_votes,
+        "user_voted": user_vote is not None,
+        "user_vote_index": user_vote["option_index"] if user_vote else None,
+        "expires_at": post.get("poll_expires_at")
+    }
+
 # ============ SOCKET.IO HANDLERS ============
 
 active_users = {}
