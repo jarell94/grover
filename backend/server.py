@@ -1005,11 +1005,15 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
         user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
         post["user"] = user
         
-        liked = await db.likes.find_one({
+        # Check if current user reacted
+        user_reaction = await db.reactions.find_one({
             "user_id": current_user.user_id,
             "post_id": post["post_id"]
         })
-        post["liked"] = liked is not None
+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+        
+        # Keep backward compatibility
+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
         
         disliked = await db.dislikes.find_one({
             "user_id": current_user.user_id,
