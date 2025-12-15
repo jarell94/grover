@@ -335,6 +335,22 @@ export default function HomeScreen() {
 
       <Text style={styles.postContent}>{item.content}</Text>
 
+      {item.location && (
+        <View style={styles.postMeta}>
+          <Ionicons name="location-outline" size={14} color={Colors.textSecondary} />
+          <Text style={styles.postMetaText}>{item.location}</Text>
+        </View>
+      )}
+
+      {item.tagged_users && item.tagged_users.length > 0 && (
+        <View style={styles.postMeta}>
+          <Ionicons name="people-outline" size={14} color={Colors.textSecondary} />
+          <Text style={styles.postMetaText}>
+            Tagged {item.tagged_users.length} user{item.tagged_users.length > 1 ? 's' : ''}
+          </Text>
+        </View>
+      )}
+
       <MediaDisplay
         mediaUrl={item.media_url}
         mediaType={item.media_type}
