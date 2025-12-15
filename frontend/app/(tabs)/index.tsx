@@ -627,9 +627,18 @@ export default function HomeScreen() {
           style={styles.headerGradient}
         >
           <Text style={styles.headerTitle}>Feed</Text>
-          <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
-            <Ionicons name="add-circle" size={32} color="#fff" />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.liveButton}
+              onPress={() => router.push('/go-live')}
+            >
+              <Ionicons name="radio" size={18} color="#fff" />
+              <Text style={styles.liveButtonText}>LIVE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
+              <Ionicons name="add-circle" size={32} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </LinearGradient>
       </View>
 
