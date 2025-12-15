@@ -124,6 +124,35 @@ export default function ProfileScreen() {
         <Text style={styles.email}>{user.email}</Text>
         {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
+        {(user.website || user.twitter || user.instagram || user.linkedin) && (
+          <View style={styles.socialLinks}>
+            {user.website && (
+              <TouchableOpacity style={styles.socialLink}>
+                <Ionicons name="globe-outline" size={20} color={Colors.accent} />
+                <Text style={styles.socialLinkText} numberOfLines={1}>{user.website}</Text>
+              </TouchableOpacity>
+            )}
+            {user.twitter && (
+              <TouchableOpacity style={styles.socialLink}>
+                <Ionicons name="logo-twitter" size={20} color="#1DA1F2" />
+                <Text style={styles.socialLinkText}>@{user.twitter}</Text>
+              </TouchableOpacity>
+            )}
+            {user.instagram && (
+              <TouchableOpacity style={styles.socialLink}>
+                <Ionicons name="logo-instagram" size={20} color="#E4405F" />
+                <Text style={styles.socialLinkText}>@{user.instagram}</Text>
+              </TouchableOpacity>
+            )}
+            {user.linkedin && (
+              <TouchableOpacity style={styles.socialLink}>
+                <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
+                <Text style={styles.socialLinkText}>{user.linkedin}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{stats.posts}</Text>
