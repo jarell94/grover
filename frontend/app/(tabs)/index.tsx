@@ -345,7 +345,7 @@ export default function HomeScreen() {
         if (!result.canceled && result.assets[0]) {
           const asset = result.assets[0];
           const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-            encoding: EncodingType.Base64,
+            encoding: FileSystem.EncodingType.Base64,
           });
           
           setSelectedMedia({
