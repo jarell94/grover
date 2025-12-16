@@ -62,10 +62,17 @@ export const getAuthToken = () => authToken;
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   initializeUrls(); // Ensure URLs are initialized
   
-  const headers: any = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
+  const headers: any = {};
+  
+  // Only set Content-Type if body is not FormData
+  if (options.body && !(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+  
+  // Add custom headers
+  if (options.headers) {
+    Object.assign(headers, options.headers);
+  }
 
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
