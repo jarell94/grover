@@ -45,6 +45,18 @@ class SocketService {
   connect(userId: string): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // Only attempt connection if BACKEND_URL is valid
+        if (!BACKEND_URL || BACKEND_URL === '') {
+          console.warn('Socket.IO: No backend URL configured, skipping connection');
+          resolve(); // Resolve instead of rejecting to not break the app
+          return;
+        }
+
+        // Disconnect existing connection if any
+        if (this.socket) {
+          this.socket.disconnect();
+        }
+
         this.socket = io(BACKEND_URL, {
           auth: { userId },
           reconnection: true,
@@ -52,25 +64,44 @@ class SocketService {
           reconnectionDelayMax: 5000,
           reconnectionAttempts: 5,
           transports: ['websocket', 'polling'],
+          timeout: 10000,
+          path: '/socket.io/',
         });
 
         this.socket.on('connect', () => {
-          console.log('Socket connected:', this.socket?.id);
+          console.log('✅ Socket connected:', this.socket?.id);
           this.isConnected = true;
           resolve();
         });
 
         this.socket.on('connect_error', (error) => {
-          console.error('Socket connection error:', error);
-          reject(error);
+          console.error('❌ Socket connection error:', error.message);
+          // Don't reject - just log the error and continue
+          // This prevents the app from breaking if socket fails
+          this.isConnected = false;
+          resolve(); // Resolve instead of reject
         });
 
         this.socket.on('disconnect', (reason) => {
-          console.log('Socket disconnected:', reason);
+          console.log('🔌 Socket disconnected:', reason);
           this.isConnected = false;
         });
+
+        this.socket.on('error', (error) => {
+          console.error('⚠️ Socket error:', error);
+        });
+
+        // Auto-resolve after timeout to not block the app
+        setTimeout(() => {
+          if (!this.isConnected) {
+            console.warn('⏱️ Socket connection timeout - continuing without real-time features');
+            resolve();
+          }
+        }, 10000);
+
       } catch (error) {
-        reject(error);
+        console.error('Socket initialization error:', error);
+        resolve(); // Don't break the app
       }
     });
   }
