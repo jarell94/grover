@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import api from '../services/api';
+import { api } from '../services/api';
 
 const Colors = {
   primary: '#8B5CF6',
@@ -188,79 +188,63 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    paddingTop: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: Colors.text,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  content: {
+    padding: 16,
+  },
   sectionDescription: {
-    fontSize: 14,
     color: Colors.textSecondary,
-    marginTop: 16,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   optionCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 10,
   },
   optionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.background,
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.03)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
-  optionText: {
-    flex: 1,
-  },
+  optionText: {},
   optionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
     color: Colors.text,
-    marginBottom: 4,
+    fontWeight: '600',
   },
   optionDescription: {
-    fontSize: 13,
     color: Colors.textSecondary,
+    fontSize: 12,
   },
   footer: {
+    marginTop: 20,
     flexDirection: 'row',
-    gap: 8,
-    padding: 16,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    marginTop: 8,
-    marginBottom: 32,
+    alignItems: 'center',
   },
   footerText: {
-    flex: 1,
-    fontSize: 12,
     color: Colors.textSecondary,
-    lineHeight: 18,
+    marginLeft: 8,
+    flex: 1,
   },
 });
