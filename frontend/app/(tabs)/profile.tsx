@@ -179,6 +179,49 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </LinearGradient>
 
+      {/* Quick Actions */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.quickActions}>
+          <TouchableOpacity 
+            style={styles.quickAction}
+            onPress={() => router.push('/mentions')}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="at" size={24} color={Colors.primary} />
+            </View>
+            <Text style={styles.quickActionText}>Mentions</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.quickAction}
+            onPress={() => router.push('/marketplace')}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="storefront" size={24} color={Colors.secondary} />
+            </View>
+            <Text style={styles.quickActionText}>Marketplace</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.quickAction}
+            onPress={() => router.push('/collections')}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="folder" size={24} color={Colors.accent} />
+            </View>
+            <Text style={styles.quickActionText}>Collections</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.quickAction}
+            onPress={() => router.push('/communities')}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="people" size={24} color={Colors.success} />
+            </View>
+            <Text style={styles.quickActionText}>Communities</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Account</Text>
 
