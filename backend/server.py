@@ -642,6 +642,10 @@ async def create_post(
     poll_duration_hours: Optional[int] = Form(24),
     current_user: User = Depends(require_auth)
 ):
+    # Validate that at least some content exists
+    if not content and not media and not poll_question:
+        raise HTTPException(status_code=422, detail="Post must have content, media, or poll")
+    
     media_url = None
     media_type = None
     
