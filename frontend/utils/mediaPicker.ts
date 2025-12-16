@@ -55,12 +55,15 @@ export async function pickMedia(
       mediaTypeOption = ImagePicker.MediaTypeOptions.All;
     }
 
+    // On web, base64 conversion can be problematic, so disable it
+    const shouldUseBase64 = Platform.OS !== 'web' && base64;
+
     // Launch image picker
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: mediaTypeOption,
-      allowsEditing,
+      allowsEditing: Platform.OS !== 'web' && allowsEditing, // Editing can be problematic on web
       quality,
-      base64,
+      base64: shouldUseBase64,
       allowsMultipleSelection,
     });
 
