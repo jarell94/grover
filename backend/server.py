@@ -294,21 +294,29 @@ async def create_session(session_id: str):
             
             # Create or update session (avoid duplicate key error)
             session_token = user_data["session_token"]
-            await db.user_sessions.update_one(
-                {"session_token": session_token},
-                {
-                    "$set": {
-                        "user_id": user_id,
-                        "session_token": session_token,
-                        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
-                        "updated_at": datetime.now(timezone.utc)
+            try:
+                await db.user_sessions.update_one(
+                    {"session_token": session_token},
+                    {
+                        "$set": {
+                            "user_id": user_id,
+                            "session_token": session_token,
+                            "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                            "updated_at": datetime.now(timezone.utc)
+                        },
+                        "$setOnInsert": {
+                            "created_at": datetime.now(timezone.utc)
+                        }
                     },
-                    "$setOnInsert": {
-                        "created_at": datetime.now(timezone.utc)
-                    }
-                },
-                upsert=True
-            )
+                    upsert=True
+                )
+            except Exception as session_error:
+                # Handle race condition - if E11000 occurs, session already exists, which is fine
+                if "E11000" in str(session_error) or "duplicate key" in str(session_error):
+                    logger.warning(f"Session already exists for token (race condition handled): {session_token[:10]}...")
+                else:
+                    logger.error(f"Session error: {session_error}")
+                    raise
             
             return {
                 "user_id": user_id,
