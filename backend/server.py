@@ -1116,17 +1116,23 @@ async def get_comment_replies(comment_id: str, current_user: User = Depends(requ
     
     return replies
 
+class CommentCreate(BaseModel):
+    content: str
+    parent_comment_id: Optional[str] = None
+
 @api_router.post("/posts/{post_id}/comments")
 async def create_comment(
     post_id: str,
-    content: str,
-    parent_comment_id: Optional[str] = None,
+    comment_data: CommentCreate,
     current_user: User = Depends(require_auth)
 ):
     """Create a comment or reply"""
     post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    
+    content = comment_data.content
+    parent_comment_id = comment_data.parent_comment_id
     
     # Extract tagged users from content (@username)
     import re
