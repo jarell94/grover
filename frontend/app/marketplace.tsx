@@ -311,6 +311,7 @@ export default function MarketplaceScreen() {
         </View>
       ) : (
         <FlatList
+          key="marketplace-grid-2-columns"
           data={products}
           renderItem={renderProduct}
           keyExtractor={(item) => item.product_id}
