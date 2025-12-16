@@ -11,6 +11,26 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="chat/[conversationId]" options={{ presentation: 'card' }} />
+          
+          {/* New feature screens */}
+          <Stack.Screen name="mentions" options={{ presentation: 'card' }} />
+          <Stack.Screen name="marketplace" options={{ presentation: 'card' }} />
+          <Stack.Screen name="collections" options={{ presentation: 'card' }} />
+          <Stack.Screen name="collection-detail" options={{ presentation: 'card' }} />
+          <Stack.Screen name="communities" options={{ presentation: 'card' }} />
+          <Stack.Screen name="community-detail" options={{ presentation: 'card' }} />
+          <Stack.Screen name="analytics" options={{ presentation: 'card' }} />
+          <Stack.Screen name="schedule-post" options={{ presentation: 'card' }} />
+          
+          {/* Story and live streaming screens */}
+          <Stack.Screen name="stories" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="create-story" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="go-live" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="live-stream" options={{ presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="schedule-stream" options={{ presentation: 'card' }} />
+          
+          {/* Settings and notification screens */}
+          <Stack.Screen name="notification-settings" options={{ presentation: 'card' }} />
         </Stack>
       </AuthProvider>
     </GestureHandlerRootView>
