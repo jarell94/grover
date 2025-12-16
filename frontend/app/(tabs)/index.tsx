@@ -402,7 +402,8 @@ export default function HomeScreen() {
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append('content', newPostContent);
+      // Backend requires content field, use empty string if no text but has media/poll
+      formData.append('content', newPostContent.trim() || '');
 
       if (taggedUsers.trim()) {
         formData.append('tagged_users', taggedUsers.trim());
