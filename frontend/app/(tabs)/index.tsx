@@ -355,31 +355,36 @@ export default function HomeScreen() {
           });
         }
       } else {
-        // Pick images or videos
-        const mediaTypes = type === 'image' ? ['images'] : ['videos'];
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: mediaTypes as any,
+        // Pick images or videos using the new utility
+        const mediaType = type === 'image' ? 'Images' : type === 'video' ? 'Videos' : 'All';
+        const result = await pickMediaUtil({
+          mediaTypes: mediaType,
           allowsEditing: type === 'image',
           quality: 0.8,
-          videoMaxDuration: type === 'video' ? 600 : undefined, // 10 minutes max
+          base64: true,
         });
 
-        if (!result.canceled && result.assets[0]) {
-          const asset = result.assets[0];
-          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
+        if (result) {
+          // Convert to base64 if not already
+          let base64 = result.base64;
+          if (!base64) {
+            base64 = await FileSystem.readAsStringAsync(result.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+          }
           
           setSelectedMedia({
-            ...asset,
+            uri: result.uri,
             base64,
-            type: asset.type || type,
+            type: result.type || type,
+            width: result.width,
+            height: result.height,
           });
         }
       }
     } catch (error) {
-      console.error('Media picking error:', error);
-      Alert.alert('Error', 'Failed to pick media file');
+      console.error('Media picker error:', error);
+      Alert.alert('Error', 'Failed to pick media. Please try again.');
     }
   };
 
