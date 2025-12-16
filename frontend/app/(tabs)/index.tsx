@@ -369,7 +369,7 @@ export default function HomeScreen() {
           let base64 = result.base64;
           if (!base64) {
             base64 = await FileSystem.readAsStringAsync(result.uri, {
-              encoding: EncodingType.Base64,
+              encoding: FileSystem.EncodingType.Base64,
             });
           }
           
