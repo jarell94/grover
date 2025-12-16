@@ -633,7 +633,7 @@ async def get_explore(
 
 @api_router.post("/posts")
 async def create_post(
-    content: str = Form(...),
+    content: Optional[str] = Form(""),  # Allow empty content for media-only posts
     media: Optional[UploadFile] = File(None),
     tagged_users: Optional[str] = Form(None),
     location: Optional[str] = Form(None),
