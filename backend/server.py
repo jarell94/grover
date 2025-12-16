@@ -292,14 +292,23 @@ async def create_session(session_id: str):
             else:
                 user_id = existing_user["user_id"]
             
-            # Create session
+            # Create or update session (avoid duplicate key error)
             session_token = user_data["session_token"]
-            await db.user_sessions.insert_one({
-                "user_id": user_id,
-                "session_token": session_token,
-                "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
-                "created_at": datetime.now(timezone.utc)
-            })
+            await db.user_sessions.update_one(
+                {"session_token": session_token},
+                {
+                    "$set": {
+                        "user_id": user_id,
+                        "session_token": session_token,
+                        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                        "updated_at": datetime.now(timezone.utc)
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.now(timezone.utc)
+                    }
+                },
+                upsert=True
+            )
             
             return {
                 "user_id": user_id,
