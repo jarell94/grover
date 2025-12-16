@@ -26,7 +26,7 @@ export default function RootLayout() {
           <Stack.Screen name="stories" options={{ presentation: 'modal' }} />
           <Stack.Screen name="create-story" options={{ presentation: 'modal' }} />
           <Stack.Screen name="go-live" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="live-stream" options={{ presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="live-stream/[streamId]" options={{ presentation: 'fullScreenModal' }} />
           <Stack.Screen name="schedule-stream" options={{ presentation: 'card' }} />
           
           {/* Settings and notification screens */}
