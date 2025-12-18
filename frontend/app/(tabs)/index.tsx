@@ -82,9 +82,12 @@ export default function HomeScreen() {
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [pollDuration, setPollDuration] = useState(24);
 
-  useEffect(() => {
-    loadFeed();
-  }, []);
+  // Refresh feed when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadFeed(true);
+    }, [])
+  );
 
   const loadFeed = async (isRefresh = false, pageToLoad?: number) => {
     try {
