@@ -23,6 +23,7 @@ interface Notification {
 }
 
 export default function NotificationsScreen() {
+  const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
