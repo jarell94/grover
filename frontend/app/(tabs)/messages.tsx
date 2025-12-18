@@ -106,8 +106,7 @@ export default function MessagesScreen() {
         </View>
       </TouchableOpacity>
     );
-  }
-  );
+  };
 
   if (loading) {
     return (
