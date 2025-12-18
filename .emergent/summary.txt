@@ -2,80 +2,108 @@
 
 original_problem_statement: Build Grover - a social media creator platform mobile app (iOS & Android using Expo/React Native) with a FastAPI backend.
 
-The user has requested a vast number of features throughout the session, progressively building on the initial request. The final state of requested features includes:
-- **Core Social Features:** Auth, Posts (text, image, video, audio), Feed, Profiles, Likes, Comments, Reposts, Shares, Saves.
-- **Engagement Features:** Stories (24-hour disappearing), Polls, Reactions (Love, Wow, etc.), Q&A sessions.
-- **Community & Messaging:** Rich Direct Messages (voice, video, GIFs), Group Chats, Communities (interest-based groups), Voice/Video Calls.
-- **Creator & Monetization Tools:** Creator Studio, Advanced Analytics, Content Scheduling, Subscription Tiers, Tips/Donations, Live Streaming (with super chat), and a Store with PayPal integration.
-- **Discovery & Algorithm:** A For You recommendation page, Advanced Search, Trending section, and Suggested Users.
-- **The user's final and most important request is to make ALL features accessible to EVERY user, removing any premium restrictions or paywalls.**
+The user's initial request was to build a comprehensive social media application. Over the course of the session, this evolved into a feature-rich platform. The last explicit user request from the previous session was to make **ALL features accessible to EVERY user, removing any premium restrictions or paywalls.**
+
+Throughout this session, the user shifted focus to rapid feature implementation and bug fixing, providing code snippets and error messages to guide the agent. The agent implemented a vast number of frontend screens and fixed numerous bugs, but the original request to remove paywalls was not addressed.
 
 **User's preferred language**: en-US
 
 **what currently exists?**
-A highly feature-rich social media application, Grover, with a massive FastAPI backend and a partially implemented Expo/React Native frontend.
-
-- **Backend ():** An extensive, monolithic FastAPI server containing endpoints and logic for nearly every feature requested by the user, including posts, comments, reposts, stories, polls, live streaming (with Agora stubs), advanced messaging, communities, user analytics, content scheduling, and more. It uses MongoDB as the database and has been optimized with Redis caching and database indexes.
-- **Frontend ():** The frontend has a solid foundation with user authentication, a main feed, profile management, and basic UI for many features. However, most of the advanced backend features have only placeholder screens or are not yet implemented in the UI. Key completed UI work includes comments, post interactions (like, dislike, share, save, repost), and a refined tab navigation. The main feed screen () is extremely complex, containing logic for the feed, post creation, polls, story rings, and modals.
+A sprawling full-stack social media application.
+- **Backend ()**: A massive, monolithic FastAPI server with endpoints for dozens of features, including posts, stories, live streaming (Agora stubs), communities, chat, and a full commerce system (digital products, services, discounts). It connects to a MongoDB database. Several critical security vulnerabilities have been identified but not fixed.
+- **Frontend ()**: An Expo/React Native application with a large number of screens. In this session, the agent created numerous new screens for features like Collections, Communities, Analytics, Content Scheduling, Mentions, and a Marketplace. The agent also fixed a wide range of bugs related to API calls, socket connections, media uploads, and navigation. However, many of these new screens were created rapidly and have not been tested or verified by the user.
 
 **Last working item**:
-    - Last item agent was working: The user requested to remove all premium restrictions and paywalls, making every feature accessible to all users. The previous agent acknowledged this request and was about to begin implementation. This involves auditing the backend and frontend to remove any logic tied to subscription tiers, paid-only features (like potential premium calls), or tips.
-    - Status: NOT STARTED
+    - Last item agent was working: Enhancing the PayPal integration by improving the error handling logic within the  function in . The user provided a more robust code snippet, which the agent successfully implemented.
+    - Status: NONE
     - Agent Testing Done: N
-    - Which testing method agent to use? both
+    - Which testing method agent to use? NA
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-  - Issue 1: **Unable to resolve module build error.** (Status: RESOLVED). This was caused by a missing  dependency, which was installed and the Metro cache was cleared to fix it.
-
+  - Issue 1:  **Critical Security Vulnerabilities in Backend (P0)**
+  - Issue 2:  **Monetization Paywalls Still Exist (P0)**
+  - Issue 3:  **Persistent Metro Cache Issues (P2)**
+  
   Issues Detail:
-  - N/A
+  - Issue 1: 
+     - Description: A security audit (prompted by the user) identified critical vulnerabilities in , including potential for NoSQL injection, insecure direct object references (IDOR), and lack of input sanitization. The agent created a report () but did not implement the fixes. This was identified twice.
+     - Attempted fixes: None. The agent created a report but did not proceed with code changes to patch the vulnerabilities.
+     - Next debug checklist:
+        1. Review  for the list of vulnerabilities.
+        2. Systematically go through  and apply the recommended fixes, such as:
+           - Implementing strict input validation and sanitization on all endpoints.
+           - Adding ownership checks in all endpoints that modify or delete resources (e.g., ensure  matches the  of the post being deleted).
+           - Using Pydantic models for all incoming data to enforce types and constraints.
+     - Why fix this issue and what will be achieved with the fix? This is the highest priority. Fixing this will secure user data, prevent unauthorized access and modification of data, and make the application safe to use.
+     - Status:  NOT STARTED
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? backend
+     - Blocked on other issue: None
+  - Issue 2:
+     - Description: The user's original core request was to remove all paywalls and make every feature free. This task was acknowledged but deferred in favor of building new features and fixing bugs. The backend still contains logic for Subscription Tiers and other monetization features that need to be removed or disabled.
+     - Attempted fixes: None.
+     - Next debug checklist:
+        1. Audit  for all endpoints related to subscriptions, tips, and premium features.
+        2. Remove or comment out the logic that restricts access based on payment status.
+        3. Audit the frontend codebase (e.g., , ) to remove any UI elements related to premium, subscribe, or tip.
+     - Why fix this issue and what will be achieved with the fix? This will fulfill a primary user requirement, simplify the application's logic, and align the product with the user's vision.
+     - Status:  NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? both
+     - Blocked on other issue: None
+  - Issue 3:
+     - Description: The agent repeatedly struggled with the Expo Metro bundler cache, where old errors persisted even after files were fixed. The agent tried restarting the server, clearing the cache, and killing the process, often with mixed results.
+     - Attempted fixes: Multiple restarts (expo: ERROR (not running)
+expo: started), killing the process, and attempting to clear the cache.
+     - Next debug checklist: When this occurs, the most reliable fix was to stop the expo server, run [05:01:12] Starting project at /app/frontend to clear the cache, and then restart normally.
+     - Why fix this issue and what will be achieved with the fix? Solving this will significantly speed up development and debugging, preventing the agent from wasting time on already-fixed errors.
+     - Status:  RESOLVED
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? NA
+     - Blocked on other issue: None
 
 **In progress Task List**:
-  - Task 1: **Remove All Premium Restrictions and Paywalls (P0)**
-     - Where to resume: This is a new task. The agent needs to start by auditing the backend code in  and any related frontend components. The primary targets are the  and  features.
-     - What will be achieved with this? The application will align with the user's latest requirement that all functionality is free and accessible to every user, simplifying the user experience.
-     - Status: NOT STARTED
-     - Should Test frontend/backend/both after fix? both
-     - Blocked on something: None
+- None
 
 **Upcoming and Future Tasks**
     Upcoming Tasks:
-    - **P1: Build Full Stories UI:** Implement the UI for  (viewer) and  (camera/uploader). The story rings in the feed are present but need to be connected to these screens.
-    - **P1: Build Full Polls UI:** The UI for creating and displaying polls in the feed is partially implemented in . It needs to be completed and tested.
-    - **P1: Build Full Live Streaming UI:** Implement the  and  screens using the installed Agora SDK. This involves replacing the current placeholder/simulated UI with actual video components and connecting to the backend stream management endpoints. This will likely require user-provided Agora credentials.
-    - **P2: Build Full Rich Messaging & Groups UI:** Implement the frontend for Rich DMs, Group Chats, and Communities. This involves creating new screens and integrating with the backend Socket.IO and API endpoints.
-    - **P2: Build Advanced Analytics UI:** Create a dedicated screen to display the data from the advanced analytics backend endpoints (e.g., in the  tab).
-    - **P2: Build Content Scheduling UI:** Create a UI for users to schedule posts, view drafts, and manage their content queue.
-
+    - **P0: Implement Security Fixes:** Apply all fixes detailed in  to .
+    - **P0: Remove All Paywalls:** Fulfill the original user request by removing all premium feature restrictions from the backend and frontend.
+    - **P1: User Verification of New Features:** The user needs to test the massive number of frontend screens created in this session (Collections, Communities, Marketplace, etc.) to identify bugs and usability issues.
+    - **P1: Complete Agora Live Streaming Integration:** The UI is scaffolded and some bugs were fixed, but it requires user-provided Agora credentials and end-to-end testing to be functional.
+    
     Future Tasks:
-    - **Build UI for Discovery Features:** Implement the UI for Advanced Search, the Trending Section, and Suggested Users.
-    - **Build UI for Collections/Bookmarks:** Implement the frontend for organizing saved posts into collections.
-    - **Refactor Monolithic Files:** Break down  into multiple routers (e.g., , ) and refactor the massive  into smaller, reusable components (, , , etc.).
+    - **P2: Refactor Monolithic Files:** The  and  files are extremely large and fragile. They should be broken down into smaller, manageable modules (FastAPI Routers) and components (React Components). The agent's accidental file overwrite highlights the risk of working with these large files.
+    - **P2: Comprehensive Testing:** Use testing agents to create a suite of backend and frontend tests to ensure stability after the major changes and security fixes.
 
 **Completed work in this session**
-- **Massive Backend Expansion:** Implemented backend logic and API endpoints for a vast array of features:
-  - Reposts, Enhanced Reactions, Collections/Bookmarks.
-  - Stories, Polls, Live Streaming stubs.
-  - Content Scheduling, Advanced Analytics, Subscription Tiers, Tips/Donations.
-  - Rich DMs, Group Chats, Communities, Voice/Video Calls.
-  - For You algorithmic feed.
-- **Frontend Feature Implementation:**
-  - Completed the Comments on Posts feature.
-  - Implemented UI for Dislike, Share, Save, and Tagging features.
-  - Implemented UI for Reposts (button, modal, and display logic).
-  - Built a comprehensive, customizable Notification system with a dedicated settings screen.
-  - Started UI for Polls, Stories (header rings), and Live Streaming (Go Live button).
-- **Performance Optimization:**
-  - Integrated Redis for backend caching on key endpoints.
-  - Created and executed a DB optimization script () to add indexes to MongoDB collections.
-  - Implemented frontend pagination/infinite scroll on the main feed.
-- **Bug Fixes & UX Improvements:**
-  - Resolved a critical Unable to resolve module build error by installing a missing dependency.
-  - Optimized the main tab navigation from 7 cluttered tabs to 5 essential ones.
+- **Massive Frontend Implementation:**
+  - Created new screens: , , , , , , and more.
+  - Updated  and  to add navigation to these new screens.
+- **Critical Bug Fixing:**
+  - **API/Backend:**
+    - Fixed a session creation race condition () by using  with upsert and adding error handling.
+    - Fixed comment submission () by changing the backend endpoint to accept JSON instead of Form data.
+    - Fixed post creation with media-only content by making the  field optional on the backend.
+    - Fixed live stream start by adding a missing  import in .
+  - **Frontend/Build:**
+    - Fixed  error by restoring the  file that was accidentally overwritten.
+    - Fixed broken relative imports in  after a file move.
+    - Fixed multiple build-breaking errors related to media picking ( on web, incorrect  imports) by creating a platform-aware  utility and correcting imports.
+    - Fixed a  invariant violation error in  by adding a  prop.
+  - **UX:**
+    - Fixed low-hanging tab bar icons by adding safe area padding to .
+- **Integration & Tooling Enhancements:**
+  - **PayPal:** Replaced hardcoded return URLs with environment variables and implemented more robust error handling for payment creation in .
+  - **Performance:** Upgraded  with a much more comprehensive script provided by the user and created a new  tool.
 
 **Earlier issues found/mentioned but not fixed**
-   - None. The previous agent was diligent in addressing issues as they arose.
+   - **Issue 1: Critical Security Vulnerabilities**
+     - Debug checklist: See All Pending/In progress Issue list. The agent ran an analysis twice, created a report, but never implemented the fixes in .
+     - Why to solve this issue and what will be achieved with this? To secure the application against major exploits like data theft and unauthorized modifications.
+     - Should Test frontend/backend/both after fix: backend
+     - Is recurring issue? Y (Identified twice, not fixed).
 
 **Known issue recurrence from previous fork**
   - None.
@@ -84,96 +112,99 @@ A highly feature-rich social media application, Grover, with a massive FastAPI b
 
 
 **Key Technical Concepts**
-- **Frontend**: React Native, Expo, Expo Router, TypeScript, Zustand/Context API.
-- **Backend**: FastAPI, Python, MongoDB (), , Redis ().
-- **Authentication**: Emergent Google OAuth.
-- **Payments**: PayPal REST SDK.
-- **Live Streaming**: Agora SDK () - installed, not fully implemented.
+- **Frontend**: React Native, Expo, Expo Router, TypeScript
+- **Backend**: FastAPI, Python, MongoDB (), 
+- **Authentication**: Emergent Google OAuth
+- **Payments**: PayPal REST SDK
+- **Live Streaming**: Agora SDK (installed, not fully implemented)
+- **Database Caching**: Redis
 
 **key DB schema**
-- **users**: , , , , 
-- **posts**: , , , , , , , 
-- **stories**: , , , 
-- **reactions**: , ,  (e.g., 'like', 'love', 'wow')
-- **collections**: , , , 
-- **notifications**: , , , , 
-- **communities**: , , , 
-- *(Plus many other collections for followers, tips, orders, chats, etc.)*
+- **users**: , , ,  (unhashed - vulnerability!), 
+- **posts**: , , , 
+- **sessions**: , 
+- **comments**: , , , 
+- **products**: , , , 
+- *Plus collections for stories, reactions, follows, communities, chats, orders, etc.*
 
 **changes in tech stack**
-- **Redis** was added for backend caching.
-- **Agora SDK** was added for live video streaming.
+- No new technologies were added, but existing scripts for performance monitoring () and payment handling () were significantly improved. A new database analysis script () was created.
 
 **All files of reference**
-- **Heavily Modified:**
-  - : Contains the logic for almost the entire application. Grew from ~1000 to ~2500+ lines.
-  - : The main feed screen. Grew significantly in complexity to handle polls, stories, reposts, and numerous modals.
-  - : Updated continuously to add dozens of new API methods.
+- **Critically Modified/Fixed:**
+  - : Multiple bug fixes applied, but **major security vulnerabilities remain**.
+  - : Restored from an accidental overwrite, multiple bug fixes applied.
+  - : Updated to register all newly created screens.
+  - : Fixed a critical bug with FormData .
+  - : Made more configurable and robust.
 - **Newly Created:**
-  - , 
+  - : Abstraction for platform-specific image picking.
+  - , , , , , and several others.
+  - : New tool for DB performance analysis.
+- **Heavily Referenced for Debugging:**
   - 
-  - , 
-  - , , 
+  - 
 
 **Areas that need refactoring**:
-- ****: This file is critically oversized and unmaintainable. It **must** be broken down into a modular structure using FastAPI's  for different features (e.g., , , ).
-- ****: This file is a mega-component handling the feed, post creation, poll creation, modals for comments and reposts, and story ring display. It should be refactored into smaller, specialized components (, , , , etc.).
+- ****: URGENT. This monolithic file is a major liability. It's difficult to maintain, and its complexity likely hides other bugs and security issues. It must be broken into  modules.
+- ****: URGENT. This god component is over 1700 lines long, making it extremely difficult to debug and modify. The agent's accidental deletion of its content proves how risky it is. It must be refactored into smaller components (, , , etc.).
 
 **key api endpoints**
-- The API is extensive. Key new categories of endpoints include:
-  - : CRUD for stories and reactions.
-  - : Voting on polls.
-  - : Managing live streams (token generation, start/end).
-  - : CRUD for post collections.
-  - : Get/update notification preferences.
-  - , , , , , , , , , , and more.
+- : Fixed to allow media-only posts.
+- : Fixed to accept JSON body.
+- : Fixed by adding missing import on the frontend.
+- : Fixed a race condition causing duplicate key errors.
+- The app now has endpoints for nearly every conceivable social media feature: communities, collections, marketplace, digital products, analytics, etc.
 
 **Critical Info for New Agent**
-- **Priority #1: Remove Paywalls:** The user's most recent and critical instruction is to make all features free. Your first task is to audit the codebase (especially backend logic for subscriptions and tips) and remove any and all restrictions.
-- **Backend is Far Ahead of Frontend:** Do not assume a feature is usable just because a backend endpoint exists. The vast majority of features added in the last half of the session have backend support but **no functional UI**.
-- **Monolithic Codebase:** Be prepared to work within two very large files:  and . Navigating and modifying them requires care. Proposing a refactor as a future task would be beneficial.
-- **Incomplete Integrations:** The Agora Video SDK is installed, but the live streaming UI is just a placeholder. Completing this will require significant work and likely user credentials for Agora.
+- **PRIORITY #1: FIX SECURITY VULNERABILITIES.** The backend has critical, unpatched security flaws. Review  and  immediately. Do not proceed with feature work until the application is secure.
+- **PRIORITY #2: REMOVE PAYWALLS.** The original user request to make all features free is still pending. This is a core product decision that needs to be implemented.
+- **The codebase is fragile.** A massive number of frontend features were added very quickly. Assume they are untested and potentially buggy. The monolithic nature of  and  makes changes risky; an accidental overwrite has already occurred once in this session.
+- **Confirm your plan.** Before implementing the security fixes or removing paywalls, present a clear plan to the user to ensure alignment.
 
 **documents created in this job**
+  -  (Contains a list of unfixed vulnerabilities)
+  -  (Intermediate bug analysis file)
   - 
-  -  (Continuously updated by the agent)
 
 **Last 10 User Messages and any pending user messages**
-1.  **Request:** Add Stories, Polls, and Live Streaming. (Status: Backend COMPLETE, Frontend SCAFFOLDED)
-2.  **User:** Continue with next steps (to build UI). (Status: IN PROGRESS)
-3.  **User:** Build stories. (Status: IN PROGRESS - UI scaffolded)
-4.  **User:** Finish polls and add livestreaming ui. (Status: IN PROGRESS - Polls UI partially done, Live streaming UI scaffolded)
-5.  **Request:** Add Video SDK and integration. (Status: COMPLETE - Agora installed, backend endpoints created)
-6.  **Request:** Add Reactions and Collections. (Status: COMPLETE - Backend implemented)
-7.  **User:** Unable to resolve module. (Status: RESOLVED - Agent debugged and fixed the build error).
-8.  **Request:** Add a massive list of features (Scheduling, Analytics, Subscriptions, For You page, etc.). (Status: COMPLETE - Backend for all features implemented).
-9.  **Request:** Add another massive list of features (Rich DMs, Group Chats, Communities, Calls). (Status: COMPLETE - Backend for all features implemented).
-10. **User:** Make sure all buttons and tabs are running correctly. (Status: COMPLETE - Agent optimized tab navigation).
-11. **User:** Optimize the entire app for functionality and ease of use. (Status: COMPLETE - Agent added caching, DB indexes, and infinite scroll).
-12. **Pending User Message:** Every individual user should have access to all these features. (Status: NOT STARTED - This is the next P0 task).
+1.  **User provides code:** A MongoDB  command. (Status: ADDRESSED, agent created )
+2.  **User provides code:** A full, enhanced performance monitoring script. (Status: ADDRESSED, agent updated the script)
+3.  **User provides code:**  environment variables. (Status: ADDRESSED, agent fixed hardcoded URLs)
+4.  **User provides code:** Enhanced PayPal error handling logic. (Status: ADDRESSED, agent updated )
+5.  **User reports:** Icons at the bottom are too low. (Status: RESOLVED)
+6.  **User provides code:** Line from a performance test script for correction. (Status: RESOLVED)
+7.  **User reports:**  FlatList error. (Status: RESOLVED)
+8.  **User requests:** Dep can the backend code for vulnerabilities. (Status: ANALYZED, NOT FIXED)
+9.  **User provides code:** React Invariant Violation error snippet. (Status: RESOLVED)
+10. **User reports:** Create post error (second time). (Status: PARTIALLY ADDRESSED by adding logging, but the root cause might still exist for certain media types on web).
 
 **Project Health Check:**
-- Broken: From a user's perspective, most advanced features are broken as they lack a functional frontend. This includes Stories, Live Streaming, Analytics, Scheduling, Communities, etc.
-- Mocked: The current live streaming UI in  and  is a simulation and does not use a real video feed.
+- Broken:
+  - **Security:** The entire backend is vulnerable to critical exploits.
+  - Many of the newly created frontend features (Marketplace, Communities, etc.) are likely broken or have usability issues as they were created in bulk and haven't been user-tested.
+- Mocked: Live streaming is still mocked/scaffolded, awaiting full Agora integration and user credentials.
 
 **3rd Party Integrations**
 	 •	Emergent Google OAuth — uses Emergent Auth flow.
-	 •	PayPal SDK — requires User API Key (LIVE keys were previously in use).
-	 •	**Agora Video SDK** — requires User API Key (for App ID, etc.). Not yet configured.
+	 •	PayPal SDK — requires User API Key. Configuration improved this session.
+	 •	**Agora Video SDK** — requires User API Key. Not yet configured or fully implemented.
 	 •	**Redis** — configured for backend caching.
 
 **Testing status**
-  - Testing agent used after significant changes: NO (Only for initial features, not for the recent massive expansion).
-  - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: [, ]
-  - Known regressions: None identified, but the sheer volume of un-tested code presents a high risk.
+  - Testing agent used after significant changes: NO
+  - Troubleshoot agent used after agent stuck in loop: YES, successfully identified missing route registrations and a session race condition.
+  - Test files created: []
+  - Known regressions: None explicitly identified, but high risk due to the volume of changes and lack of testing.
 
 **Credentials to test flow:**
-- Google OAuth is handled by the user via the web preview.
-- PayPal was previously configured with live keys.
+- Google OAuth is handled by the user.
+- PayPal requires user-provided API keys (now configured via ).
 - **Agora will require an App ID from the user to implement live streaming.**
 
 **What agent forgot to execute**
-- The agent didn't forget anything but rather followed the user's rapid-fire requests to build out the backend. The primary unexecuted work is the frontend implementation for the vast majority of the application's features. The agent was about to start on the user's final request to remove all paywalls.
+- **CRITICAL:** The agent failed to fix the security vulnerabilities it identified in the backend, despite being prompted twice.
+- The agent forgot to implement the original P0 task from the previous handover: removing all paywalls and premium feature restrictions.
+- The agent did not perform any verification or testing on the vast number of frontend screens it created, leaving them in an unknown state.
 
 </analysis>
