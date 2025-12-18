@@ -330,17 +330,27 @@ class SecurityTester:
         print("🚀 Starting Security Testing Suite for Grover Backend")
         print("=" * 60)
         
-        if not self.authenticate():
-            print("❌ Cannot proceed without authentication")
-            return False
+        # Test session ID validation first (doesn't require auth)
+        session_validation_result = self.test_session_id_validation()
         
-        results = {
-            "pagination": self.test_pagination_limits(),
-            "input_validation": self.test_input_validation(),
-            "session_validation": self.test_session_id_validation(),
-            "file_upload": self.test_file_upload_validation(),
-            "normal_operations": self.test_normal_operations()
-        }
+        if not self.authenticate():
+            print("❌ Cannot proceed with authenticated tests")
+            print("⚠️  Will only report session validation results")
+            results = {
+                "session_validation": session_validation_result,
+                "pagination": False,
+                "input_validation": False,
+                "file_upload": False,
+                "normal_operations": False
+            }
+        else:
+            results = {
+                "pagination": self.test_pagination_limits(),
+                "input_validation": self.test_input_validation(),
+                "session_validation": session_validation_result,
+                "file_upload": self.test_file_upload_validation(),
+                "normal_operations": self.test_normal_operations()
+            }
         
         print("\n" + "=" * 60)
         print("📋 SECURITY TEST SUMMARY")
