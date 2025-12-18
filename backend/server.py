@@ -566,6 +566,10 @@ async def get_posts(
     current_user: User = Depends(require_auth)
 ):
     """Get all posts with pagination"""
+    # Security: Enforce pagination limits to prevent DoS
+    limit = min(max(1, limit), 100)  # 1-100 range
+    skip = max(0, skip)  # Non-negative
+    
     posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return posts
 
