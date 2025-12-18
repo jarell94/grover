@@ -659,6 +659,10 @@ async def get_explore(
     current_user: User = Depends(require_auth)
 ):
     """Get explore posts with pagination"""
+    # Security: Enforce pagination limits
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
     posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
     # Add user data
