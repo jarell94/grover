@@ -127,9 +127,7 @@ export default function NotificationsScreen() {
         </View>
         <View style={styles.notificationContent}>
           <Text style={styles.notificationText}>{item.content}</Text>
-          <Text style={styles.notificationTime}>
-            {new Date(item.created_at).toLocaleString()}
-          </Text>
+          <Text style={styles.notificationTime}>{timeAgo(item.created_at)}</Text>
         </View>
         {!item.read && <View style={styles.unreadDot} />}
       </TouchableOpacity>
