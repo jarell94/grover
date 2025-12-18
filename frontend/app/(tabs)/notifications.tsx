@@ -134,7 +134,7 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <Text style={styles.headerTitle}>Notifications</Text>
         <View style={styles.headerActions}>
           {notifications.some(n => !n.read) && (
