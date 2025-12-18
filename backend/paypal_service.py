@@ -18,6 +18,9 @@ CANCEL_URL = os.getenv("PAYPAL_CANCEL_URL", "http://localhost:3000/payment/cance
 
 def create_payment(amount, currency="USD", description="Product Purchase"):
     """Create a PayPal payment"""
+    # Format amount to 2 decimal places for precise currency handling
+    amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    
     payment = paypalrestsdk.Payment({
         "intent": "sale",
         "payer": {
