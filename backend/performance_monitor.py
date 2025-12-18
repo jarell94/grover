@@ -78,7 +78,7 @@ async def test_database_performance():
     # Test different query patterns
     queries = [
         ("Posts by created_at", lambda: db.posts.find({}).sort("created_at", -1).limit(20).to_list(20)),
-        ("Posts with user lookup", lambda: db.posts.find({}).sort("created_at", -1).limit(10).to_list(10)),
+        ("Posts recent (basic query)", lambda: db.posts.find({}).sort("created_at", -1).limit(10).to_list(10)),
         ("User follows lookup", lambda: db.follows.find({"follower_id": "user_test"}).to_list(100)),
         ("Reactions by post", lambda: db.reactions.find({"post_id": "post_test"}).to_list(100)),
         ("Comments by post", lambda: db.comments.find({"post_id": "post_test"}).sort("created_at", -1).to_list(50)),
