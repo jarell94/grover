@@ -1428,9 +1428,21 @@ async def create_product(
     image: Optional[UploadFile] = File(None),
     current_user: User = Depends(require_auth)
 ):
+    # Security: Validate and sanitize inputs
+    name = sanitize_string(name, 200, "name")
+    if not name:
+        raise HTTPException(status_code=400, detail="Product name is required")
+    
+    description = sanitize_string(description, 2000, "description")
+    
+    # Validate price
+    if price <= 0 or price > 100000:
+        raise HTTPException(status_code=400, detail="Invalid price (must be between 0.01 and 100000)")
+    
     image_url = None
     if image:
-        file_content = await image.read()
+        # Security: Validate file upload
+        file_content = await validate_file_upload(image, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
         image_url = base64.b64encode(file_content).decode('utf-8')
     
     product_id = f"prod_{uuid.uuid4().hex[:12]}"
@@ -1439,7 +1451,7 @@ async def create_product(
         "user_id": current_user.user_id,
         "name": name,
         "description": description,
-        "price": price,
+        "price": round(price, 2),  # Ensure 2 decimal places
         "image_url": image_url,
         "created_at": datetime.now(timezone.utc)
     })
