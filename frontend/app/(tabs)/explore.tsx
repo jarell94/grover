@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -8,105 +8,129 @@ import {
   RefreshControl,
   ActivityIndicator,
   Image,
-  Dimensions,
   ScrollView,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../../constants/Colors';
-import { api } from '../../services/api';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Colors } from "../../constants/Colors";
+import { api } from "../../services/api";
 
-const { width } = Dimensions.get('window');
-
-// Post interface
-const PostType = {
-  post_id: '',
-  content: '',
-  media_url: '',
-  media_type: '',
-  likes_count: 0,
-  liked: false,
-  user: null,
-};
+type ExploreTab = "foryou" | "trending" | "categories";
 
 export default function ExploreScreen() {
-  const [activeTab, setActiveTab] = useState('foryou'); // 'foryou', 'trending', 'categories'
-  const [posts, setPosts] = useState([]);
-  const [trendingData, setTrendingData] = useState({ trending_posts: [], rising_creators: [] });
-  const [categories, setCategories] = useState([]);
+  const [activeTab, setActiveTab] = useState<ExploreTab>("foryou");
+  const [posts, setPosts] = useState<any[]>([]);
+  const [trendingData, setTrendingData] = useState<any>({
+    trending_posts: [],
+    rising_creators: [],
+  });
+  const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Load categories once (cache in state)
   useEffect(() => {
-    loadContent();
-    loadCategories();
-  }, [activeTab]);
-
-  const loadContent = async () => {
-    try {
-      if (activeTab === 'foryou') {
-        // Use the optimized explore endpoint with pagination
-        const data = await api.getExplore(20, 0);
-        setPosts(data);
-      } else if (activeTab === 'trending') {
-        const data = await api.getTrending();
-        setTrendingData(data);
+    (async () => {
+      try {
+        const data = await api.getCategories();
+        setCategories(data || []);
+      } catch (e) {
+        console.error("Categories error:", e);
       }
-    } catch (error) {
-      console.error('Load content error:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    })();
+  }, []);
 
-  const loadCategories = async () => {
+  const loadContent = useCallback(async (tab: ExploreTab) => {
     try {
-      const data = await api.getCategories();
-      setCategories(data);
+      if (tab === "foryou") {
+        const data = await api.getExplore(20, 0);
+        setPosts(Array.isArray(data) ? data : []);
+      } else if (tab === "trending") {
+        const data = await api.getTrending();
+        setTrendingData(data || { trending_posts: [], rising_creators: [] });
+      }
+      // categories tab has no content fetch here
     } catch (error) {
-      console.error('Categories error:', error);
+      console.error("Load content error:", error);
     }
-  };
+  }, []);
 
-  const onRefresh = async () => {
+  // Fetch when tab changes
+  useEffect(() => {
+    setLoading(true);
+    loadContent(activeTab).finally(() => setLoading(false));
+  }, [activeTab, loadContent]);
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadContent();
-  };
+    await loadContent(activeTab);
+    setRefreshing(false);
+  }, [activeTab, loadContent]);
 
-  const handleLike = async (postId) => {
+  const handleLike = useCallback(async (postId: string) => {
+    // optimistic update (instant UI)
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.post_id === postId
+          ? { ...p, liked: !p.liked, likes_count: p.likes_count + (p.liked ? -1 : 1) }
+          : p
+      )
+    );
+
     try {
       const result = await api.likePost(postId);
-      setPosts(posts.map(p => 
-        p.post_id === postId 
-          ? { ...p, liked: result.liked, likes_count: p.likes_count + (result.liked ? 1 : -1) }
-          : p
-      ));
+
+      // reconcile with server truth
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.post_id === postId
+            ? {
+                ...p,
+                liked: !!result?.liked,
+                likes_count:
+                  typeof result?.likes_count === "number"
+                    ? result.likes_count
+                    : p.likes_count, // fallback if API doesn't return count
+              }
+            : p
+        )
+      );
     } catch (error) {
-      console.error('Like error:', error);
+      console.error("Like error:", error);
+
+      // rollback on failure
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.post_id === postId
+            ? { ...p, liked: !p.liked, likes_count: p.likes_count + (p.liked ? -1 : 1) }
+            : p
+        )
+      );
     }
-  };
+  }, []);
+
+  const tabs = useMemo(
+    () => [
+      { key: "foryou" as const, label: "For You", icon: "heart" },
+      { key: "trending" as const, label: "Trending", icon: "trending-up" },
+      { key: "categories" as const, label: "Categories", icon: "grid" },
+    ],
+    []
+  );
 
   const renderTabBar = () => (
     <View style={styles.tabBar}>
-      {[
-        { key: 'foryou', label: 'For You', icon: 'heart' },
-        { key: 'trending', label: 'Trending', icon: 'trending-up' },
-        { key: 'categories', label: 'Categories', icon: 'grid' },
-      ].map((tab) => (
+      {tabs.map((tab) => (
         <TouchableOpacity
           key={tab.key}
           style={[styles.tab, activeTab === tab.key && styles.activeTab]}
           onPress={() => setActiveTab(tab.key)}
         >
           <Ionicons
-            name={tab.icon}
+            name={tab.icon as any}
             size={20}
             color={activeTab === tab.key ? Colors.primary : Colors.textSecondary}
           />
-          <Text style={[
-            styles.tabText,
-            activeTab === tab.key && styles.activeTabText
-          ]}>
+          <Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>
             {tab.label}
           </Text>
         </TouchableOpacity>
@@ -114,44 +138,51 @@ export default function ExploreScreen() {
     </View>
   );
 
-  const renderPost = ({ item }) => (
-    <TouchableOpacity style={styles.gridItem}>
-      {item.media_url && item.media_type === 'image' ? (
-        <Image
-          source={{ uri: `data:image/jpeg;base64,${item.media_url}` }}
-          style={styles.gridImage}
-        />
-      ) : (
-        <View style={[styles.gridImage, styles.noImage]}>
-          <Text style={styles.noImageText} numberOfLines={3}>{item.content}</Text>
+  const getImageSource = (item: any) => {
+    // supports base64 OR normal URL
+    if (!item?.media_url) return null;
+    if (item.media_url.startsWith("http")) return { uri: item.media_url };
+    return { uri: `data:image/jpeg;base64,${item.media_url}` };
+  };
+
+  const renderPost = ({ item }: { item: any }) => {
+    const img = item?.media_type === "image" ? getImageSource(item) : null;
+
+    return (
+      <TouchableOpacity style={styles.gridItem} activeOpacity={0.9}>
+        {img ? (
+          <Image source={img} style={styles.gridImage} />
+        ) : (
+          <View style={[styles.gridImage, styles.noImage]}>
+            <Text style={styles.noImageText} numberOfLines={3}>
+              {item?.content || ""}
+            </Text>
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.likeButton} onPress={() => handleLike(item.post_id)}>
+          <Ionicons
+            name={item?.liked ? "heart" : "heart-outline"}
+            size={24}
+            color={item?.liked ? Colors.error : "#fff"}
+          />
+        </TouchableOpacity>
+
+        <View style={styles.gridOverlay}>
+          <Text style={styles.likesText}>{item?.likes_count ?? 0} likes</Text>
         </View>
-      )}
-      <TouchableOpacity
-        style={styles.likeButton}
-        onPress={() => handleLike(item.post_id)}
-      >
-        <Ionicons
-          name={item.liked ? 'heart' : 'heart-outline'}
-          size={24}
-          color={item.liked ? Colors.error : '#fff'}
-        />
       </TouchableOpacity>
-      <View style={styles.gridOverlay}>
-        <Text style={styles.likesText}>{item.likes_count} likes</Text>
-      </View>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   const renderTrendingContent = () => (
     <ScrollView
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🔥 Trending Posts</Text>
         <FlatList
-          data={trendingData.trending_posts}
+          data={trendingData?.trending_posts || []}
           renderItem={renderPost}
           keyExtractor={(item) => item.post_id}
           numColumns={3}
@@ -159,13 +190,15 @@ export default function ExploreScreen() {
           contentContainerStyle={styles.grid}
         />
       </View>
-      
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>⭐ Rising Creators</Text>
         <FlatList
-          data={trendingData.rising_creators}
+          data={trendingData?.rising_creators || []}
+          keyExtractor={(item) => item.user_id}
+          scrollEnabled={false}
           renderItem={({ item }) => (
-            <TouchableOpacity style={styles.creatorCard}>
+            <TouchableOpacity style={styles.creatorCard} activeOpacity={0.8}>
               <View style={styles.creatorInfo}>
                 <Text style={styles.creatorName}>{item.username}</Text>
                 <Text style={styles.creatorStats}>
@@ -174,8 +207,6 @@ export default function ExploreScreen() {
               </View>
             </TouchableOpacity>
           )}
-          keyExtractor={(item) => item.user_id}
-          scrollEnabled={false}
         />
       </View>
     </ScrollView>
@@ -184,47 +215,47 @@ export default function ExploreScreen() {
   const renderCategoriesContent = () => (
     <FlatList
       data={categories}
+      keyExtractor={(item) => item.category_id}
+      numColumns={2}
+      contentContainerStyle={styles.categoriesGrid}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       renderItem={({ item }) => (
-        <TouchableOpacity style={styles.categoryCard}>
+        <TouchableOpacity style={styles.categoryCard} activeOpacity={0.85}>
           <Text style={styles.categoryEmoji}>{item.emoji}</Text>
           <Text style={styles.categoryName}>{item.name}</Text>
           <Text style={styles.categoryCount}>{item.post_count} posts</Text>
         </TouchableOpacity>
       )}
-      keyExtractor={(item) => item.category_id}
-      numColumns={2}
-      contentContainerStyle={styles.categoriesGrid}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
     />
   );
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        {renderTabBar()}
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
       </View>
     );
   }
 
-  const renderContent = () => {
-    if (activeTab === 'trending') {
-      return renderTrendingContent();
-    } else if (activeTab === 'categories') {
-      return renderCategoriesContent();
-    } else {
-      // For You tab
-      return (
+  return (
+    <View style={styles.container}>
+      {renderTabBar()}
+
+      {activeTab === "trending" ? (
+        renderTrendingContent()
+      ) : activeTab === "categories" ? (
+        renderCategoriesContent()
+      ) : (
         <FlatList
           data={posts}
           renderItem={renderPost}
           keyExtractor={(item) => item.post_id}
           numColumns={3}
           contentContainerStyle={styles.grid}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="heart-outline" size={64} color={Colors.textSecondary} />
@@ -235,14 +266,7 @@ export default function ExploreScreen() {
             </View>
           }
         />
-      );
-    }
-  };
-
-  return (
-    <View style={styles.container}>
-      {renderTabBar()}
-      {renderContent()}
+      )}
     </View>
   );
 }
