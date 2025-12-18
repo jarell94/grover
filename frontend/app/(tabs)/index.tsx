@@ -205,39 +205,105 @@ export default function HomeScreen() {
   };
 
   const handleLike = async (postId: string) => {
+    // Optimistic update
+    setPosts(prev =>
+      prev.map(p =>
+        p.post_id === postId
+          ? { ...p, liked: !p.liked, likes_count: p.likes_count + (p.liked ? -1 : 1) }
+          : p
+      )
+    );
+
     try {
       const result = await api.likePost(postId);
-      setPosts(posts.map(p => 
-        p.post_id === postId 
-          ? { ...p, liked: result.liked, likes_count: p.likes_count + (result.liked ? 1 : -1) }
-          : p
-      ));
+      // Reconcile with server truth
+      setPosts(prev =>
+        prev.map(p =>
+          p.post_id === postId
+            ? {
+                ...p,
+                liked: !!result.liked,
+                likes_count:
+                  typeof result.likes_count === "number"
+                    ? result.likes_count
+                    : p.likes_count,
+              }
+            : p
+        )
+      );
     } catch (error) {
       console.error('Like error:', error);
+      // Rollback on failure
+      setPosts(prev =>
+        prev.map(p =>
+          p.post_id === postId
+            ? { ...p, liked: !p.liked, likes_count: p.likes_count + (p.liked ? -1 : 1) }
+            : p
+        )
+      );
     }
   };
 
   const handleDislike = async (postId: string) => {
+    // Optimistic update
+    setPosts(prev =>
+      prev.map(p =>
+        p.post_id === postId
+          ? { ...p, disliked: !p.disliked, dislikes_count: (p.dislikes_count || 0) + (p.disliked ? -1 : 1) }
+          : p
+      )
+    );
+
     try {
       const result = await api.dislikePost(postId);
-      setPosts(posts.map(p => 
-        p.post_id === postId 
-          ? { ...p, disliked: result.disliked, dislikes_count: (p.dislikes_count || 0) + (result.disliked ? 1 : -1) }
-          : p
-      ));
+      // Reconcile with server truth
+      setPosts(prev =>
+        prev.map(p =>
+          p.post_id === postId
+            ? {
+                ...p,
+                disliked: !!result.disliked,
+                dislikes_count:
+                  typeof result.dislikes_count === "number"
+                    ? result.dislikes_count
+                    : p.dislikes_count,
+              }
+            : p
+        )
+      );
     } catch (error) {
       console.error('Dislike error:', error);
+      // Rollback on failure
+      setPosts(prev =>
+        prev.map(p =>
+          p.post_id === postId
+            ? { ...p, disliked: !p.disliked, dislikes_count: (p.dislikes_count || 0) + (p.disliked ? -1 : 1) }
+            : p
+        )
+      );
     }
   };
 
   const handleSave = async (postId: string) => {
+    // Optimistic update
+    setPosts(prev =>
+      prev.map(p =>
+        p.post_id === postId
+          ? { ...p, saved: !p.saved }
+          : p
+      )
+    );
+
     try {
       const result = await api.savePost(postId);
-      setPosts(posts.map(p => 
-        p.post_id === postId 
-          ? { ...p, saved: result.saved }
-          : p
-      ));
+      // Reconcile with server truth
+      setPosts(prev =>
+        prev.map(p =>
+          p.post_id === postId
+            ? { ...p, saved: !!result.saved }
+            : p
+        )
+      );
       Alert.alert('Success', result.saved ? 'Post saved!' : 'Post unsaved');
     } catch (error) {
       console.error('Save error:', error);
