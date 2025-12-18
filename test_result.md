@@ -442,6 +442,18 @@ frontend:
         agent: "testing"
         comment: "✅ TAGGING AND LOCATION BACKEND TESTED SUCCESSFULLY: POST /api/posts with tagged_users (comma-separated IDs) and location fields working correctly. Posts return with tagged_users array and location string in response. Verified with multiple tags and location data. Edge cases with empty tags/location also handled properly. All 3 tests passed."
 
+  - task: "Security Fixes - Input Validation & File Upload Security"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented comprehensive security fixes: 1) File upload validation with 10MB size limit and content type checking, 2) Input sanitization to remove script tags and dangerous patterns, 3) Pagination limits (1-100 items), 4) ID format validation to prevent NoSQL injection, 5) Configurable CORS via environment variable, 6) Profile and product input validation. All helper functions added: validate_id(), sanitize_string(), validate_file_upload()."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
