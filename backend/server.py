@@ -1737,7 +1737,10 @@ async def send_voice_message(
     current_user: User = Depends(require_auth)
 ):
     """Send voice message"""
-    audio_content = await audio.read()
+    # Security: Validate receiver_id and file
+    validate_id(receiver_id, "receiver_id")
+    
+    audio_content = await validate_file_upload(audio, ALLOWED_AUDIO_TYPES, MAX_FILE_SIZE)
     audio_base64 = base64.b64encode(audio_content).decode('utf-8')
     
     message_id = f"msg_{uuid.uuid4().hex[:12]}"
