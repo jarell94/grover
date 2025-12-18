@@ -85,12 +85,18 @@ export default function MessagesScreen() {
       />
       <View style={styles.conversationInfo}>
         <View style={styles.conversationHeader}>
-          <Text style={styles.username}>{item.other_user?.name || 'Unknown'}</Text>
-          {item.unread_count > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadText}>{item.unread_count}</Text>
-            </View>
-          )}
+          <Text style={styles.username}>{item.other_user?.name || "Unknown"}</Text>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {!!item.last_message_at && (
+              <Text style={styles.timeText}>{timeAgo(item.last_message_at)}</Text>
+            )}
+            {item.unread_count > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadText}>{item.unread_count}</Text>
+              </View>
+            )}
+          </View>
         </View>
         <Text style={styles.lastMessage} numberOfLines={1}>
           {item.last_message || 'No messages yet'}
