@@ -11,6 +11,10 @@ paypalrestsdk.configure({
     "client_secret": os.getenv("PAYPAL_CLIENT_SECRET")
 })
 
+# PayPal redirect URLs from environment
+RETURN_URL = os.getenv("PAYPAL_RETURN_URL", "http://localhost:3000/payment/success")
+CANCEL_URL = os.getenv("PAYPAL_CANCEL_URL", "http://localhost:3000/payment/cancel")
+
 def create_payment(amount, currency="USD", description="Product Purchase"):
     """Create a PayPal payment"""
     payment = paypalrestsdk.Payment({
@@ -19,8 +23,8 @@ def create_payment(amount, currency="USD", description="Product Purchase"):
             "payment_method": "paypal"
         },
         "redirect_urls": {
-            "return_url": "http://localhost:3000/payment/success",
-            "cancel_url": "http://localhost:3000/payment/cancel"
+            "return_url": RETURN_URL,
+            "cancel_url": CANCEL_URL
         },
         "transactions": [{
             "item_list": {
