@@ -820,7 +820,7 @@ export default function HomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.primary} />
         }
         onEndReached={loadMore}
-        onEndReachedThreshold={0.1}
+        onEndReachedThreshold={0.3}
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.loadingMore}>
