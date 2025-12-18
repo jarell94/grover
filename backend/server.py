@@ -329,6 +329,10 @@ async def require_auth(current_user: Optional[User] = Depends(get_current_user))
 @api_router.get("/auth/session")
 async def create_session(session_id: str):
     """Exchange session_id for user data and create session"""
+    # Validate session_id format
+    if not session_id or len(session_id) > 500:
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
