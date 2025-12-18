@@ -379,13 +379,12 @@ export default function HomeScreen() {
 
   const handleVotePoll = async (postId: string, optionIndex: number) => {
     try {
-      const result = await api.voteOnPoll(postId, optionIndex);
-      // Refresh post to show updated votes
-      const updatedPosts = await api.getFeed();
-      setPosts(updatedPosts);
+      const updatedPost = await api.voteOnPoll(postId, optionIndex);
+      // Assume API returns the updated post; if not, add a getPost(postId) endpoint
+      setPosts(prev => prev.map(p => (p.post_id === postId ? updatedPost : p)));
     } catch (error) {
-      console.error('Vote error:', error);
-      Alert.alert('Error', 'Failed to vote on poll');
+      console.error("Vote error:", error);
+      Alert.alert("Error", "Failed to vote on poll");
     }
   };
 
