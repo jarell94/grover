@@ -304,20 +304,41 @@ export default function HomeScreen() {
             : p
         )
       );
-      Alert.alert('Success', result.saved ? 'Post saved!' : 'Post unsaved');
     } catch (error) {
       console.error('Save error:', error);
-      Alert.alert('Error', 'Failed to save post');
+      // Rollback on failure
+      setPosts(prev =>
+        prev.map(p =>
+          p.post_id === postId
+            ? { ...p, saved: !p.saved }
+            : p
+        )
+      );
     }
   };
 
   const handleShare = async (postId: string) => {
+    // Optimistic update for share count
+    setPosts(prev =>
+      prev.map(p =>
+        p.post_id === postId
+          ? { ...p, shares_count: (p.shares_count || 0) + 1 }
+          : p
+      )
+    );
+
     try {
       await api.sharePost(postId);
-      Alert.alert('Success', 'Post shared!');
     } catch (error) {
       console.error('Share error:', error);
-      Alert.alert('Error', 'Failed to share post');
+      // Rollback on failure
+      setPosts(prev =>
+        prev.map(p =>
+          p.post_id === postId
+            ? { ...p, shares_count: Math.max(0, (p.shares_count || 1) - 1) }
+            : p
+        )
+      );
     }
   };
 
