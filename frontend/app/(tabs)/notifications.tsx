@@ -52,9 +52,9 @@ export default function NotificationsScreen() {
   const handleMarkAllRead = async () => {
     try {
       await api.markNotificationsRead();
-      setNotifications(notifications.map(n => ({ ...n, read: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     } catch (error) {
-      console.error('Mark all read error:', error);
+      console.error("Mark all read error:", error);
     }
   };
 
