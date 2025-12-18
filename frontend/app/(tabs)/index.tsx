@@ -514,18 +514,18 @@ export default function HomeScreen() {
           fileType = selectedMedia.mimeType || 'audio/mpeg';
           fileName = selectedMedia.name || 'audio.mp3';
         } else {
-          fileType = 'image/jpeg';
+          fileType = selectedMedia.mimeType || 'image/jpeg';
           fileName = 'image.jpg';
         }
 
-        // Create blob from base64
-        const blob = {
-          uri: `data:${fileType};base64,${selectedMedia.base64}`,
+        // Use native URI for React Native, fallback to base64 data URI for web
+        const mediaUri = selectedMedia.uri || `data:${fileType};base64,${selectedMedia.base64}`;
+        
+        formData.append("media", {
+          uri: mediaUri,
           type: fileType,
           name: fileName,
-        };
-
-        formData.append('media', blob as any);
+        } as any);
       }
 
       await api.createPost(formData);
