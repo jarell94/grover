@@ -151,11 +151,11 @@ export default function HomeScreen() {
       );
       setCommentText('');
       setReplyingTo(null);
-      loadComments(selectedPost!.post_id);
+      loadComments(selectedPost.post_id);
       
       // Update comment count in feed
-      setPosts(posts.map(p =>
-        p.post_id === selectedPost!.post_id
+      setPosts(prev => prev.map(p =>
+        p.post_id === selectedPost.post_id
           ? { ...p, comments_count: (p.comments_count || 0) + 1 }
           : p
       ));
