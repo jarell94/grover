@@ -140,11 +140,12 @@ export default function HomeScreen() {
   };
 
   const handleCommentSubmit = async () => {
+    if (!selectedPost) return;
     if (!commentText.trim()) return;
 
     try {
       await api.createComment(
-        selectedPost!.post_id,
+        selectedPost.post_id,
         commentText,
         replyingTo?.comment_id
       );
