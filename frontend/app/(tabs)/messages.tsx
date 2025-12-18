@@ -107,9 +107,8 @@ export default function MessagesScreen() {
         renderItem={renderConversation}
         keyExtractor={(item) => item.conversation_id}
         contentContainerStyle={styles.list}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="chatbubbles-outline" size={64} color={Colors.textSecondary} />
