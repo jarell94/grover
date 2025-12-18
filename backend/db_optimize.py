@@ -17,12 +17,23 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 
 
+async def safe_create_index(collection, keys, **kwargs):
+    """Create index safely, ignoring if it already exists"""
+    try:
+        await collection.create_index(keys, **kwargs)
+    except Exception as e:
+        if "IndexOptionsConflict" in str(e) or "already exists" in str(e):
+            print(f"  ⚠️ Index already exists (skipped): {kwargs.get('name', keys)}")
+        else:
+            raise
+
+
 async def ensure_indexes(db):
     print("🚀 Starting database optimization...")
 
     # POSTS
     print("📝 posts...")
-    await db.posts.create_index([("created_at", -1)], name="posts_created_at_desc")
+    await safe_create_index(db.posts, [("created_at", -1)], name="posts_created_at_desc")
     await db.posts.create_index([("user_id", 1), ("created_at", -1)], name="posts_user_created_at_desc")
     # repost/thread lookups (optional but usually helpful)
     await db.posts.create_index([("original_post_id", 1)], name="posts_original_post_id")
