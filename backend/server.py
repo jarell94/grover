@@ -580,6 +580,10 @@ async def get_feed(
     current_user: User = Depends(require_auth)
 ):
     """Get feed of posts from followed users with pagination"""
+    # Security: Enforce pagination limits
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
     # Get followed users (cached for performance)
     follows = await db.follows.find(
         {"follower_id": current_user.user_id},
