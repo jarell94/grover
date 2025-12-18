@@ -200,6 +200,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  timeText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
   lastMessage: {
     fontSize: 14,
     color: Colors.textSecondary,
