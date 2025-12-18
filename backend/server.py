@@ -729,6 +729,11 @@ async def create_post(
     poll_duration_hours: Optional[int] = Form(24),
     current_user: User = Depends(require_auth)
 ):
+    # Security: Sanitize and validate content
+    content = sanitize_string(content or "", MAX_INPUT_LENGTH, "content")
+    location = sanitize_string(location or "", 200, "location") if location else None
+    poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
+    
     # Validate that at least some content exists
     if not content and not media and not poll_question:
         raise HTTPException(status_code=422, detail="Post must have content, media, or poll")
@@ -737,8 +742,8 @@ async def create_post(
     media_type = None
     
     if media:
-        # Read file and convert to base64
-        file_content = await media.read()
+        # Security: Validate file upload
+        file_content = await validate_file_upload(media, ALLOWED_MEDIA_TYPES, MAX_FILE_SIZE)
         media_url = base64.b64encode(file_content).decode('utf-8')
         
         if media.content_type.startswith('image'):
