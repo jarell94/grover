@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, UploadFile, File, Form, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
@@ -10,14 +10,28 @@ import logging
 import httpx
 import base64
 import uuid
+import re
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from PIL import Image
 from paypal_service import create_payment, execute_payment, get_payment_details
 from paypal_payout_service import send_payout
+
+# ============ SECURITY CONSTANTS ============
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_INPUT_LENGTH = 10000  # Max characters for text input
+MAX_BIO_LENGTH = 500
+MAX_NAME_LENGTH = 100
+ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
+ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
+ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES + ALLOWED_VIDEO_TYPES + ALLOWED_AUDIO_TYPES
+
+# ID validation pattern (alphanumeric with underscores)
+ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
