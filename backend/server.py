@@ -1770,12 +1770,15 @@ async def send_video_message(
     current_user: User = Depends(require_auth)
 ):
     """Send video message"""
-    video_content = await video.read()
+    # Security: Validate receiver_id and files
+    validate_id(receiver_id, "receiver_id")
+    
+    video_content = await validate_file_upload(video, ALLOWED_VIDEO_TYPES, MAX_FILE_SIZE)
     video_base64 = base64.b64encode(video_content).decode('utf-8')
     
     thumbnail_base64 = None
     if thumbnail:
-        thumbnail_content = await thumbnail.read()
+        thumbnail_content = await validate_file_upload(thumbnail, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
         thumbnail_base64 = base64.b64encode(thumbnail_content).decode('utf-8')
     
     message_id = f"msg_{uuid.uuid4().hex[:12]}"
