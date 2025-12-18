@@ -58,6 +58,22 @@ export default function NotificationsScreen() {
     }
   };
 
+  const handleOpenNotification = async (n: Notification) => {
+    // Optimistic mark read
+    setNotifications(prev =>
+      prev.map(x => (x.notification_id === n.notification_id ? { ...x, read: true } : x))
+    );
+
+    // Tell backend this one is read
+    api.markNotificationRead?.(n.notification_id).catch(() => {});
+
+    // Route by type
+    if (n.type === "message") return router.push("/(tabs)/messages");
+    if (n.type === "follow") return router.push("/(tabs)/profile");
+    // Add more routes as needed:
+    // if (n.post_id) return router.push({ pathname: "/post/[id]", params: { id: n.post_id } });
+  };
+
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'like':
