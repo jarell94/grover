@@ -45,21 +45,11 @@ def create_payment(amount, currency="USD", description="Product Purchase"):
     })
 
     if payment.create():
-        print(f"Payment created successfully: {payment.id}")
-        # Get approval URL
-        for link in payment.links:
-            if link.rel == "approval_url":
-                return {
-                    "success": True,
-                    "payment_id": payment.id,
-                    "approval_url": link.href
-                }
-    else:
-        print(f"Payment creation failed: {payment.error}")
-        return {
-            "success": False,
-            "error": payment.error
-        }
+        approval = next((l.href for l in payment.links if l.rel == "approval_url"), None)
+        if not approval:
+            return {"success": False, "error": "No approval_url returned", "raw": payment.to_dict()}
+        return {"success": True, "payment_id": payment.id, "approval_url": approval}
+    return {"success": False, "error": payment.error}
 
 def execute_payment(payment_id, payer_id):
     """Execute an approved PayPal payment"""
