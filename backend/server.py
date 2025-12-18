@@ -448,21 +448,31 @@ async def update_profile(
     current_user: User = Depends(require_auth)
 ):
     update_data = {}
+    
+    # Security: Sanitize and validate all inputs
     if name is not None:
-        update_data["name"] = name
+        update_data["name"] = sanitize_string(name, MAX_NAME_LENGTH, "name")
     if bio is not None:
-        update_data["bio"] = bio
+        update_data["bio"] = sanitize_string(bio, MAX_BIO_LENGTH, "bio")
     if is_private is not None:
-        update_data["is_private"] = is_private
+        update_data["is_private"] = bool(is_private)
     if website is not None:
+        website = sanitize_string(website, 200, "website")
+        # Basic URL validation
+        if website and not website.startswith(('http://', 'https://')):
+            website = 'https://' + website
         update_data["website"] = website
     if twitter is not None:
-        update_data["twitter"] = twitter
+        update_data["twitter"] = sanitize_string(twitter, 50, "twitter")
     if instagram is not None:
-        update_data["instagram"] = instagram
+        update_data["instagram"] = sanitize_string(instagram, 50, "instagram")
     if linkedin is not None:
-        update_data["linkedin"] = linkedin
+        update_data["linkedin"] = sanitize_string(linkedin, 100, "linkedin")
     if paypal_email is not None:
+        paypal_email = sanitize_string(paypal_email, 100, "paypal_email")
+        # Basic email validation
+        if paypal_email and '@' not in paypal_email:
+            raise HTTPException(status_code=400, detail="Invalid PayPal email")
         update_data["paypal_email"] = paypal_email
     
     if update_data:
