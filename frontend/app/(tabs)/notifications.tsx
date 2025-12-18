@@ -103,7 +103,11 @@ export default function NotificationsScreen() {
     const icon = getNotificationIcon(item.type);
 
     return (
-      <View style={[styles.notificationCard, !item.read && styles.unreadCard]}>
+      <TouchableOpacity
+        style={[styles.notificationCard, !item.read && styles.unreadCard]}
+        activeOpacity={0.85}
+        onPress={() => handleOpenNotification(item)}
+      >
         <View style={[styles.iconContainer, { backgroundColor: `${icon.color}20` }]}>
           <Ionicons name={icon.name as any} size={24} color={icon.color} />
         </View>
