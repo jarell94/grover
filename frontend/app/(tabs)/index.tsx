@@ -86,27 +86,26 @@ export default function HomeScreen() {
     loadFeed();
   }, []);
 
-  const loadFeed = async (isRefresh = false) => {
+  const loadFeed = async (isRefresh = false, pageToLoad?: number) => {
     try {
-      const currentPage = isRefresh ? 0 : page;
+      const nextPage = isRefresh ? 0 : (pageToLoad ?? page);
+      const skip = nextPage * 20;
+
       const [feedData, storiesData] = await Promise.all([
-        api.getFeed(20, currentPage * 20),
-        isRefresh ? api.getStories().catch(() => []) : Promise.resolve(stories)
+        api.getFeed(20, skip),
+        isRefresh ? api.getStories().catch(() => []) : Promise.resolve(stories),
       ]);
-      
+
       if (isRefresh) {
         setPosts(feedData);
         setPage(1);
-        setHasMore(feedData.length === 20);
       } else {
         setPosts(prev => [...prev, ...feedData]);
-        setPage(prev => prev + 1);
-        setHasMore(feedData.length === 20);
+        setPage(nextPage + 1);
       }
-      
-      if (isRefresh) {
-        setStories(storiesData);
-      }
+
+      setHasMore(feedData.length === 20);
+      if (isRefresh) setStories(storiesData);
     } catch (error) {
       console.error('Feed load error:', error);
     } finally {
@@ -122,10 +121,9 @@ export default function HomeScreen() {
   };
 
   const loadMore = () => {
-    if (!loadingMore && hasMore) {
-      setLoadingMore(true);
-      loadFeed(false);
-    }
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    loadFeed(false, page); // explicit page snapshot
   };
 
   const loadComments = async (postId: string) => {
