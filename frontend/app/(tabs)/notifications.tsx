@@ -118,7 +118,7 @@ export default function NotificationsScreen() {
           </Text>
         </View>
         {!item.read && <View style={styles.unreadDot} />}
-      </View>
+      </TouchableOpacity>
     );
   };
 
