@@ -64,45 +64,49 @@ export default function MessagesScreen() {
     setRefreshing(false);
   };
 
-  const renderConversation = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity
-      style={styles.conversationCard}
-      onPress={() =>
-        router.push({
-          pathname: '/chat/[conversationId]',
-          params: {
-            conversationId: item.conversation_id,
-            userId: user?.user_id,
-            otherUserId: item.other_user.user_id,
-            otherUserName: item.other_user.name,
-          },
-        })
-      }
-    >
-      <Image
-        source={{ uri: item.other_user?.picture || 'https://via.placeholder.com/50' }}
-        style={styles.avatar}
-      />
-      <View style={styles.conversationInfo}>
-        <View style={styles.conversationHeader}>
-          <Text style={styles.username}>{item.other_user?.name || "Unknown"}</Text>
+  const renderConversation = ({ item }: { item: Conversation }) => {
+    const other = item.other_user || {};
+    
+    return (
+      <TouchableOpacity
+        style={styles.conversationCard}
+        onPress={() =>
+          router.push({
+            pathname: '/chat/[conversationId]',
+            params: {
+              conversationId: item.conversation_id,
+              otherUserId: other.user_id,
+              otherUserName: other.name,
+            },
+          })
+        }
+      >
+        <Image
+          source={{ uri: other.picture || 'https://via.placeholder.com/50' }}
+          style={styles.avatar}
+        />
+        <View style={styles.conversationInfo}>
+          <View style={styles.conversationHeader}>
+            <Text style={styles.username}>{other.name || "Unknown"}</Text>
 
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {!!item.last_message_at && (
-              <Text style={styles.timeText}>{timeAgo(item.last_message_at)}</Text>
-            )}
-            {item.unread_count > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadText}>{item.unread_count}</Text>
-              </View>
-            )}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              {!!item.last_message_at && (
+                <Text style={styles.timeText}>{timeAgo(item.last_message_at)}</Text>
+              )}
+              {item.unread_count > 0 && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadText}>{item.unread_count}</Text>
+                </View>
+              )}
+            </View>
           </View>
+          <Text style={styles.lastMessage} numberOfLines={1}>
+            {item.last_message || 'No messages yet'}
+          </Text>
         </View>
-        <Text style={styles.lastMessage} numberOfLines={1}>
-          {item.last_message || 'No messages yet'}
-        </Text>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    );
+  }
   );
 
   if (loading) {
