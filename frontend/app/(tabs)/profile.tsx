@@ -151,25 +151,25 @@ export default function ProfileScreen() {
         {(user.website || user.twitter || user.instagram || user.linkedin) && (
           <View style={styles.socialLinks}>
             {user.website && (
-              <TouchableOpacity style={styles.socialLink}>
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.website)}>
                 <Ionicons name="globe-outline" size={20} color={Colors.accent} />
                 <Text style={styles.socialLinkText} numberOfLines={1}>{user.website}</Text>
               </TouchableOpacity>
             )}
             {user.twitter && (
-              <TouchableOpacity style={styles.socialLink}>
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://twitter.com/${user.twitter}`)}>
                 <Ionicons name="logo-twitter" size={20} color="#1DA1F2" />
                 <Text style={styles.socialLinkText}>@{user.twitter}</Text>
               </TouchableOpacity>
             )}
             {user.instagram && (
-              <TouchableOpacity style={styles.socialLink}>
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://instagram.com/${user.instagram}`)}>
                 <Ionicons name="logo-instagram" size={20} color="#E4405F" />
                 <Text style={styles.socialLinkText}>@{user.instagram}</Text>
               </TouchableOpacity>
             )}
             {user.linkedin && (
-              <TouchableOpacity style={styles.socialLink}>
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.linkedin)}>
                 <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
                 <Text style={styles.socialLinkText}>{user.linkedin}</Text>
               </TouchableOpacity>
