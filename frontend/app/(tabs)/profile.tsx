@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   Switch,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../services/api';
+
+const openUrl = async (url: string) => {
+  const u = url.startsWith("http") ? url : `https://${url}`;
+  const ok = await Linking.canOpenURL(u);
+  if (ok) Linking.openURL(u);
+  else Alert.alert("Invalid link", "This link can't be opened.");
+};
 
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
