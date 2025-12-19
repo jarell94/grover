@@ -69,6 +69,11 @@ export default function ProfileScreen() {
   };
 
   const handleUpdateProfile = async () => {
+    if (paypalEmail.trim() && !isEmail(paypalEmail)) {
+      Alert.alert("Invalid PayPal email", "Please enter a valid email address.");
+      return;
+    }
+
     try {
       await api.updateProfile({ 
         name, 
@@ -78,7 +83,7 @@ export default function ProfileScreen() {
         twitter,
         instagram,
         linkedin,
-        paypal_email: paypalEmail
+        paypal_email: paypalEmail.trim()
       });
       await refreshUser();
       setEditModalVisible(false);
