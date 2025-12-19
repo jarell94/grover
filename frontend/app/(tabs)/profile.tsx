@@ -78,6 +78,19 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleTogglePrivacy = async (value: boolean) => {
+    const prev = isPrivate;
+    setIsPrivate(value);
+
+    try {
+      await api.updateProfile({ is_private: value });
+      await refreshUser();
+    } catch (e) {
+      setIsPrivate(prev);
+      Alert.alert("Error", "Failed to update privacy");
+    }
+  };
+
   const handlePremiumSubscribe = async () => {
     try {
       await api.subscribePremium();
