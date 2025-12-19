@@ -264,7 +264,7 @@ export default function ProfileScreen() {
             <Ionicons name="shield-checkmark" size={24} color={Colors.success} />
             <Text style={styles.menuItemText}>Privacy</Text>
           </View>
-          <Switch value={isPrivate} onValueChange={setIsPrivate} />
+          <Switch value={isPrivate} onValueChange={handleTogglePrivacy} />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
