@@ -26,6 +26,8 @@ const openUrl = async (url: string) => {
   else Alert.alert("Invalid link", "This link can't be opened.");
 };
 
+const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
