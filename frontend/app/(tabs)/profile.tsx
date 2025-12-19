@@ -139,7 +139,7 @@ export default function ProfileScreen() {
     <ScrollView style={styles.container}>
       <LinearGradient
         colors={[Colors.gradient.start, Colors.gradient.middle]}
-        style={styles.header}
+        style={[styles.header, { paddingTop: 24 + insets.top }]}
       >
         <View style={styles.profileHeader}>
           <Image
