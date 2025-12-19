@@ -30,6 +30,7 @@ const openUrl = async (url: string) => {
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState({ posts: 0, followers: 0, following: 0 });
