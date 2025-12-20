@@ -145,7 +145,11 @@ export default function StoreScreen() {
     const src = getProductImageSource(item.image_url);
 
     return (
-      <View style={styles.productCard}>
+      <TouchableOpacity
+        style={styles.productCard}
+        activeOpacity={0.9}
+        onPress={() => { setSelectedProduct(item); setDetailsVisible(true); }}
+      >
         {src ? (
           <Image source={src} style={styles.productImage} />
         ) : (
