@@ -583,6 +583,29 @@ async def get_posts(
     posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return posts
 
+@api_router.get("/posts/{post_id}")
+async def get_post_by_id(post_id: str, current_user: User = Depends(require_auth)):
+    """Get a single post by ID"""
+    validate_id(post_id, "post_id")
+    
+    post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Enrich with user info
+    user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0, "password": 0})
+    post["user"] = user
+    
+    # Check if current user liked/disliked/saved
+    reaction = await db.reactions.find_one({"post_id": post_id, "user_id": current_user.user_id})
+    post["liked"] = reaction is not None and reaction.get("type") == "like"
+    post["disliked"] = reaction is not None and reaction.get("type") == "dislike"
+    
+    saved = await db.saved_posts.find_one({"post_id": post_id, "user_id": current_user.user_id})
+    post["saved"] = saved is not None
+    
+    return post
+
 @api_router.get("/posts/feed")
 async def get_feed(
     limit: int = 20,
