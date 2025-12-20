@@ -23,14 +23,17 @@ export default function StudioScreen() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [revenueData, setRevenueData] = useState({ total_revenue: 0, total_orders: 0 });
   const [engagementData, setEngagementData] = useState({ total_posts: 0, total_likes: 0, total_followers: 0 });
   const [myPosts, setMyPosts] = useState([]);
   const [myProducts, setMyProducts] = useState([]);
 
-  useEffect(() => {
-    loadAnalytics();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadAnalytics();
+    }, [])
+  );
 
   const loadAnalytics = async () => {
     try {
