@@ -55,7 +55,13 @@ export default function StudioScreen() {
       console.error('Load analytics error:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadAnalytics();
   };
 
   const handleDeletePost = async (postId: string) => {
