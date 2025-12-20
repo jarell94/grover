@@ -164,7 +164,17 @@ export default function ProfileScreen() {
   if (!user) return null;
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={Colors.primary}
+          colors={[Colors.primary]}
+        />
+      }
+    >
       <LinearGradient
         colors={[Colors.gradient.start, Colors.gradient.middle]}
         style={[styles.header, { paddingTop: 24 + insets.top }]}
