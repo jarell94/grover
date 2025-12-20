@@ -11,6 +11,9 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="chat/[conversationId]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="edit-post" options={{ presentation: 'card' }} />
+          <Stack.Screen name="edit-product" options={{ presentation: 'card' }} />
           
           {/* New feature screens */}
           <Stack.Screen name="mentions" options={{ presentation: 'card' }} />
