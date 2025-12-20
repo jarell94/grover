@@ -122,14 +122,21 @@ export default function StoreScreen() {
     );
   };
 
-  const renderProduct = ({ item }: { item: Product }) => (
-    <View style={styles.productCard}>
-      {item.image_url ? (
-        <Image
-          source={{ uri: `data:image/jpeg;base64,${item.image_url}` }}
-          style={styles.productImage}
-        />
-      ) : (
+  const renderProduct = ({ item }: { item: Product }) => {
+    const imageSource = item.image_url
+      ? item.image_url.startsWith('http')
+        ? { uri: item.image_url }
+        : { uri: `data:image/jpeg;base64,${item.image_url}` }
+      : null;
+
+    return (
+      <View style={styles.productCard}>
+        {imageSource ? (
+          <Image
+            source={imageSource}
+            style={styles.productImage}
+          />
+        ) : (
         <View style={[styles.productImage, styles.noImage]}>
           <Ionicons name="image-outline" size={48} color={Colors.textSecondary} />
         </View>
