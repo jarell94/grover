@@ -1278,6 +1278,29 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
     
     return posts
 
+@api_router.put("/posts/{post_id}")
+async def update_post(
+    post_id: str,
+    content: str = None,
+    current_user: User = Depends(require_auth)
+):
+    """Update a post"""
+    validate_id(post_id, "post_id")
+    
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if post["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = {"updated_at": datetime.utcnow().isoformat()}
+    if content is not None:
+        update_data["content"] = sanitize_string(content, 5000, "content")
+    
+    await db.posts.update_one({"post_id": post_id}, {"$set": update_data})
+    return {"message": "Post updated"}
+
 @api_router.delete("/posts/{post_id}")
 async def delete_post(post_id: str, current_user: User = Depends(require_auth)):
     post = await db.posts.find_one({"post_id": post_id})
