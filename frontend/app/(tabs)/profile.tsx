@@ -83,6 +83,17 @@ export default function ProfileScreen() {
     }
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadStats(), refreshUser()]);
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const handleUpdateProfile = async () => {
     if (paypalEmail.trim() && !isEmail(paypalEmail)) {
       Alert.alert("Invalid PayPal email", "Please enter a valid email address.");
