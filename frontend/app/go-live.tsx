@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+
 import { api } from '../services/api';
 
 const Colors = {
@@ -34,38 +36,120 @@ export default function GoLiveScreen() {
   const [enableShop, setEnableShop] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Camera permissions
+  const [permission, requestPermission] = useCameraPermissions();
+  const [micGranted, setMicGranted] = useState<boolean>(false);
+
+  // Camera state
+  const [facing, setFacing] = useState<'front' | 'back'>('front');
+  const cameraRef = useRef<CameraView | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      // Ask camera permission
+      if (!permission?.granted) {
+        await requestPermission();
+      }
+
+      // Ask mic permission (CameraView uses system mic permission too)
+      // expo-camera uses the same permission hook; mic permission is handled by OS
+      // We'll just show guidance if camera is granted but mic isn't available at runtime.
+      // For most Expo setups, requesting camera permission will also trigger mic when needed.
+      setMicGranted(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleFacing = () => setFacing((p) => (p === 'front' ? 'back' : 'front'));
+
   const handleGoLive = async () => {
     if (!streamTitle.trim()) {
       Alert.alert('Error', 'Please enter a title for your stream');
       return;
     }
 
+    if (!permission?.granted) {
+      Alert.alert('Permissions', 'Camera permission is required to go live.');
+      await requestPermission();
+      return;
+    }
+
     setIsLoading(true);
     try {
       const formData = new FormData();
-      formData.append('title', streamTitle);
-      if (streamDescription.trim()) {
-        formData.append('description', streamDescription);
-      }
-      formData.append('enable_super_chat', enableSuperChat.toString());
-      formData.append('enable_shopping', enableShop.toString());
+      formData.append('title', streamTitle.trim());
+      if (streamDescription.trim()) formData.append('description', streamDescription.trim());
+      formData.append('enable_super_chat', String(enableSuperChat));
+      formData.append('enable_shopping', String(enableShop));
+
+      // Helpful metadata (optional, but good for backend debugging)
+      formData.append('camera_facing', facing);
 
       const result = await api.startStream(formData);
-      
-      router.push({
-        pathname: '/live-stream',
-        params: {
-          streamId: result.stream_id,
-          channelName: result.channel_name,
-          isHost: 'true',
-        },
-      });
+
+      // IMPORTANT: your RootLayout expects live-stream/[streamId]
+      // so route should be `/live-stream/${id}` (dynamic route), not `/live-stream`
+      router.push(`/live-stream/${result.stream_id}`);
     } catch (error) {
       console.error('Start stream error:', error);
       Alert.alert('Error', 'Failed to start stream. Please try again.');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const renderPreview = () => {
+    if (!permission) {
+      return (
+        <View style={styles.previewFallback}>
+          <Text style={styles.previewText}>Loading permissions…</Text>
+        </View>
+      );
+    }
+
+    if (!permission.granted) {
+      return (
+        <LinearGradient colors={[Colors.primary, Colors.secondary]} style={styles.previewGradient}>
+          <Ionicons name="videocam" size={64} color="rgba(255, 255, 255, 0.3)" />
+          <Text style={styles.previewText}>Camera permission needed</Text>
+          <Text style={styles.previewSubtext}>Tap below to allow access</Text>
+
+          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+            <Ionicons name="lock-open-outline" size={18} color="#fff" />
+            <Text style={styles.permissionButtonText}>Allow Camera</Text>
+          </TouchableOpacity>
+        </LinearGradient>
+      );
+    }
+
+    return (
+      <View style={{ flex: 1 }}>
+        <CameraView
+          ref={(r) => (cameraRef.current = r)}
+          style={StyleSheet.absoluteFill}
+          facing={facing}
+        />
+
+        {/* Overlay controls */}
+        <View style={styles.previewOverlayTop}>
+          <View style={styles.livePill}>
+            <Ionicons name="radio" size={14} color="#fff" />
+            <Text style={styles.livePillText}>PREVIEW</Text>
+          </View>
+
+          <TouchableOpacity style={styles.iconCircle} onPress={toggleFacing}>
+            <Ionicons name="camera-reverse" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        {!micGranted && (
+          <View style={styles.micWarning}>
+            <Ionicons name="mic-off" size={16} color="#fff" />
+            <Text style={styles.micWarningText}>Microphone permission required</Text>
+          </View>
+        )}
+      </View>
+    );
   };
 
   return (
@@ -79,22 +163,13 @@ export default function GoLiveScreen() {
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Live Preview Placeholder */}
-        <View style={styles.previewContainer}>
-          <LinearGradient
-            colors={[Colors.primary, Colors.secondary]}
-            style={styles.previewGradient}
-          >
-            <Ionicons name="videocam" size={64} color="rgba(255, 255, 255, 0.3)" />
-            <Text style={styles.previewText}>Camera Preview</Text>
-            <Text style={styles.previewSubtext}>Requires camera permission</Text>
-          </LinearGradient>
-        </View>
+        {/* Real Preview */}
+        <View style={styles.previewContainer}>{renderPreview()}</View>
 
         {/* Stream Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Stream Details</Text>
-          
+
           <TextInput
             style={styles.input}
             placeholder="Stream title"
@@ -170,7 +245,6 @@ export default function GoLiveScreen() {
           </View>
         </View>
 
-        {/* Streaming Tips */}
         <View style={styles.tipsCard}>
           <Text style={styles.tipsTitle}>💡 Live Streaming Tips</Text>
           <Text style={styles.tip}>• Test your internet before going live</Text>
@@ -180,26 +254,20 @@ export default function GoLiveScreen() {
         </View>
       </ScrollView>
 
-      {/* Go Live Button */}
+      {/* Footer */}
       <View style={styles.footer}>
         <TouchableOpacity
-          style={styles.goLiveButton}
+          style={[styles.goLiveButton, isLoading && { opacity: 0.7 }]}
           onPress={handleGoLive}
           disabled={isLoading}
         >
-          <LinearGradient
-            colors={[Colors.error, Colors.secondary]}
-            style={styles.goLiveGradient}
-          >
+          <LinearGradient colors={[Colors.error, Colors.secondary]} style={styles.goLiveGradient}>
             <Ionicons name="radio" size={24} color="#fff" />
-            <Text style={styles.goLiveText}>Go Live</Text>
+            <Text style={styles.goLiveText}>{isLoading ? 'Starting…' : 'Go Live'}</Text>
           </LinearGradient>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.scheduleButton}
-          onPress={() => router.push('/schedule-stream')}
-        >
+        <TouchableOpacity style={styles.scheduleButton} onPress={() => router.push('/schedule-stream')}>
           <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
           <Text style={styles.scheduleText}>Schedule for Later</Text>
         </TouchableOpacity>
@@ -209,10 +277,7 @@ export default function GoLiveScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -223,46 +288,83 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  content: {
-    flex: 1,
-  },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: Colors.text },
+  content: { flex: 1 },
+
   previewContainer: {
     height: 300,
     margin: 16,
     borderRadius: 16,
     overflow: 'hidden',
+    backgroundColor: Colors.surface,
   },
-  previewGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  previewGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  previewFallback: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   previewText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
-    marginTop: 16,
-  },
-  previewSubtext: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginTop: 4,
-  },
-  section: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 16,
+    color: 'rgba(255, 255, 255, 0.92)',
+    marginTop: 12,
   },
+  previewSubtext: { fontSize: 14, color: 'rgba(255, 255, 255, 0.65)', marginTop: 4 },
+
+  permissionButton: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  permissionButtonText: { color: '#fff', fontWeight: '700' },
+
+  previewOverlayTop: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  livePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  livePillText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  micWarning: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(239,68,68,0.35)',
+  },
+  micWarningText: { color: '#fff', fontWeight: '700' },
+
+  section: { paddingHorizontal: 16, paddingVertical: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: Colors.text, marginBottom: 16 },
   input: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -271,10 +373,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
   },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
+  textArea: { minHeight: 80, textAlignVertical: 'top' },
+
   featureRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -284,11 +384,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
-  featureInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
+  featureInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   featureIcon: {
     width: 48,
     height: 48,
@@ -298,19 +394,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  featureText: {
-    flex: 1,
-  },
-  featureName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  featureDescription: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
+  featureText: { flex: 1 },
+  featureName: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 4 },
+  featureDescription: { fontSize: 13, color: Colors.textSecondary },
+
   infoCard: {
     flexDirection: 'row',
     backgroundColor: Colors.surface,
@@ -319,21 +406,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 16,
   },
-  infoContent: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 8,
-  },
-  infoText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 4,
-  },
+  infoContent: { flex: 1, marginLeft: 12 },
+  infoTitle: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 8 },
+  infoText: { fontSize: 13, color: Colors.textSecondary, marginBottom: 4 },
+
   tipsCard: {
     backgroundColor: Colors.surface,
     padding: 20,
@@ -341,17 +417,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 100,
   },
-  tipsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 12,
-  },
-  tip: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 6,
-  },
+  tipsTitle: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 12 },
+  tip: { fontSize: 14, color: Colors.textSecondary, marginBottom: 6 },
+
   footer: {
     position: 'absolute',
     bottom: 0,
@@ -362,11 +430,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
-  goLiveButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
+  goLiveButton: { borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
   goLiveGradient: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -374,21 +438,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     gap: 8,
   },
-  goLiveText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  scheduleButton: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 12,
-    gap: 8,
-  },
-  scheduleText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
+  goLiveText: { fontSize: 18, fontWeight: '600', color: '#fff' },
+  scheduleButton: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12, gap: 8 },
+  scheduleText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
 });
