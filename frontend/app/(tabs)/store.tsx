@@ -204,6 +204,9 @@ export default function StoreScreen() {
         numColumns={2}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.row}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="cart-outline" size={64} color={Colors.textSecondary} />
