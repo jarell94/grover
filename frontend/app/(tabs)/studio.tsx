@@ -37,7 +37,10 @@ export default function StudioScreen() {
 
   const loadAnalytics = async () => {
     try {
-      if (!user?.user_id) return;
+      if (!user?.user_id) {
+        setLoading(false);
+        return;
+      }
 
       const [revenue, engagement, posts, products] = await Promise.all([
         api.getRevenue(),
@@ -48,8 +51,8 @@ export default function StudioScreen() {
 
       setRevenueData(revenue);
       setEngagementData(engagement);
-      setMyPosts(posts);
-      setMyProducts(products);
+      setMyPosts(Array.isArray(posts) ? posts : []);
+      setMyProducts(Array.isArray(products) ? products : []);
     } catch (error) {
       console.error('Load analytics error:', error);
     } finally {
