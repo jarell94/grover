@@ -151,6 +151,7 @@ export const api = {
 
   // Posts
   getPosts: (limit = 20, skip = 0) => apiRequest(`/posts?limit=${limit}&skip=${skip}`),
+  getPostById: (postId: string) => apiRequest(`/posts/${postId}`),
   getFeed: (limit = 20, skip = 0) => apiRequest(`/posts/feed?limit=${limit}&skip=${skip}`),
   getExplore: (limit = 20, skip = 0) => apiRequest(`/posts/explore?limit=${limit}&skip=${skip}`),
   createPost: (formData: FormData) => apiFormRequest('/posts', formData),
