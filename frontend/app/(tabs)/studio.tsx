@@ -197,7 +197,7 @@ export default function StudioScreen() {
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Top Performing Posts</Text>
-              {myPosts
+              {[...myPosts]
                 .sort((a: any, b: any) => b.likes_count - a.likes_count)
                 .slice(0, 5)
                 .map((post: any) => (
