@@ -1519,6 +1519,22 @@ async def get_products(current_user: User = Depends(require_auth)):
     
     return products
 
+@api_router.get("/products/me")
+async def get_products_me(
+    limit: int = 50,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get current user's products with pagination"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    products = await db.products.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return products
+
 @api_router.get("/products/my-products")
 async def get_my_products(current_user: User = Depends(require_auth)):
     products = await db.products.find(
