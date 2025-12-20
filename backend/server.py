@@ -1581,6 +1581,52 @@ async def create_product(
     
     return {"product_id": product_id, "message": "Product created"}
 
+@api_router.get("/products/{product_id}")
+async def get_product_by_id(product_id: str, current_user: User = Depends(require_auth)):
+    """Get a single product by ID"""
+    validate_id(product_id, "product_id")
+    
+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Add user info
+    user = await db.users.find_one({"user_id": product["user_id"]}, {"_id": 0})
+    product["user"] = user
+    
+    return product
+
+@api_router.put("/products/{product_id}")
+async def update_product(
+    product_id: str,
+    name: str = None,
+    description: str = None,
+    price: float = None,
+    current_user: User = Depends(require_auth)
+):
+    """Update a product"""
+    validate_id(product_id, "product_id")
+    
+    product = await db.products.find_one({"product_id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    if product["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = {"updated_at": datetime.utcnow().isoformat()}
+    if name is not None:
+        update_data["name"] = sanitize_string(name, 200, "name")
+    if description is not None:
+        update_data["description"] = sanitize_string(description, 2000, "description")
+    if price is not None:
+        if price < 0:
+            raise HTTPException(status_code=400, detail="Price cannot be negative")
+        update_data["price"] = round(price, 2)
+    
+    await db.products.update_one({"product_id": product_id}, {"$set": update_data})
+    return {"message": "Product updated"}
+
 @api_router.delete("/products/{product_id}")
 async def delete_product(product_id: str, current_user: User = Depends(require_auth)):
     product = await db.products.find_one({"product_id": product_id})
