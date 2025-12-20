@@ -219,8 +219,9 @@ export default function ProfileScreen() {
       <ProfileContentTabs
         userId={user.user_id}
         api={{
-          getUserPosts: (userId, limit, skip) => api.getUserPosts(userId, limit, skip),
-          getUserMedia: (userId, mediaType, limit, skip) => api.getUserMedia(userId, mediaType, limit, skip),
+          getUserPosts: (userId, limit = 18, skip = 0) => api.getPostsByUser(userId, limit, skip),
+          getUserMedia: (userId, mediaType, limit = 18, skip = 0) =>
+            api.getPostsByUserMedia(userId, mediaType, limit, skip),
         }}
       />
 
