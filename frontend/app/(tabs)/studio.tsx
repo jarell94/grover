@@ -283,9 +283,15 @@ export default function StudioScreen() {
                 </View>
                 <TouchableOpacity
                   style={styles.deleteButton}
-                  onPress={() => handleDeletePost(post.post_id)}
+                  onPress={() => {
+                    Alert.alert("Post Options", "Choose an action", [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Edit", onPress: () => router.push({ pathname: "/edit-post", params: { postId: post.post_id } }) },
+                      { text: "Delete", style: "destructive", onPress: () => handleDeletePost(post.post_id) },
+                    ]);
+                  }}
                 >
-                  <Ionicons name="trash" size={20} color={Colors.error} />
+                  <Ionicons name="ellipsis-vertical" size={20} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             ))}
