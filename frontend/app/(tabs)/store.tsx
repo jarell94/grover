@@ -129,15 +129,12 @@ export default function StoreScreen() {
   };
 
   const renderProduct = ({ item }: { item: Product }) => {
-    const imageSource = getProductImageSource(item.image_url);
+    const src = getProductImageSource(item.image_url);
 
     return (
       <View style={styles.productCard}>
-        {imageSource ? (
-          <Image
-            source={imageSource}
-            style={styles.productImage}
-          />
+        {src ? (
+          <Image source={src} style={styles.productImage} />
         ) : (
         <View style={[styles.productImage, styles.noImage]}>
           <Ionicons name="image-outline" size={48} color={Colors.textSecondary} />
