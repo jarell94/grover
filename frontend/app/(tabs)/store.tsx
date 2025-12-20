@@ -216,7 +216,7 @@ export default function StoreScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Store</Text>
-        <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
+        <TouchableOpacity onPress={openCreateModal}>
           <Ionicons name="add-circle" size={32} color={Colors.primary} />
         </TouchableOpacity>
       </View>
