@@ -215,6 +215,15 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </LinearGradient>
 
+      {/* Profile Content Tabs */}
+      <ProfileContentTabs
+        userId={user.user_id}
+        api={{
+          getUserPosts: (userId, limit, skip) => api.getUserPosts(userId, limit, skip),
+          getUserMedia: (userId, mediaType, limit, skip) => api.getUserMedia(userId, mediaType, limit, skip),
+        }}
+      />
+
       {/* Quick Actions */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
