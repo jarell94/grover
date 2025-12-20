@@ -120,26 +120,29 @@ export default function StoreScreen() {
   };
 
   const handleBuy = async (product: Product) => {
-    Alert.alert(
-      'Buy Product',
-      `Purchase ${product.name} for $${product.price}?\n\nNote: PayPal credentials need to be configured by the admin.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          onPress: async () => {
-            try {
-              // Simulate PayPal order ID for now
-              const paypalOrderId = `PAYPAL_${Date.now()}`;
-              await api.createOrder(product.product_id, paypalOrderId);
-              Alert.alert('Success', 'Purchase completed!');
-            } catch (error) {
-              Alert.alert('Error', 'Purchase failed');
-            }
-          },
-        },
-      ]
-    );
+    try {
+      // 1) ask backend to create PayPal payment
+      // expected: { approval_url, payment_id }
+      const checkout = await api.createPaypalCheckout(product.product_id);
+
+      if (!checkout?.approval_url || !checkout?.payment_id) {
+        Alert.alert("Error", "Checkout could not be created.");
+        return;
+      }
+
+      // 2) open PayPal approval URL
+      await Linking.openURL(checkout.approval_url);
+
+      // 3) after user approves, your redirect should deep-link back
+      // then your app calls execute + creates order.
+      Alert.alert(
+        "Complete payment",
+        "After approving payment in PayPal, return to Grover to finish checkout."
+      );
+    } catch (error) {
+      console.error("Buy error:", error);
+      Alert.alert("Error", "Purchase failed");
+    }
   };
 
   const renderProduct = ({ item }: { item: Product }) => {
