@@ -47,6 +47,16 @@ export default function ProfileScreen() {
   const [paypalEmail, setPaypalEmail] = useState(user?.paypal_email || '');
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Auto-refresh on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        loadStats();
+      }
+    }, [user])
+  );
 
   useEffect(() => {
     if (user) {
