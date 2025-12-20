@@ -71,6 +71,20 @@ export default function StoreScreen() {
     setRefreshing(false);
   };
 
+  const openCreateModal = async () => {
+    // Check if user has PayPal email for receiving payouts
+    const me = await api.getMe?.().catch(() => null);
+
+    if (me && !me.paypal_email) {
+      Alert.alert(
+        "PayPal required",
+        "Add your PayPal email in Profile → Edit Profile to receive payouts."
+      );
+      return;
+    }
+    setCreateModalVisible(true);
+  };
+
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
