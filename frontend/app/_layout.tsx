@@ -11,10 +11,14 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="chat/[conversationId]" options={{ presentation: 'card' }} />
+
+          {/* Content view */}
           <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
-          <Stack.Screen name="edit-post" options={{ presentation: 'card' }} />
-          <Stack.Screen name="edit-product" options={{ presentation: 'card' }} />
-          
+
+          {/* Editors */}
+          <Stack.Screen name="edit-post" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="edit-product" options={{ presentation: 'modal' }} />
+
           {/* New feature screens */}
           <Stack.Screen name="mentions" options={{ presentation: 'card' }} />
           <Stack.Screen name="marketplace" options={{ presentation: 'card' }} />
@@ -24,14 +28,14 @@ export default function RootLayout() {
           <Stack.Screen name="community-detail" options={{ presentation: 'card' }} />
           <Stack.Screen name="analytics" options={{ presentation: 'card' }} />
           <Stack.Screen name="schedule-post" options={{ presentation: 'card' }} />
-          
+
           {/* Story and live streaming screens */}
           <Stack.Screen name="stories" options={{ presentation: 'modal' }} />
           <Stack.Screen name="create-story" options={{ presentation: 'modal' }} />
           <Stack.Screen name="go-live" options={{ presentation: 'modal' }} />
           <Stack.Screen name="live-stream/[streamId]" options={{ presentation: 'fullScreenModal' }} />
           <Stack.Screen name="schedule-stream" options={{ presentation: 'card' }} />
-          
+
           {/* Settings and notification screens */}
           <Stack.Screen name="notification-settings" options={{ presentation: 'card' }} />
         </Stack>
