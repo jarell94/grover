@@ -40,16 +40,13 @@ export default function StudioScreen() {
       const [revenue, engagement, posts, products] = await Promise.all([
         api.getRevenue(),
         api.getEngagement(),
-        api.getPosts(),
+        user?.user_id ? api.getPostsByUser(user.user_id) : Promise.resolve([]),
         api.getMyProducts(),
       ]);
 
       setRevenueData(revenue);
       setEngagementData(engagement);
-      
-      // Filter to only current user's posts
-      const userPosts = posts.filter((p: any) => p.user_id === user?.user_id);
-      setMyPosts(userPosts);
+      setMyPosts(Array.isArray(posts) ? posts : []);
       setMyProducts(products);
     } catch (error) {
       console.error('Load analytics error:', error);
