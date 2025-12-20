@@ -26,6 +26,12 @@ interface Product {
   user?: any;
 }
 
+const getProductImageSource = (image_url?: string) => {
+  if (!image_url) return null;
+  if (image_url.startsWith("http")) return { uri: image_url };
+  return { uri: `data:image/jpeg;base64,${image_url}` };
+};
+
 export default function StoreScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
