@@ -143,8 +143,8 @@ export const api = {
   // Users
   getUser: (userId: string) => apiRequest(`/users/${userId}`),
   getUserStats: (userId: string) => apiRequest(`/users/${userId}/stats`),
-  getUserPosts: (userId: string, limit = 20, skip = 0) => apiRequest(`/users/${userId}/posts?limit=${limit}&skip=${skip}`),
-  getUserMedia: (userId: string, mediaType: string, limit = 20, skip = 0) => apiRequest(`/users/${userId}/media?type=${mediaType}&limit=${limit}&skip=${skip}`),
+  getPostsByUser: (userId: string, limit = 18, skip = 0) => apiRequest(`/users/${userId}/posts?limit=${limit}&skip=${skip}`),
+  getPostsByUserMedia: (userId: string, mediaType: string, limit = 18, skip = 0) => apiRequest(`/users/${userId}/media?type=${mediaType}&limit=${limit}&skip=${skip}`),
   updateProfile: (data: any) => apiRequest('/users/me', {
     method: 'PUT',
     body: JSON.stringify(data),
