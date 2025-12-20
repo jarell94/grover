@@ -296,6 +296,67 @@ export default function StoreScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Product Details Modal */}
+      <Modal
+        visible={detailsVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDetailsVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Product</Text>
+              <TouchableOpacity onPress={() => setDetailsVisible(false)}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedProduct && (
+              <>
+                {getProductImageSource(selectedProduct.image_url) ? (
+                  <Image
+                    source={getProductImageSource(selectedProduct.image_url)!}
+                    style={styles.previewImage}
+                  />
+                ) : (
+                  <View style={[styles.previewImage, styles.noImage]}>
+                    <Ionicons name="image-outline" size={48} color={Colors.textSecondary} />
+                  </View>
+                )}
+
+                <Text style={[styles.productName, { fontSize: 20, marginTop: 12 }]}>
+                  {selectedProduct.name}
+                </Text>
+                <Text style={[styles.productPrice, { marginTop: 6 }]}>
+                  ${selectedProduct.price.toFixed(2)}
+                </Text>
+                <Text style={{ color: Colors.textSecondary, marginTop: 10, lineHeight: 20 }}>
+                  {selectedProduct.description}
+                </Text>
+
+                {selectedProduct.user && (
+                  <View style={styles.sellerInfo}>
+                    <Image
+                      source={{ uri: selectedProduct.user.picture || "https://via.placeholder.com/24" }}
+                      style={styles.sellerAvatar}
+                    />
+                    <Text style={styles.sellerName}>Sold by {selectedProduct.user.name}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.submitButton, { marginTop: 16 }]}
+                  onPress={() => handleBuy(selectedProduct)}
+                >
+                  <Text style={styles.submitButtonText}>Buy Now</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
