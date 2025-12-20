@@ -210,6 +210,37 @@ export default function StudioScreen() {
             </View>
 
             <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Payout Setup</Text>
+              <View style={styles.payoutCard}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Ionicons
+                    name={user?.paypal_email ? "checkmark-circle" : "alert-circle"}
+                    size={26}
+                    color={user?.paypal_email ? Colors.success : Colors.error}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.payoutTitle}>
+                      {user?.paypal_email ? "PayPal Connected" : "PayPal Not Connected"}
+                    </Text>
+                    <Text style={styles.payoutSub}>
+                      {user?.paypal_email
+                        ? `Payments will be sent to ${user.paypal_email}`
+                        : "Add your PayPal email in Profile → Edit Profile to receive payouts."}
+                    </Text>
+                  </View>
+                </View>
+                {!user?.paypal_email && (
+                  <TouchableOpacity
+                    style={styles.payoutButton}
+                    onPress={() => router.push("/(tabs)/profile")}
+                  >
+                    <Text style={styles.payoutButtonText}>Go to Profile</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Top Performing Posts</Text>
               {[...myPosts]
                 .sort((a: any, b: any) => b.likes_count - a.likes_count)
