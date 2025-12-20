@@ -153,6 +153,7 @@ export const api = {
 
   // Posts
   getPosts: (limit = 20, skip = 0) => apiRequest(`/posts?limit=${limit}&skip=${skip}`),
+  getMyPosts: (limit = 50, skip = 0) => apiRequest(`/posts/me?limit=${limit}&skip=${skip}`),
   getPostById: (postId: string) => apiRequest(`/posts/${postId}`),
   getFeed: (limit = 20, skip = 0) => apiRequest(`/posts/feed?limit=${limit}&skip=${skip}`),
   getExplore: (limit = 20, skip = 0) => apiRequest(`/posts/explore?limit=${limit}&skip=${skip}`),
@@ -162,7 +163,7 @@ export const api = {
 
   // Products
   getProducts: () => apiRequest('/products'),
-  getMyProducts: () => apiRequest('/products/my-products'),
+  getMyProducts: (limit = 50, skip = 0) => apiRequest(`/products/me?limit=${limit}&skip=${skip}`),
   createProduct: (formData: FormData) => apiFormRequest('/products', formData),
   deleteProduct: (productId: string) => apiRequest(`/products/${productId}`, { method: 'DELETE' }),
 
