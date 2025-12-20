@@ -189,6 +189,7 @@ export const api = {
   // Notifications
   getNotifications: () => apiRequest('/notifications'),
   markNotificationsRead: () => apiRequest('/notifications/mark-read', { method: 'POST' }),
+  markNotificationRead: (notificationId: string) => apiRequest(`/notifications/${notificationId}/read`, { method: 'POST' }),
 
   // Premium
   subscribePremium: () => apiRequest('/premium/subscribe', { method: 'POST' }),
