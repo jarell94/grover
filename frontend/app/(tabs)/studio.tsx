@@ -32,7 +32,7 @@ export default function StudioScreen() {
   useFocusEffect(
     useCallback(() => {
       loadAnalytics();
-    }, [])
+    }, [user?.user_id])
   );
 
   const loadAnalytics = async () => {
@@ -62,6 +62,7 @@ export default function StudioScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     await loadAnalytics();
+    setRefreshing(false);
   };
 
   const handleDeletePost = async (postId: string) => {
