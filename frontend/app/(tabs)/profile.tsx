@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../services/api';
+import ProfileContentTabs from '../../components/ProfileContentTabs';
 
 const openUrl = async (url: string) => {
   const u = url.startsWith("http") ? url : `https://${url}`;
