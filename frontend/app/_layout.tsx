@@ -12,7 +12,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="chat/[conversationId]" options={{ presentation: 'card' }} />
 
-          {/* Content view */}
+          {/* Post view */}
           <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
 
           {/* Editors */}
