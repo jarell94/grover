@@ -315,9 +315,15 @@ export default function StudioScreen() {
                 </View>
                 <TouchableOpacity
                   style={styles.deleteButton}
-                  onPress={() => handleDeleteProduct(product.product_id)}
+                  onPress={() => {
+                    Alert.alert("Product Options", "Choose an action", [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Edit", onPress: () => router.push({ pathname: "/edit-product", params: { productId: product.product_id } }) },
+                      { text: "Delete", style: "destructive", onPress: () => handleDeleteProduct(product.product_id) },
+                    ]);
+                  }}
                 >
-                  <Ionicons name="trash" size={20} color={Colors.error} />
+                  <Ionicons name="ellipsis-vertical" size={20} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             ))}
