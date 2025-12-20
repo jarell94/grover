@@ -78,8 +78,14 @@ export default function NotificationsScreen() {
       prev.map(x => (x.notification_id === n.notification_id ? { ...x, read: true } : x))
     );
 
-    // Tell backend this one is read
-    api.markNotificationRead?.(n.notification_id).catch(() => {});
+    // Tell backend this one is read (silently fail if method doesn't exist)
+    try {
+      if (api.markNotificationRead) {
+        await api.markNotificationRead(n.notification_id);
+      }
+    } catch (e) {
+      // Ignore errors
+    }
 
     // Route by type
     if (n.type === "message") return router.push("/(tabs)/messages");
