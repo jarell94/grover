@@ -2395,6 +2395,21 @@ async def mark_notifications_read(current_user: User = Depends(require_auth)):
     )
     return {"message": "Notifications marked as read"}
 
+@api_router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, current_user: User = Depends(require_auth)):
+    """Mark a single notification as read"""
+    validate_id(notification_id, "notification_id")
+    
+    result = await db.notifications.update_one(
+        {"notification_id": notification_id, "user_id": current_user.user_id},
+        {"$set": {"read": True}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    return {"message": "Notification marked as read"}
+
 # ============ COLLECTIONS ENDPOINTS ============
 
 @api_router.post("/collections")
