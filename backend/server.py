@@ -435,6 +435,48 @@ async def get_user_stats(user_id: str, current_user: User = Depends(require_auth
         "following": following_count
     }
 
+@api_router.get("/users/{user_id}/posts")
+async def get_user_posts(
+    user_id: str,
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get posts by a specific user"""
+    validate_id(user_id, "user_id")
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    posts = await db.posts.find(
+        {"user_id": user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return posts
+
+@api_router.get("/users/{user_id}/media")
+async def get_user_media(
+    user_id: str,
+    type: str = "image",
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get media posts by a specific user filtered by type"""
+    validate_id(user_id, "user_id")
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    # Map type to media_type
+    media_type = type  # "image", "video", "audio"
+    
+    posts = await db.posts.find(
+        {"user_id": user_id, "media_type": media_type},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return posts
+
 @api_router.put("/users/me")
 async def update_profile(
     name: Optional[str] = None, 
