@@ -205,7 +205,7 @@ export default function StoreScreen() {
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.row}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
