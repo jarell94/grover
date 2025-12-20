@@ -121,7 +121,7 @@ export default function MessagesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <Text style={styles.headerTitle}>Messages</Text>
       </View>
 
