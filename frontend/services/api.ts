@@ -167,7 +167,7 @@ export const api = {
   deleteProduct: (productId: string) => apiRequest(`/products/${productId}`, { method: 'DELETE' }),
 
   // Orders
-  createPaypalCheckout: (productId: string) => apiRequest('/checkout/paypal', {
+  createPaypalCheckout: (productId: string) => apiRequest('/payments/paypal/create', {
     method: 'POST',
     body: JSON.stringify({ product_id: productId }),
   }),
