@@ -667,6 +667,151 @@ async def get_posts_media(
     
     return posts
 
+@api_router.get("/posts/feed")
+async def get_feed(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get feed of posts from followed users with pagination"""
+    # Security: Enforce pagination limits
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    # Get followed users (cached for performance)
+    follows = await db.follows.find(
+        {"follower_id": current_user.user_id},
+        {"_id": 0, "following_id": 1}
+    ).to_list(1000)
+    
+    followed_ids = [f["following_id"] for f in follows]
+    followed_ids.append(current_user.user_id)  # Include own posts
+    
+    # Optimized query with pagination
+    posts = await db.posts.find(
+        {"user_id": {"$in": followed_ids}},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Add user data to each post
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # If this is a repost, get original post data
+        if post.get("is_repost") and post.get("original_post_id"):
+            original_post = await db.posts.find_one(
+                {"post_id": post["original_post_id"]},
+                {"_id": 0}
+            )
+            if original_post:
+                original_user = await db.users.find_one(
+                    {"user_id": original_post["user_id"]},
+                    {"_id": 0}
+                )
+                original_post["user"] = original_user
+                post["original_post"] = original_post
+        
+        # Check if current user reacted
+        user_reaction = await db.reactions.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+        
+        # Keep backward compatibility
+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+        
+        # Check if current user disliked
+        disliked = await db.dislikes.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["disliked"] = disliked is not None
+        
+        # Check if current user saved
+        saved = await db.saved_posts.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["saved"] = saved is not None
+        
+        # Check if current user reposted this
+        reposted = await db.posts.find_one({
+            "user_id": current_user.user_id,
+            "is_repost": True,
+            "original_post_id": post["post_id"]
+        })
+        post["reposted"] = reposted is not None
+    
+    return posts
+
+@api_router.get("/posts/explore")
+async def get_explore(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get explore posts with pagination"""
+    # Security: Enforce pagination limits
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Add user data
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # If this is a repost, get original post data
+        if post.get("is_repost") and post.get("original_post_id"):
+            original_post = await db.posts.find_one(
+                {"post_id": post["original_post_id"]},
+                {"_id": 0}
+            )
+            if original_post:
+                original_user = await db.users.find_one(
+                    {"user_id": original_post["user_id"]},
+                    {"_id": 0}
+                )
+                original_post["user"] = original_user
+                post["original_post"] = original_post
+        
+        # Check if current user reacted
+        user_reaction = await db.reactions.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+        
+        # Keep backward compatibility
+        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+        
+        # Check if current user disliked
+        disliked = await db.dislikes.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["disliked"] = disliked is not None
+        
+        # Check if current user saved
+        saved = await db.saved_posts.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["saved"] = saved is not None
+        
+        # Check if current user reposted this
+        reposted = await db.posts.find_one({
+            "user_id": current_user.user_id,
+            "is_repost": True,
+            "original_post_id": post["post_id"]
+        })
+        post["reposted"] = reposted is not None
+    
+    return posts
+
 @api_router.get("/posts/{post_id}")
 async def get_post_by_id(post_id: str, current_user: User = Depends(require_auth)):
     """Get a single post by ID"""
