@@ -615,14 +615,40 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
 async def get_posts(
     limit: int = 20,
     skip: int = 0,
+    user_id: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
-    """Get all posts with pagination"""
+    """Get all posts with pagination, optionally filtered by user_id"""
     # Security: Enforce pagination limits to prevent DoS
     limit = min(max(1, limit), 100)  # 1-100 range
     skip = max(0, skip)  # Non-negative
     
-    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    query = {}
+    if user_id:
+        validate_id(user_id, "user_id")
+        query["user_id"] = user_id
+    
+    posts = await db.posts.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return posts
+
+@api_router.get("/posts/media")
+async def get_posts_media(
+    user_id: str,
+    media_type: str = "image",
+    limit: int = 18,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get media posts filtered by user_id and media_type"""
+    validate_id(user_id, "user_id")
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    posts = await db.posts.find(
+        {"user_id": user_id, "media_type": media_type},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
     return posts
 
 @api_router.get("/posts/{post_id}")
