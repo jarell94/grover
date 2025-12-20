@@ -160,12 +160,21 @@ export const api = {
   createPost: (formData: FormData) => apiFormRequest('/posts', formData),
   likePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'POST' }),
   deletePost: (postId: string) => apiRequest(`/posts/${postId}`, { method: 'DELETE' }),
+  updatePost: (postId: string, data: { content: string }) => apiRequest(`/posts/${postId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
 
   // Products
   getProducts: () => apiRequest('/products'),
   getMyProducts: (limit = 50, skip = 0) => apiRequest(`/products/me?limit=${limit}&skip=${skip}`),
+  getProductById: (productId: string) => apiRequest(`/products/${productId}`),
   createProduct: (formData: FormData) => apiFormRequest('/products', formData),
   deleteProduct: (productId: string) => apiRequest(`/products/${productId}`, { method: 'DELETE' }),
+  updateProduct: (productId: string, data: { name: string; description: string; price: number }) => apiRequest(`/products/${productId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
 
   // Orders
   createPaypalCheckout: (productId: string) => apiRequest('/payments/paypal/create', {
