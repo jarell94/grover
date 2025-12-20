@@ -12,25 +12,20 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import api from '../services/api';
+import { Video, ResizeMode } from 'expo-av';
 
-const Colors = {
-  primary: '#8B5CF6',
-  background: '#0F172A',
-  surface: '#1E293B',
-  text: '#F1F5F9',
-  textSecondary: '#94A3B8',
-};
+import { Colors } from '../constants/Colors';
+import { api } from '../services/api';
 
 export default function CreateStoryScreen() {
-  const [selectedMedia, setSelectedMedia] = useState<any>(null);
+  const [selectedMedia, setSelectedMedia] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
 
-  const pickImage = async () => {
+  const pickFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please grant camera roll permissions');
+      Alert.alert('Permission needed', 'Please grant photo library permissions');
       return;
     }
 
@@ -39,15 +34,14 @@ export default function CreateStoryScreen() {
       allowsEditing: true,
       aspect: [9, 16],
       quality: 0.8,
-      base64: true,
     });
 
-    if (!result.canceled && result.assets[0]) {
+    if (!result.canceled && result.assets?.[0]) {
       setSelectedMedia(result.assets[0]);
     }
   };
 
-  const takePhoto = async () => {
+  const takePhotoOrVideo = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please grant camera permissions');
@@ -59,16 +53,15 @@ export default function CreateStoryScreen() {
       allowsEditing: true,
       aspect: [9, 16],
       quality: 0.8,
-      base64: true,
     });
 
-    if (!result.canceled && result.assets[0]) {
+    if (!result.canceled && result.assets?.[0]) {
       setSelectedMedia(result.assets[0]);
     }
   };
 
   const createStory = async () => {
-    if (!selectedMedia) {
+    if (!selectedMedia?.uri) {
       Alert.alert('Error', 'Please select a photo or video');
       return;
     }
@@ -76,22 +69,26 @@ export default function CreateStoryScreen() {
     setUploading(true);
     try {
       const formData = new FormData();
-      
-      // Convert base64 to blob for upload
-      const blob = {
+
+      // expo-image-picker returns asset.type: 'image' | 'video'
+      const isVideo = selectedMedia.type === 'video';
+
+      const mediaPart = {
         uri: selectedMedia.uri,
-        type: selectedMedia.type === 'video' ? 'video/mp4' : 'image/jpeg',
-        name: selectedMedia.type === 'video' ? 'story.mp4' : 'story.jpg',
+        type: isVideo ? 'video/mp4' : 'image/jpeg',
+        name: isVideo ? `story-${Date.now()}.mp4` : `story-${Date.now()}.jpg`,
       };
-      
-      formData.append('media', blob as any);
+
+      formData.append('media', mediaPart as any);
+
       if (caption.trim()) {
         formData.append('caption', caption.trim());
       }
 
       await api.createStory(formData);
+
       Alert.alert('Success', 'Story posted!', [
-        { text: 'OK', onPress: () => router.back() }
+        { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (error) {
       console.error('Create story error:', error);
@@ -100,6 +97,8 @@ export default function CreateStoryScreen() {
       setUploading(false);
     }
   };
+
+  const isVideo = selectedMedia?.type === 'video';
 
   return (
     <View style={styles.container}>
@@ -113,12 +112,19 @@ export default function CreateStoryScreen() {
 
       {selectedMedia ? (
         <View style={styles.previewContainer}>
-          <Image
-            source={{ uri: selectedMedia.uri }}
-            style={styles.preview}
-            resizeMode="cover"
-          />
-          
+          {isVideo ? (
+            <Video
+              source={{ uri: selectedMedia.uri }}
+              style={styles.preview}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay
+              isLooping
+              useNativeControls={false}
+            />
+          ) : (
+            <Image source={{ uri: selectedMedia.uri }} style={styles.preview} resizeMode="cover" />
+          )}
+
           <View style={styles.captionOverlay}>
             <TextInput
               style={styles.captionInput}
@@ -131,11 +137,8 @@ export default function CreateStoryScreen() {
           </View>
 
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => setSelectedMedia(null)}
-            >
-              <Ionicons name="refresh" size={24} color={Colors.text} />
+            <TouchableOpacity style={styles.actionButton} onPress={() => setSelectedMedia(null)}>
+              <Ionicons name="refresh" size={22} color={Colors.text} />
               <Text style={styles.actionText}>Change</Text>
             </TouchableOpacity>
 
@@ -148,8 +151,8 @@ export default function CreateStoryScreen() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="checkmark-circle" size={24} color="#fff" />
-                  <Text style={styles.postButtonText}>Post Story</Text>
+                  <Ionicons name="checkmark-circle" size={22} color="#fff" />
+                  <Text style={styles.postButtonText}>Post</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -159,19 +162,17 @@ export default function CreateStoryScreen() {
         <View style={styles.emptyContainer}>
           <Ionicons name="images-outline" size={80} color={Colors.textSecondary} />
           <Text style={styles.emptyTitle}>Create a Story</Text>
-          <Text style={styles.emptySubtitle}>
-            Share a moment that disappears in 24 hours
-          </Text>
+          <Text style={styles.emptySubtitle}>Share a moment that disappears in 24 hours</Text>
 
           <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.button} onPress={takePhoto}>
+            <TouchableOpacity style={styles.button} onPress={takePhotoOrVideo}>
               <Ionicons name="camera" size={32} color={Colors.primary} />
-              <Text style={styles.buttonText}>Take Photo</Text>
+              <Text style={styles.buttonText}>Camera</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.button} onPress={pickImage}>
+            <TouchableOpacity style={styles.button} onPress={pickFromGallery}>
               <Ionicons name="images" size={32} color={Colors.primary} />
-              <Text style={styles.buttonText}>Choose from Gallery</Text>
+              <Text style={styles.buttonText}>Gallery</Text>
             </TouchableOpacity>
           </View>
 
@@ -188,10 +189,7 @@ export default function CreateStoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -200,83 +198,32 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingTop: 60,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surface,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.background,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: Colors.text,
-    marginTop: 24,
-  },
-  emptySubtitle: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 32,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 48,
-  },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: Colors.text },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  emptyTitle: { fontSize: 24, fontWeight: 'bold', color: Colors.text, marginTop: 24 },
+  emptySubtitle: { fontSize: 16, color: Colors.textSecondary, textAlign: 'center', marginTop: 8, marginBottom: 32 },
+  buttonContainer: { flexDirection: 'row', gap: 16, marginBottom: 48 },
   button: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.card,
     paddingVertical: 24,
     paddingHorizontal: 32,
     borderRadius: 16,
     minWidth: 140,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  buttonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text,
-    marginTop: 8,
-  },
-  tips: {
-    backgroundColor: Colors.surface,
-    padding: 20,
-    borderRadius: 12,
-    width: '100%',
-  },
-  tipsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 12,
-  },
-  tip: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 6,
-  },
-  previewContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  preview: {
-    width: '100%',
-    height: '100%',
-  },
-  captionOverlay: {
-    position: 'absolute',
-    bottom: 120,
-    left: 16,
-    right: 16,
-  },
+  buttonText: { fontSize: 14, fontWeight: '600', color: Colors.text, marginTop: 8 },
+  tips: { backgroundColor: Colors.card, padding: 20, borderRadius: 12, width: '100%', borderWidth: 1, borderColor: Colors.border },
+  tipsTitle: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 12 },
+  tip: { fontSize: 14, color: Colors.textSecondary, marginBottom: 6 },
+  previewContainer: { flex: 1, position: 'relative' },
+  preview: { width: '100%', height: '100%' },
+  captionOverlay: { position: 'absolute', bottom: 120, left: 16, right: 16 },
   captionInput: {
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     color: Colors.text,
@@ -303,11 +250,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 25,
   },
-  actionText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-  },
+  actionText: { fontSize: 16, fontWeight: '600', color: Colors.text },
   postButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -317,12 +260,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 25,
   },
-  postButtonDisabled: {
-    opacity: 0.6,
-  },
-  postButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
+  postButtonDisabled: { opacity: 0.6 },
+  postButtonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
 });
