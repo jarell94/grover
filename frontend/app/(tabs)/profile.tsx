@@ -110,13 +110,17 @@ export default function ProfileScreen() {
   };
 
   const handlePremiumSubscribe = async () => {
+    if (subscribing) return;
+    setSubscribing(true);
     try {
       await api.subscribePremium();
       await refreshUser();
       setShowPremiumModal(false);
-      Alert.alert('Success', 'Premium activated!');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to activate premium');
+      Alert.alert("Success", "Premium activated!");
+    } catch {
+      Alert.alert("Error", "Failed to activate premium");
+    } finally {
+      setSubscribing(false);
     }
   };
 
