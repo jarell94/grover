@@ -40,13 +40,6 @@ export default function ExploreScreen() {
     })();
   }, []);
 
-  // Auto-refresh content when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      loadContent(activeTab);
-    }, [activeTab, loadContent])
-  );
-
   const loadContent = useCallback(async (tab: ExploreTab) => {
     try {
       if (tab === "foryou") {
@@ -61,6 +54,13 @@ export default function ExploreScreen() {
       console.error("Load content error:", error);
     }
   }, []);
+
+  // Auto-refresh content when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadContent(activeTab);
+    }, [activeTab, loadContent])
+  );
 
   // Fetch when tab changes
   useEffect(() => {
