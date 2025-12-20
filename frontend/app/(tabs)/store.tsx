@@ -168,6 +168,7 @@ export default function StoreScreen() {
       </View>
     </View>
   );
+  };
 
   if (loading) {
     return (
