@@ -631,6 +631,22 @@ async def get_posts(
     posts = await db.posts.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return posts
 
+@api_router.get("/posts/me")
+async def get_my_posts(
+    limit: int = 50,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get current user's posts"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    posts = await db.posts.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return posts
+
 @api_router.get("/posts/media")
 async def get_posts_media(
     user_id: str,
