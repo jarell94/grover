@@ -507,4 +507,33 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
+  payoutCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 12,
+  },
+  payoutTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  payoutSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  payoutButton: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  payoutButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
 });
