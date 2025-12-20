@@ -44,6 +44,7 @@ export default function ProfileScreen() {
   const [linkedin, setLinkedin] = useState(user?.linkedin || '');
   const [paypalEmail, setPaypalEmail] = useState(user?.paypal_email || '');
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
 
   useEffect(() => {
     if (user) {
