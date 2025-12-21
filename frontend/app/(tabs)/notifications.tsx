@@ -383,8 +383,8 @@ export default function NotificationsScreen() {
             </Text>
             <Text style={styles.emptySubtext}>
               {unreadOnly
-                ? "You're all caught up!"
-                : "We'll notify you when something happens"}
+                ? "You are all caught up!"
+                : "We will notify you when something happens"}
             </Text>
           </View>
         }
