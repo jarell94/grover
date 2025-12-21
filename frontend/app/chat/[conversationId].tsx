@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,12 +8,14 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../../constants/Colors';
-import { api } from '../../services/api';
-import socketService from '../../services/socket';
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+} from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { Colors } from "../../constants/Colors";
+import { api } from "../../services/api";
+import socketService from "../../services/socket";
 
 interface Message {
   message_id: string;
@@ -22,58 +24,175 @@ interface Message {
   created_at: string;
 }
 
+const NEAR_BOTTOM_PX = 120;
+
 export default function ChatScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
-  const { conversationId, userId, otherUserId, otherUserName } = params;
+
+  const conversationId = params.conversationId as string | undefined;
+  const userId = params.userId as string | undefined;
+  const otherUserId = params.otherUserId as string | undefined;
+  const otherUserName = params.otherUserName as string | undefined;
+
   const [messages, setMessages] = useState<Message[]>([]);
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
+
+  const [otherTyping, setOtherTyping] = useState(false);
+
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [newMsgCount, setNewMsgCount] = useState(0);
+
   const flatListRef = useRef<FlatList>(null);
+  const typingStopTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isAtBottomRef = useRef(true);
 
+  // Keep ref in sync for use in callbacks
   useEffect(() => {
-    loadMessages();
-    
-    // Join conversation
-    if (conversationId && userId) {
-      socketService.joinConversation(conversationId as string, userId as string);
-    }
+    isAtBottomRef.current = isAtBottom;
+  }, [isAtBottom]);
 
-    // Listen for new messages
-    socketService.onNewMessage((message) => {
-      setMessages((prev) => [...prev, message]);
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+  const sortedMessages = useMemo(() => {
+    // ensure chronological order (oldest -> newest)
+    return [...messages].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+  }, [messages]);
+
+  const scrollToBottom = (animated = true) => {
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated });
     });
+  };
 
-    return () => {
-      // Cleanup if needed
-    };
-  }, []);
+  const markRead = async () => {
+    if (!conversationId) return;
+    try {
+      await api.markConversationRead(conversationId);
+    } catch (e) {
+      // non-fatal
+      if (__DEV__) console.error("markConversationRead error:", e);
+    }
+  };
 
   const loadMessages = async () => {
     try {
-      if (otherUserId) {
-        const response = await api.getMessages(otherUserId as string);
-        setMessages(response.messages || []);
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }, 100);
-      }
+      if (!otherUserId) return;
+      const response = await api.getMessages(otherUserId);
+      const list: Message[] = response?.messages || [];
+      setMessages(list);
+
+      // If user opens chat, mark read + snap to bottom once
+      setTimeout(() => scrollToBottom(false), 50);
+      await markRead();
+      setNewMsgCount(0);
     } catch (error) {
-      console.error('Load messages error:', error);
+      if (__DEV__) console.error("Load messages error:", error);
     }
   };
+
+  useEffect(() => {
+    // Initial load
+    loadMessages();
+
+    // Join conversation for sockets
+    if (conversationId && userId) {
+      socketService.joinConversation(conversationId, userId);
+    }
+
+    // Listen for new messages
+    const offNewMessage = socketService.onNewMessage((message: Message) => {
+      setMessages((prev) => {
+        // Deduplicate if server sends duplicates
+        if (prev.some((m) => m.message_id === message.message_id)) return prev;
+        return [...prev, message];
+      });
+
+      // If user is at bottom, auto-scroll. If not, show "new messages" pill.
+      setTimeout(() => {
+        if (isAtBottomRef.current) {
+          scrollToBottom(true);
+          markRead();
+          setNewMsgCount(0);
+        } else {
+          setNewMsgCount((c) => c + 1);
+        }
+      }, 50);
+    });
+
+    // Typing indicator support
+    const offTyping = socketService.onTyping((payload) => {
+      if (!conversationId) return;
+      if (payload.conversationId !== conversationId) return;
+      if (payload.userId === userId) return; // ignore myself
+      setOtherTyping(payload.isTyping);
+    });
+
+    // Mark read on open
+    markRead();
+
+    return () => {
+      // Cleanup listeners
+      offNewMessage?.();
+      offTyping?.();
+      
+      // Leave conversation
+      if (conversationId && userId) {
+        socketService.leaveConversation(conversationId, userId);
+      }
+      
+      // Clear typing timeout
+      if (typingStopTimeout.current) {
+        clearTimeout(typingStopTimeout.current);
+      }
+    };
+  }, [conversationId, userId, otherUserId]);
 
   const handleSend = () => {
     if (!inputText.trim() || !conversationId || !userId) return;
 
-    socketService.sendMessage(
-      conversationId as string,
-      userId as string,
-      inputText
-    );
-    setInputText('');
+    // Stop typing immediately when sending
+    emitTyping(false);
+
+    socketService.sendMessage(conversationId, userId, inputText.trim());
+    setInputText("");
+
+    // Optimistic scroll if at bottom
+    if (isAtBottomRef.current) {
+      setTimeout(() => scrollToBottom(true), 50);
+    }
+  };
+
+  const emitTyping = (isTyping: boolean) => {
+    if (!conversationId || !userId) return;
+    socketService.setTyping(conversationId, userId, isTyping);
+  };
+
+  const onChangeText = (text: string) => {
+    setInputText(text);
+
+    // Fire typing true
+    emitTyping(true);
+
+    // Debounce typing false after 900ms
+    if (typingStopTimeout.current) clearTimeout(typingStopTimeout.current);
+    typingStopTimeout.current = setTimeout(() => {
+      emitTyping(false);
+    }, 900);
+  };
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+
+    const atBottom = distanceFromBottom < NEAR_BOTTOM_PX;
+    if (atBottom !== isAtBottom) setIsAtBottom(atBottom);
+
+    // If user comes back to bottom, clear pill + mark read
+    if (atBottom && newMsgCount > 0) {
+      setNewMsgCount(0);
+      markRead();
+    }
   };
 
   const renderMessage = ({ item }: { item: Message }) => {
@@ -87,10 +206,7 @@ export default function ChatScreen() {
           </Text>
         </View>
         <Text style={styles.timestamp}>
-          {new Date(item.created_at).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
+          {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </Text>
       </View>
     );
@@ -99,23 +215,34 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{otherUserName || 'Chat'}</Text>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>{otherUserName || "Chat"}</Text>
+          {otherTyping && <Text style={styles.typingText}>typing…</Text>}
+        </View>
+
         <View style={{ width: 40 }} />
       </View>
 
       <FlatList
         ref={flatListRef}
-        data={messages}
+        data={sortedMessages}
         renderItem={renderMessage}
         keyExtractor={(item) => item.message_id}
         contentContainerStyle={styles.messagesList}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        onContentSizeChange={() => {
+          // If user is at bottom, keep them at bottom as layout changes
+          if (isAtBottomRef.current) scrollToBottom(false);
+        }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="chatbubble-outline" size={64} color={Colors.textSecondary} />
@@ -124,13 +251,31 @@ export default function ChatScreen() {
         }
       />
 
+      {/* New messages pill */}
+      {newMsgCount > 0 && !isAtBottom && (
+        <TouchableOpacity
+          style={styles.newMsgPill}
+          onPress={() => {
+            scrollToBottom(true);
+            setNewMsgCount(0);
+            markRead();
+          }}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="arrow-down" size={16} color="#fff" />
+          <Text style={styles.newMsgPillText}>
+            {newMsgCount} new message{newMsgCount === 1 ? "" : "s"}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
           placeholder="Type a message..."
           placeholderTextColor={Colors.textSecondary}
           value={inputText}
-          onChangeText={setInputText}
+          onChangeText={onChangeText}
           multiline
         />
         <TouchableOpacity
@@ -138,7 +283,7 @@ export default function ChatScreen() {
           onPress={handleSend}
           disabled={!inputText.trim()}
         >
-          <Ionicons name="send" size={24} color="#fff" />
+          <Ionicons name="send" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -146,80 +291,43 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     padding: 16,
     backgroundColor: Colors.card,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    gap: 12,
   },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  messagesList: {
-    padding: 16,
-  },
-  messageContainer: {
-    marginBottom: 16,
-    maxWidth: '80%',
-  },
-  myMessage: {
-    alignSelf: 'flex-end',
-    alignItems: 'flex-end',
-  },
-  theirMessage: {
-    alignSelf: 'flex-start',
-    alignItems: 'flex-start',
-  },
-  messageBubble: {
-    padding: 12,
-    borderRadius: 16,
-    marginBottom: 4,
-  },
-  myBubble: {
-    backgroundColor: Colors.primary,
-    borderBottomRightRadius: 4,
-  },
-  theirBubble: {
-    backgroundColor: Colors.card,
-    borderBottomLeftRadius: 4,
-  },
-  messageText: {
-    fontSize: 14,
-  },
-  myText: {
-    color: '#fff',
-  },
-  theirText: {
-    color: Colors.text,
-  },
-  timestamp: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 64,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 16,
-  },
+  backButton: { padding: 8 },
+  headerTitle: { fontSize: 18, fontWeight: "600", color: Colors.text },
+  typingText: { marginTop: 2, fontSize: 12, color: Colors.textSecondary },
+
+  messagesList: { padding: 16, paddingBottom: 24 },
+
+  messageContainer: { marginBottom: 16, maxWidth: "80%" },
+  myMessage: { alignSelf: "flex-end", alignItems: "flex-end" },
+  theirMessage: { alignSelf: "flex-start", alignItems: "flex-start" },
+
+  messageBubble: { padding: 12, borderRadius: 16, marginBottom: 4 },
+  myBubble: { backgroundColor: Colors.primary, borderBottomRightRadius: 4 },
+  theirBubble: { backgroundColor: Colors.card, borderBottomLeftRadius: 4 },
+
+  messageText: { fontSize: 14 },
+  myText: { color: "#fff" },
+  theirText: { color: Colors.text },
+
+  timestamp: { fontSize: 10, color: Colors.textSecondary },
+
+  emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 64 },
+  emptyText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
+
   inputContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     padding: 16,
     backgroundColor: Colors.card,
     borderTopWidth: 1,
@@ -234,17 +342,31 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     color: Colors.text,
     fontSize: 14,
-    maxHeight: 100,
+    maxHeight: 110,
   },
   sendButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sendButtonDisabled: {
-    opacity: 0.5,
+  sendButtonDisabled: { opacity: 0.5 },
+
+  newMsgPill: {
+    position: "absolute",
+    bottom: 86,
+    alignSelf: "center",
+    backgroundColor: Colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: `${Colors.primary}AA`,
   },
+  newMsgPillText: { color: "#fff", fontWeight: "700", fontSize: 12 },
 });
