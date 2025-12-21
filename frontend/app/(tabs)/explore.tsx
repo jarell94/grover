@@ -11,13 +11,16 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Colors } from "../../constants/Colors";
 import { api } from "../../services/api";
 
 type ExploreTab = "foryou" | "trending" | "categories";
 
+const PAGE_SIZE = 21; // 3 columns, so multiple of 3
+
 export default function ExploreScreen() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<ExploreTab>("foryou");
   const [posts, setPosts] = useState<any[]>([]);
   const [trendingData, setTrendingData] = useState<any>({
@@ -27,6 +30,9 @@ export default function ExploreScreen() {
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [skip, setSkip] = useState(0);
 
   // Load categories once (cache in state)
   useEffect(() => {
@@ -35,44 +41,119 @@ export default function ExploreScreen() {
         const data = await api.getCategories();
         setCategories(data || []);
       } catch (e) {
-        console.error("Categories error:", e);
+        if (__DEV__) console.error("Categories error:", e);
       }
     })();
   }, []);
 
-  const loadContent = useCallback(async (tab: ExploreTab) => {
+  const loadContent = useCallback(async (tab: ExploreTab, isRefresh = false) => {
     try {
       if (tab === "foryou") {
-        const data = await api.getExplore(20, 0);
-        setPosts(Array.isArray(data) ? data : []);
+        const newSkip = isRefresh ? 0 : skip;
+        const data = await api.getExplore(PAGE_SIZE, newSkip);
+        const newPosts = Array.isArray(data) ? data : [];
+        
+        if (isRefresh) {
+          setPosts(newPosts);
+          setSkip(PAGE_SIZE);
+        } else {
+          setPosts((prev) => [...prev, ...newPosts]);
+          setSkip((prev) => prev + PAGE_SIZE);
+        }
+        
+        // Check if we have more content
+        setHasMore(newPosts.length === PAGE_SIZE);
       } else if (tab === "trending") {
         const data = await api.getTrending();
         setTrendingData(data || { trending_posts: [], rising_creators: [] });
       }
-      // categories tab has no content fetch here
     } catch (error) {
-      console.error("Load content error:", error);
+      if (__DEV__) console.error("Load content error:", error);
+    }
+  }, [skip]);
+
+  // Initial load and tab change
+  const loadInitialContent = useCallback(async (tab: ExploreTab) => {
+    setLoading(true);
+    setPosts([]);
+    setSkip(0);
+    setHasMore(true);
+    
+    try {
+      if (tab === "foryou") {
+        const data = await api.getExplore(PAGE_SIZE, 0);
+        const newPosts = Array.isArray(data) ? data : [];
+        setPosts(newPosts);
+        setSkip(PAGE_SIZE);
+        setHasMore(newPosts.length === PAGE_SIZE);
+      } else if (tab === "trending") {
+        const data = await api.getTrending();
+        setTrendingData(data || { trending_posts: [], rising_creators: [] });
+      }
+    } catch (error) {
+      if (__DEV__) console.error("Load content error:", error);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   // Auto-refresh content when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      loadContent(activeTab);
-    }, [activeTab, loadContent])
+      if (activeTab === "foryou" && posts.length === 0) {
+        loadInitialContent(activeTab);
+      }
+    }, [activeTab])
   );
 
   // Fetch when tab changes
   useEffect(() => {
-    setLoading(true);
-    loadContent(activeTab).finally(() => setLoading(false));
-  }, [activeTab, loadContent]);
+    loadInitialContent(activeTab);
+  }, [activeTab]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadContent(activeTab);
-    setRefreshing(false);
-  }, [activeTab, loadContent]);
+    setPosts([]);
+    setSkip(0);
+    setHasMore(true);
+    
+    try {
+      if (activeTab === "foryou") {
+        const data = await api.getExplore(PAGE_SIZE, 0);
+        const newPosts = Array.isArray(data) ? data : [];
+        setPosts(newPosts);
+        setSkip(PAGE_SIZE);
+        setHasMore(newPosts.length === PAGE_SIZE);
+      } else {
+        await loadContent(activeTab, true);
+      }
+    } catch (error) {
+      if (__DEV__) console.error("Refresh error:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [activeTab]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || activeTab !== "foryou") return;
+    
+    setLoadingMore(true);
+    try {
+      const data = await api.getExplore(PAGE_SIZE, skip);
+      const newPosts = Array.isArray(data) ? data : [];
+      
+      if (newPosts.length > 0) {
+        setPosts((prev) => [...prev, ...newPosts]);
+        setSkip((prev) => prev + PAGE_SIZE);
+      }
+      
+      setHasMore(newPosts.length === PAGE_SIZE);
+    } catch (error) {
+      if (__DEV__) console.error("Load more error:", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, skip, activeTab]);
 
   const handleLike = useCallback(async (postId: string) => {
     // optimistic update (instant UI)
@@ -97,13 +178,13 @@ export default function ExploreScreen() {
                 likes_count:
                   typeof result?.likes_count === "number"
                     ? result.likes_count
-                    : p.likes_count, // fallback if API doesn't return count
+                    : p.likes_count,
               }
             : p
         )
       );
     } catch (error) {
-      console.error("Like error:", error);
+      if (__DEV__) console.error("Like error:", error);
 
       // rollback on failure
       setPosts((prev) =>
@@ -115,6 +196,10 @@ export default function ExploreScreen() {
       );
     }
   }, []);
+
+  const handleOpenPost = useCallback((postId: string) => {
+    router.push(`/post/${postId}`);
+  }, [router]);
 
   const tabs = useMemo(
     () => [
@@ -155,11 +240,20 @@ export default function ExploreScreen() {
 
   const renderPost = ({ item }: { item: any }) => {
     const img = item?.media_type === "image" ? getImageSource(item) : null;
+    const isVideo = item?.media_type === "video";
 
     return (
-      <TouchableOpacity style={styles.gridItem} activeOpacity={0.9}>
+      <TouchableOpacity 
+        style={styles.gridItem} 
+        activeOpacity={0.9}
+        onPress={() => handleOpenPost(item.post_id)}
+      >
         {img ? (
           <Image source={img} style={styles.gridImage} />
+        ) : isVideo ? (
+          <View style={[styles.gridImage, styles.videoThumbnail]}>
+            <Ionicons name="play-circle" size={40} color="#fff" />
+          </View>
         ) : (
           <View style={[styles.gridImage, styles.noImage]}>
             <Text style={styles.noImageText} numberOfLines={3}>
@@ -168,7 +262,19 @@ export default function ExploreScreen() {
           </View>
         )}
 
-        <TouchableOpacity style={styles.likeButton} onPress={() => handleLike(item.post_id)}>
+        {isVideo && (
+          <View style={styles.videoIcon}>
+            <Ionicons name="videocam" size={16} color="#fff" />
+          </View>
+        )}
+
+        <TouchableOpacity 
+          style={styles.likeButton} 
+          onPress={(e) => {
+            e.stopPropagation?.();
+            handleLike(item.post_id);
+          }}
+        >
           <Ionicons
             name={item?.liked ? "heart" : "heart-outline"}
             size={24}
@@ -192,7 +298,7 @@ export default function ExploreScreen() {
         <FlatList
           data={trendingData?.trending_posts || []}
           renderItem={renderPost}
-          keyExtractor={(item) => item.post_id}
+          keyExtractor={(item) => String(item.post_id)}
           numColumns={3}
           scrollEnabled={false}
           contentContainerStyle={styles.grid}
@@ -203,7 +309,7 @@ export default function ExploreScreen() {
         <Text style={styles.sectionTitle}>⭐ Rising Creators</Text>
         <FlatList
           data={trendingData?.rising_creators || []}
-          keyExtractor={(item) => item.user_id}
+          keyExtractor={(item) => String(item.user_id)}
           scrollEnabled={false}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.creatorCard} activeOpacity={0.8}>
@@ -223,7 +329,7 @@ export default function ExploreScreen() {
   const renderCategoriesContent = () => (
     <FlatList
       data={categories}
-      keyExtractor={(item) => item.category_id}
+      keyExtractor={(item) => String(item.category_id)}
       numColumns={2}
       contentContainerStyle={styles.categoriesGrid}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -236,6 +342,16 @@ export default function ExploreScreen() {
       )}
     />
   );
+
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    return (
+      <View style={styles.loadingMore}>
+        <ActivityIndicator size="small" color={Colors.primary} />
+        <Text style={styles.loadingMoreText}>Loading more...</Text>
+      </View>
+    );
+  };
 
   if (loading) {
     return (
@@ -260,10 +376,17 @@ export default function ExploreScreen() {
         <FlatList
           data={posts}
           renderItem={renderPost}
-          keyExtractor={(item) => item.post_id}
+          keyExtractor={(item) => String(item.post_id)}
           numColumns={3}
           contentContainerStyle={styles.grid}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={9}
+          windowSize={5}
+          initialNumToRender={12}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="heart-outline" size={64} color={Colors.textSecondary} />
