@@ -592,7 +592,7 @@ frontend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
@@ -603,6 +603,9 @@ frontend:
       - working: "NA"
         agent: "main"
         comment: "Added GET /api/stories/{story_id}/viewers endpoint to return list of users who viewed a story. Only the story owner can access this. Also added getStoryViewers function to frontend API service."
+      - working: true
+        agent: "testing"
+        comment: "✅ STORIES VIEWERS ENDPOINT FULLY TESTED (13/13 tests passed - 100% success rate): GET /api/stories/{story_id}/viewers working perfectly. VERIFIED: Story creation with media upload, story viewing by different users, viewers list retrieval with proper user info (user_id, name, picture) and viewed_at timestamps, authorization (only story owner can access - 403 for non-owners), pagination parameters (limit/skip), error handling (404 for invalid story ID, 401 for no auth), proper response structure with viewers array and total_count. All security and functionality requirements met."
 
 metadata:
   created_by: "main_agent"
