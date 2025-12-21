@@ -87,9 +87,10 @@ export default function StoreScreen() {
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       quality: 0.8,
+      base64: false, // Don't need base64 since we're using FormData
     });
 
     if (!result.canceled && result.assets[0]) {
