@@ -81,7 +81,7 @@ export default function StoriesScreen() {
       duration: duration,
       useNativeDriver: false,
     }).start(({ finished }) => {
-      if (finished && !paused) {
+      if (finished && !pausedRef.current) {
         handleNext();
       }
     });
