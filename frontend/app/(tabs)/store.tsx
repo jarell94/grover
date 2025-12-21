@@ -231,7 +231,7 @@ export default function StoreScreen() {
       <FlatList
         data={products}
         renderItem={renderProduct}
-        keyExtractor={(item) => item.product_id}
+        keyExtractor={(item) => String(item.product_id)}
         numColumns={2}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.row}
