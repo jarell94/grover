@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,13 +17,25 @@ export default function Index() {
     }
   }, [user, loading]);
 
-  const handleLogin = async () => {
+  const handleGoogleSignUp = async () => {
     try {
       setLoggingIn(true);
-      await login();
+      await login({ mode: 'signup' });
     } catch (error) {
-      console.error('Login failed:', error);
-      alert('Login failed. Please try again.');
+      console.error('Signup failed:', error);
+      Alert.alert('Sign up failed', 'Please try again.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setLoggingIn(true);
+      await login({ mode: 'signin' });
+    } catch (error) {
+      console.error('Signin failed:', error);
+      Alert.alert('Sign in failed', 'Please try again.');
     } finally {
       setLoggingIn(false);
     }
@@ -68,9 +80,9 @@ export default function Index() {
           </View>
 
           <View style={styles.authButtonsContainer}>
-            <TouchableOpacity 
-              style={[styles.loginButton, styles.signUpButton, loggingIn && styles.loginButtonDisabled]} 
-              onPress={handleLogin}
+            <TouchableOpacity
+              style={[styles.loginButton, styles.signUpButton, loggingIn && styles.loginButtonDisabled]}
+              onPress={handleGoogleSignUp}
               disabled={loggingIn}
             >
               {loggingIn ? (
@@ -83,9 +95,9 @@ export default function Index() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.loginButton, loggingIn && styles.loginButtonDisabled]} 
-              onPress={handleLogin}
+            <TouchableOpacity
+              style={[styles.loginButton, loggingIn && styles.loginButtonDisabled]}
+              onPress={handleGoogleSignIn}
               disabled={loggingIn}
             >
               {loggingIn ? (
