@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  SectionList,
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
@@ -13,6 +13,29 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { api } from '../../services/api';
+
+const PAGE_SIZE = 50;
+
+interface Notification {
+  notification_id: string;
+  type: string;
+  content: string;
+  read: boolean;
+  created_at: string;
+  related_id?: string;
+  from_user_id?: string;
+  post_id?: string;
+  comment_id?: string;
+  product_id?: string;
+  order_id?: string;
+}
+
+interface Section {
+  title: string;
+  data: Notification[];
+}
+
+// ==================== Helpers ====================
 
 const timeAgo = (iso: string) => {
   if (!iso) return "";
@@ -26,98 +49,225 @@ const timeAgo = (iso: string) => {
   return `${days}d`;
 };
 
-interface Notification {
-  notification_id: string;
-  type: string;
-  content: string;
-  read: boolean;
-  created_at: string;
-}
+const isToday = (date: Date) => {
+  const today = new Date();
+  return date.toDateString() === today.toDateString();
+};
+
+const isThisWeek = (date: Date) => {
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  return date >= weekAgo && !isToday(date);
+};
+
+const groupNotifications = (notifications: Notification[]): Section[] => {
+  const today: Notification[] = [];
+  const thisWeek: Notification[] = [];
+  const earlier: Notification[] = [];
+
+  for (const n of notifications) {
+    const date = new Date(n.created_at);
+    if (isToday(date)) {
+      today.push(n);
+    } else if (isThisWeek(date)) {
+      thisWeek.push(n);
+    } else {
+      earlier.push(n);
+    }
+  }
+
+  const sections: Section[] = [];
+  if (today.length > 0) sections.push({ title: 'Today', data: today });
+  if (thisWeek.length > 0) sections.push({ title: 'This Week', data: thisWeek });
+  if (earlier.length > 0) sections.push({ title: 'Earlier', data: earlier });
+
+  return sections;
+};
+
+const getNotificationIcon = (type: string) => {
+  switch (type) {
+    case 'like':
+    case 'comment_like':
+      return { name: 'heart', color: '#EF4444' };
+    case 'follow':
+      return { name: 'person-add', color: '#8B5CF6' };
+    case 'comment':
+    case 'reply':
+      return { name: 'chatbubble', color: '#3B82F6' };
+    case 'message':
+      return { name: 'mail', color: '#EC4899' };
+    case 'sale':
+    case 'purchase':
+      return { name: 'cash', color: '#10B981' };
+    case 'mention':
+    case 'tag':
+      return { name: 'at', color: '#F59E0B' };
+    case 'repost':
+    case 'share':
+      return { name: 'repeat', color: '#8B5CF6' };
+    case 'order':
+      return { name: 'bag-check', color: '#10B981' };
+    case 'stream':
+    case 'live':
+      return { name: 'videocam', color: '#EF4444' };
+    default:
+      return { name: 'notifications', color: '#FBBF24' };
+  }
+};
+
+// ==================== Routing Map ====================
+
+const routeNotification = (n: Notification) => {
+  // Route based on notification type and available IDs
+  switch (n.type) {
+    case 'like':
+    case 'comment':
+    case 'reply':
+    case 'mention':
+    case 'tag':
+    case 'repost':
+    case 'share':
+      // These are post-related
+      if (n.related_id || n.post_id) {
+        return router.push(`/post/${n.related_id || n.post_id}`);
+      }
+      break;
+
+    case 'comment_like':
+      // Could go to post with comment highlighted
+      if (n.related_id || n.post_id) {
+        return router.push(`/post/${n.related_id || n.post_id}`);
+      }
+      break;
+
+    case 'follow':
+      // Go to the follower's profile or own profile
+      if (n.from_user_id) {
+        return router.push(`/user/${n.from_user_id}`);
+      }
+      return router.push('/(tabs)/profile');
+
+    case 'message':
+      // Go to messages tab
+      return router.push('/(tabs)/messages');
+
+    case 'sale':
+    case 'purchase':
+    case 'order':
+      // Go to store or order details
+      if (n.order_id) {
+        return router.push(`/order/${n.order_id}`);
+      }
+      return router.push('/(tabs)/store');
+
+    case 'stream':
+    case 'live':
+      // Go to live stream
+      if (n.related_id) {
+        return router.push(`/live-stream/${n.related_id}`);
+      }
+      break;
+
+    default:
+      // Fallback: if there's a related_id, try to open as post
+      if (n.related_id) {
+        return router.push(`/post/${n.related_id}`);
+      }
+  }
+};
+
+// ==================== Component ====================
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  
+  const skipRef = useRef(0);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadNotifications();
-    }, [])
-  );
-
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async (isRefresh = false) => {
+    const skip = isRefresh ? 0 : skipRef.current;
+    
     try {
-      const data = await api.getNotifications();
-      setNotifications(data);
+      const response = await api.getNotifications(PAGE_SIZE, skip, unreadOnly);
+      const newNotifications = response?.notifications || [];
+      
+      if (isRefresh) {
+        setNotifications(newNotifications);
+        skipRef.current = PAGE_SIZE;
+      } else {
+        setNotifications((prev) => [...prev, ...newNotifications]);
+        skipRef.current += PAGE_SIZE;
+      }
+      
+      setHasMore(response?.has_more ?? newNotifications.length === PAGE_SIZE);
     } catch (error) {
-      console.error('Load notifications error:', error);
+      if (__DEV__) console.error('Load notifications error:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
-  };
+  }, [unreadOnly]);
 
-  const handleRefresh = () => {
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      skipRef.current = 0;
+      loadNotifications(true);
+    }, [unreadOnly])
+  );
+
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    loadNotifications();
-  };
+    skipRef.current = 0;
+    loadNotifications(true);
+  }, [loadNotifications]);
 
-  const handleMarkAllRead = async () => {
+  const handleLoadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    loadNotifications(false);
+  }, [loadingMore, hasMore, loadNotifications]);
+
+  const handleMarkAllRead = useCallback(async () => {
     try {
       await api.markNotificationsRead();
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     } catch (error) {
-      console.error("Mark all read error:", error);
+      if (__DEV__) console.error("Mark all read error:", error);
     }
-  };
+  }, []);
 
-  const handleOpenNotification = async (n: Notification) => {
+  const handleOpenNotification = useCallback(async (n: Notification) => {
     // Optimistic mark read
-    setNotifications(prev =>
-      prev.map(x => (x.notification_id === n.notification_id ? { ...x, read: true } : x))
+    setNotifications((prev) =>
+      prev.map((x) => (x.notification_id === n.notification_id ? { ...x, read: true } : x))
     );
 
-    // Tell backend this one is read (silently fail if method doesn't exist)
+    // Tell backend this one is read
     try {
-      if (api.markNotificationRead) {
-        await api.markNotificationRead(n.notification_id);
-      }
+      await api.markNotificationRead(n.notification_id);
     } catch (e) {
       // Ignore errors
     }
 
-    // Route by type
-    if (n.type === "message") return router.push("/(tabs)/messages");
-    if (n.type === "follow") return router.push("/(tabs)/profile");
-    // Add more routes as needed:
-    // if (n.post_id) return router.push({ pathname: "/post/[id]", params: { id: n.post_id } });
-  };
+    // Route to appropriate screen
+    routeNotification(n);
+  }, []);
 
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'like':
-        return { name: 'heart', color: '#EF4444' };
-      case 'follow':
-        return { name: 'person-add', color: '#8B5CF6' };
-      case 'comment':
-      case 'reply':
-        return { name: 'chatbubble', color: '#3B82F6' };
-      case 'message':
-        return { name: 'mail', color: '#EC4899' };
-      case 'sale':
-      case 'purchase':
-        return { name: 'cash', color: '#10B981' };
-      case 'mention':
-      case 'tag':
-        return { name: 'at', color: '#F59E0B' };
-      case 'repost':
-      case 'share':
-        return { name: 'repeat', color: '#8B5CF6' };
-      default:
-        return { name: 'notifications', color: '#FBBF24' };
-    }
-  };
+  const handleToggleFilter = useCallback(() => {
+    setUnreadOnly((prev) => !prev);
+    setLoading(true);
+    skipRef.current = 0;
+  }, []);
+
+  const sections = useMemo(() => groupNotifications(notifications), [notifications]);
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
   const renderNotification = ({ item }: { item: Notification }) => {
     const icon = getNotificationIcon(item.type);
@@ -140,10 +290,31 @@ export default function NotificationsScreen() {
     );
   };
 
+  const renderSectionHeader = ({ section }: { section: Section }) => (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{section.title}</Text>
+    </View>
+  );
+
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    return (
+      <View style={styles.loadingMore}>
+        <ActivityIndicator size="small" color={Colors.primary} />
+        <Text style={styles.loadingMoreText}>Loading more...</Text>
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
+          <Text style={styles.headerTitle}>Notifications</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
       </View>
     );
   }
@@ -153,13 +324,13 @@ export default function NotificationsScreen() {
       <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <Text style={styles.headerTitle}>Notifications</Text>
         <View style={styles.headerActions}>
-          {notifications.some(n => !n.read) && (
+          {unreadCount > 0 && (
             <TouchableOpacity style={styles.markAllButton} onPress={handleMarkAllRead}>
               <Text style={styles.markAllText}>Mark all read</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity 
-            style={styles.settingsButton} 
+          <TouchableOpacity
+            style={styles.settingsButton}
             onPress={() => router.push('/notification-settings')}
           >
             <Ionicons name="settings-outline" size={22} color={Colors.text} />
@@ -167,11 +338,33 @@ export default function NotificationsScreen() {
         </View>
       </View>
 
-      <FlatList
-        data={notifications}
+      {/* Filter Chips */}
+      <View style={styles.filterContainer}>
+        <TouchableOpacity
+          style={[styles.filterChip, !unreadOnly && styles.filterChipActive]}
+          onPress={() => unreadOnly && handleToggleFilter()}
+        >
+          <Text style={[styles.filterChipText, !unreadOnly && styles.filterChipTextActive]}>
+            All
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.filterChip, unreadOnly && styles.filterChipActive]}
+          onPress={() => !unreadOnly && handleToggleFilter()}
+        >
+          <Text style={[styles.filterChipText, unreadOnly && styles.filterChipTextActive]}>
+            Unread {unreadCount > 0 && `(${unreadCount})`}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <SectionList
+        sections={sections}
         renderItem={renderNotification}
+        renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.notification_id}
         contentContainerStyle={styles.list}
+        stickySectionHeadersEnabled={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -179,11 +372,20 @@ export default function NotificationsScreen() {
             tintColor={Colors.primary}
           />
         }
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={renderFooter}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="notifications-outline" size={64} color={Colors.textSecondary} />
-            <Text style={styles.emptyText}>No notifications yet</Text>
-            <Text style={styles.emptySubtext}>We'll notify you when something happens</Text>
+            <Text style={styles.emptyText}>
+              {unreadOnly ? 'No unread notifications' : 'No notifications yet'}
+            </Text>
+            <Text style={styles.emptySubtext}>
+              {unreadOnly
+                ? 'You're all caught up!'
+                : "We'll notify you when something happens"}
+            </Text>
           </View>
         }
       />
@@ -234,8 +436,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.surface,
   },
+  filterContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+    backgroundColor: Colors.background,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  filterChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.textSecondary,
+  },
+  filterChipTextActive: {
+    color: '#fff',
+  },
   list: {
     padding: 16,
+    paddingTop: 8,
+  },
+  sectionHeader: {
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   notificationCard: {
     flexDirection: 'row',
@@ -277,6 +518,22 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: Colors.primary,
     marginLeft: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingMore: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  loadingMoreText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
   },
   emptyContainer: {
     alignItems: 'center',
