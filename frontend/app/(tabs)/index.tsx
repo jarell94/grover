@@ -860,6 +860,8 @@ export default function HomeScreen() {
         }
         onEndReached={loadMore}
         onEndReachedThreshold={0.3}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
         removeClippedSubviews={true}
         maxToRenderPerBatch={5}
         windowSize={5}
