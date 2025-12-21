@@ -275,14 +275,23 @@ export const api = {
   getPollResults: (postId: string) => apiRequest(`/posts/${postId}/poll-results`),
 
   // Live Streaming
-  startStream: (formData: FormData) => apiRequest('/streams/start', { method: 'POST', body: formData }),
+  startStream: (formData: FormData) => apiFormRequest('/streams/start', formData),
   endStream: (streamId: string) => apiRequest(`/streams/${streamId}/end`, { method: 'POST' }),
   getLiveStreams: () => apiRequest('/streams/live'),
   getStream: (streamId: string) => apiRequest(`/streams/${streamId}`),
+  getAgoraConfig: () => apiRequest('/streams/agora-config'),
+  getStreamToken: (channelName: string, role: string = 'subscriber') => {
+    const formData = new FormData();
+    formData.append('channel_name', channelName);
+    formData.append('role', role);
+    return apiFormRequest('/streams/token', formData);
+  },
   sendSuperChat: (streamId: string, amount: number, message: string) => apiRequest(`/streams/${streamId}/super-chat`, {
     method: 'POST',
     body: JSON.stringify({ amount, message }),
   }),
+  joinStream: (streamId: string) => apiRequest(`/streams/${streamId}/join`, { method: 'POST' }),
+  leaveStream: (streamId: string) => apiRequest(`/streams/${streamId}/leave`, { method: 'POST' }),
 
   // Discovery & For You
   getForYouFeed: () => apiRequest('/discover/for-you'),
