@@ -875,18 +875,26 @@ async def create_post(
     
     media_url = None
     media_type = None
+    thumbnail_url = None
+    media_public_id = None
     
     if media:
         # Security: Validate file upload
         file_content = await validate_file_upload(media, ALLOWED_MEDIA_TYPES, MAX_FILE_SIZE)
-        media_url = base64.b64encode(file_content).decode('utf-8')
         
-        if media.content_type.startswith('image'):
-            media_type = 'image'
-        elif media.content_type.startswith('video'):
-            media_type = 'video'
-        elif media.content_type.startswith('audio'):
-            media_type = 'audio'
+        # Upload to Cloudinary (or base64 fallback)
+        upload_result = await upload_media(
+            file_data=file_content,
+            filename=media.filename or "upload",
+            content_type=media.content_type or "application/octet-stream",
+            folder="grover/posts",
+            generate_thumbnail=True
+        )
+        
+        media_url = upload_result["url"]
+        media_type = upload_result["media_type"]
+        thumbnail_url = upload_result.get("thumbnail")
+        media_public_id = upload_result.get("public_id")
     
     # Parse tagged users (comma-separated user_ids)
     tagged_user_list = []
@@ -910,6 +918,8 @@ async def create_post(
         "content": content,
         "media_url": media_url,
         "media_type": media_type,
+        "thumbnail_url": thumbnail_url,
+        "media_public_id": media_public_id,
         "likes_count": 0,
         "dislikes_count": 0,
         "shares_count": 0,
