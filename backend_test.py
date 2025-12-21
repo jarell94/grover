@@ -192,11 +192,12 @@ class GroverAPITester:
             # Test POST /api/streams/{id}/super-chat
             try:
                 url = f"{BASE_URL}/streams/{stream_id}/super-chat"
-                data = {
+                # Use query parameters instead of JSON body
+                params = {
                     "message": "Test super chat message!",
                     "amount": 5.00
                 }
-                async with self.session.post(url, json=data, headers=self.get_headers()) as response:
+                async with self.session.post(url, params=params, headers=self.get_headers()) as response:
                     if response.status == 200:
                         self.log_test("Super Chat", True, "Super chat sent successfully")
                     else:
