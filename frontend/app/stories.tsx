@@ -61,6 +61,14 @@ export default function StoriesScreen() {
     }
   }, [storiesParam]);
 
+  // Sync currentUserStories when currentStoryIndex changes
+  useEffect(() => {
+    if (allStories[currentStoryIndex]?.stories) {
+      setCurrentUserStories(allStories[currentStoryIndex].stories);
+      setCurrentMediaIndex(0);
+    }
+  }, [currentStoryIndex, allStories]);
+
   useEffect(() => {
     if (currentUserStories.length > 0) {
       const story = currentUserStories[currentMediaIndex];
