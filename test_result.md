@@ -549,7 +549,13 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Security Fixes - Input Validation & File Upload Security"
+    - "Cloudinary Media Upload Integration"
+    - "Agora Live Streaming Backend"
+    - "Posts Edit and Delete Endpoints"
+    - "Products Edit Endpoint"
+    - "User-specific Content Endpoints"
+    - "Notification Settings Endpoints"
+    - "Stories Endpoints"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -565,3 +571,5 @@ agent_communication:
     message: "Phase 3 - Security Fixes: Implemented comprehensive security hardening. Added: 1) validate_id() - validates ID format to prevent NoSQL injection, 2) sanitize_string() - removes script tags, limits length, strips dangerous patterns, 3) validate_file_upload() - enforces 10MB limit, validates content types. Applied to: post creation, profile updates, product creation, comments, voice/video messages. Also added pagination limits (1-100 max) to prevent DoS attacks. CORS now configurable via ALLOWED_ORIGINS env var. Please test the security endpoints to verify file upload limits, input sanitization, and pagination limits work correctly."
   - agent: "testing"
     message: "✅ SECURITY TESTING COMPLETE: All critical security measures are working properly. Tested: Session ID validation (>500 chars rejected), Authentication enforcement (all endpoints return 401 without auth), File upload security (invalid content types rejected), Input validation (malicious IDs handled), Pagination limits (enforced server-side). Minor issues: Empty session_id returns 422 instead of 400 (acceptable), CORS configured as wildcard for development (should be restricted in production). The security fixes successfully protect against NoSQL injection, XSS, file upload attacks, and DoS via pagination. Ready for production with proper CORS configuration."
+  - agent: "main"
+    message: "Phase 4 - New Features Added: 1) Cloudinary integration for media uploads (media_service.py), 2) Agora live streaming backend (token generation, stream CRUD), 3) Posts/Products edit endpoints, 4) User-specific content endpoints (/posts/me, /products/me), 5) Notification settings endpoints, 6) Stories system. Agora credentials configured. Please run comprehensive backend scan to test all new endpoints."
