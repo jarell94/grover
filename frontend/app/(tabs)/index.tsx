@@ -190,14 +190,16 @@ export default function HomeScreen() {
         onPress: async () => {
           try {
             await api.deleteComment(commentId);
-            setComments(comments.filter(c => c.comment_id !== commentId));
+            setComments((prev) => prev.filter(c => c.comment_id !== commentId));
             
-            // Update comment count
-            setPosts(posts.map(p =>
-              p.post_id === selectedPost!.post_id
-                ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) }
-                : p
-            ));
+            // Update comment count with functional update
+            if (selectedPost) {
+              setPosts((prev) => prev.map(p =>
+                p.post_id === selectedPost.post_id
+                  ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) }
+                  : p
+              ));
+            }
           } catch (error) {
             Alert.alert('Error', 'Failed to delete comment');
           }
