@@ -432,38 +432,26 @@ export default function HomeScreen() {
 
         if (!result.canceled && result.assets[0]) {
           const asset = result.assets[0];
-          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          
           setSelectedMedia({
-            ...asset,
-            base64,
+            uri: asset.uri,
             type: 'audio',
+            name: asset.name,
+            mimeType: asset.mimeType,
           });
         }
       } else {
-        // Pick images or videos using the new utility
+        // Pick images or videos using the utility - NO base64!
         const mediaType = type === 'image' ? 'Images' : type === 'video' ? 'Videos' : 'All';
         const result = await pickMediaUtil({
           mediaTypes: mediaType,
           allowsEditing: type === 'image',
           quality: 0.8,
-          base64: true,
+          base64: false, // Don't request base64 - use file URI
         });
 
         if (result) {
-          // Convert to base64 if not already
-          let base64 = result.base64;
-          if (!base64) {
-            base64 = await FileSystem.readAsStringAsync(result.uri, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-          }
-          
           setSelectedMedia({
             uri: result.uri,
-            base64,
             type: result.type || type,
             width: result.width,
             height: result.height,
@@ -471,7 +459,7 @@ export default function HomeScreen() {
         }
       }
     } catch (error) {
-      console.error('Media picker error:', error);
+      if (__DEV__) console.error('Media picker error:', error);
       Alert.alert('Error', 'Failed to pick media. Please try again.');
     }
   };
