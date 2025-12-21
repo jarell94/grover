@@ -21,78 +21,46 @@ BASE_URL = "https://creator-hub-320.preview.emergentagent.com/api"
 TEST_USER_EMAIL = "testuser@grover.com"
 TEST_USER_NAME = "Test User"
 
-class GroverAPITester:
+class TestResults:
     def __init__(self):
-        self.session = None
-        self.auth_token = None
-        self.user_id = None
-        self.test_results = []
-        
-    async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
-        return self
-        
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
+        self.passed = 0
+        self.failed = 0
+        self.results = []
     
-    def log_test(self, test_name: str, success: bool, details: str = ""):
-        """Log test result"""
-        status = "✅ PASS" if success else "❌ FAIL"
-        self.test_results.append({
-            "test": test_name,
-            "success": success,
-            "details": details,
-            "timestamp": datetime.now().isoformat()
-        })
-        print(f"{status}: {test_name}")
+    def add_result(self, test_name, passed, message="", details=None):
+        status = "✅ PASS" if passed else "❌ FAIL"
+        result = f"{status}: {test_name}"
+        if message:
+            result += f" - {message}"
         if details:
-            print(f"   Details: {details}")
+            result += f"\n   Details: {details}"
+        
+        self.results.append(result)
+        if passed:
+            self.passed += 1
+        else:
+            self.failed += 1
+        print(result)
     
-    async def authenticate(self) -> bool:
-        """Use existing session from database for testing"""
-        try:
-            import subprocess
-            import json
-            
-            # Get an existing session from the database
-            result = subprocess.run(
-                'mongosh test_database --eval "db.user_sessions.findOne()" --quiet',
-                shell=True, capture_output=True, text=True
-            )
-            
-            if result.returncode == 0 and result.stdout.strip():
-                # Parse the session data
-                session_data = result.stdout.strip()
-                # Extract session_token and user_id using simple string parsing
-                if 'session_token:' in session_data and 'user_id:' in session_data:
-                    lines = session_data.split('\n')
-                    for line in lines:
-                        if 'session_token:' in line:
-                            self.auth_token = line.split("'")[1]
-                        elif 'user_id:' in line:
-                            self.user_id = line.split("'")[1]
-                    
-                    if self.auth_token and self.user_id:
-                        self.log_test("Authentication Setup", True, f"Using existing session for user: {self.user_id}")
-                        return True
-            
-            # Fallback: use hardcoded values from the database
-            self.auth_token = "zhR2T4ZXwavcIx9KiHXW_T2qeHaIqkVt-6Q3ZstMWSc"
-            self.user_id = "user_7e16d95525b7"
-            self.log_test("Authentication Setup", True, f"Using hardcoded session for user: {self.user_id}")
-            return True
-            
-        except Exception as e:
-            self.log_test("Authentication Setup", False, f"Exception: {str(e)}")
-            return False
-    
-    def get_headers(self) -> Dict[str, str]:
-        """Get headers with authentication"""
-        headers = {"Content-Type": "application/json"}
-        if self.auth_token:
-            headers["Authorization"] = f"Bearer {self.auth_token}"
-        return headers
+    def summary(self):
+        total = self.passed + self.failed
+        print(f"\n{'='*60}")
+        print(f"STORIES VIEWERS ENDPOINT TEST SUMMARY")
+        print(f"{'='*60}")
+        print(f"Total Tests: {total}")
+        print(f"Passed: {self.passed}")
+        print(f"Failed: {self.failed}")
+        print(f"Success Rate: {(self.passed/total*100):.1f}%" if total > 0 else "No tests run")
+        print(f"{'='*60}")
+        return self.failed == 0
+
+def create_test_image():
+    """Create a simple test image"""
+    img = Image.new('RGB', (100, 100), color='red')
+    img_bytes = BytesIO()
+    img.save(img_bytes, format='JPEG')
+    img_bytes.seek(0)
+    return img_bytes.getvalue()
     
     async def test_media_status(self):
         """Test GET /api/media/status endpoint"""
