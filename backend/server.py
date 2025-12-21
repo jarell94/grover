@@ -3378,6 +3378,50 @@ async def view_story(story_id: str, current_user: User = Depends(require_auth)):
     
     return {"message": "View recorded", "views_count": story.get("views_count", 0) + 1}
 
+@api_router.get("/stories/{story_id}/viewers")
+async def get_story_viewers(
+    story_id: str,
+    limit: int = 50,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get list of users who viewed a story (only visible to story owner)"""
+    validate_id(story_id, "story_id")
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Only the story owner can see viewers
+    if story["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Only the story owner can view this")
+    
+    # Get viewers
+    views = await db.story_views.find(
+        {"story_id": story_id},
+        {"_id": 0}
+    ).sort("viewed_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with user data
+    viewers = []
+    for view in views:
+        user = await db.users.find_one(
+            {"user_id": view["user_id"]},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+        )
+        if user:
+            viewers.append({
+                "user": user,
+                "viewed_at": view["viewed_at"]
+            })
+    
+    return {
+        "viewers": viewers,
+        "total_count": story.get("views_count", 0)
+    }
+
 @api_router.post("/stories/{story_id}/react")
 async def react_to_story(
     story_id: str,
