@@ -16,10 +16,12 @@ interface User {
   is_private: boolean;
 }
 
+type LoginArgs = { mode: 'signin' | 'signup' };
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: () => Promise<void>;
+  login: (args?: LoginArgs) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
