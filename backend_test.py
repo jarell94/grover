@@ -451,21 +451,21 @@ class GroverAPITester:
         except Exception as e:
             self.log_test("Get Stories", False, f"Exception: {str(e)}")
         
-        # Test GET /api/stories/me (get own stories)
+        # Test GET /api/users/{user_id}/highlights (get user's highlighted stories)
         try:
-            url = f"{BASE_URL}/stories/me"
+            url = f"{BASE_URL}/users/{self.user_id}/highlights"
             async with self.session.get(url, headers=self.get_headers()) as response:
                 if response.status == 200:
                     result = await response.json()
                     if isinstance(result, list):
-                        self.log_test("Get My Stories", True, f"Found {len(result)} own stories")
+                        self.log_test("Get User Highlights", True, f"Found {len(result)} highlighted stories")
                     else:
-                        self.log_test("Get My Stories", False, "Response is not a list")
+                        self.log_test("Get User Highlights", False, "Response is not a list")
                 else:
                     error_text = await response.text()
-                    self.log_test("Get My Stories", False, f"Status: {response.status}, Error: {error_text}")
+                    self.log_test("Get User Highlights", False, f"Status: {response.status}, Error: {error_text}")
         except Exception as e:
-            self.log_test("Get My Stories", False, f"Exception: {str(e)}")
+            self.log_test("Get User Highlights", False, f"Exception: {str(e)}")
         
         # Test POST /api/stories/{id}/view (mark story as viewed)
         if story_id:
