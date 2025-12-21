@@ -303,6 +303,23 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
           ) : null
         }
       />
+
+      {/* Full-screen Media Viewer */}
+      <MediaViewer
+        visible={viewerVisible}
+        media={mediaItems}
+        initialIndex={viewerIndex}
+        onClose={() => setViewerVisible(false)}
+        onLike={(id) => {
+          // Navigate to post for interactions
+          router.push({ pathname: "/post/[id]", params: { id } });
+          setViewerVisible(false);
+        }}
+        onComment={(id) => {
+          router.push({ pathname: "/post/[id]", params: { id } });
+          setViewerVisible(false);
+        }}
+      />
     </View>
   );
 }
