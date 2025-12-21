@@ -1,17 +1,54 @@
-import React from "react";
-import { Tabs } from "expo-router";
+import React, { useEffect, useState, useCallback } from "react";
+import { Tabs, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Pressable } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../constants/Colors";
-
-// Example: swap these with real state (Redux/Zustand/React Query)
-const unreadMessages = 3;
-const unreadNotifications = 12;
+import { useAuth } from "../../contexts/AuthContext";
+import { api } from "../../services/api";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  const fetchUnreadCounts = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      // Fetch unread notifications count
+      const notifications = await api.getNotifications();
+      const unreadNotifCount = notifications?.filter?.((n: any) => !n.read)?.length || 0;
+      setUnreadNotifications(unreadNotifCount);
+
+      // Fetch unread messages count
+      const conversations = await api.getConversations();
+      const unreadMsgCount = conversations?.reduce?.((acc: number, conv: any) => {
+        return acc + (conv.unread_count || 0);
+      }, 0) || 0;
+      setUnreadMessages(unreadMsgCount);
+    } catch (error) {
+      // Silently fail - don't show error for badge counts
+      if (__DEV__) {
+        console.log('Failed to fetch unread counts:', error);
+      }
+    }
+  }, [user]);
+
+  // Fetch counts when layout mounts and user changes
+  useEffect(() => {
+    fetchUnreadCounts();
+  }, [fetchUnreadCounts]);
+
+  // Refresh counts every 30 seconds
+  useEffect(() => {
+    if (!user) return;
+    
+    const interval = setInterval(fetchUnreadCounts, 30000);
+    return () => clearInterval(interval);
+  }, [user, fetchUnreadCounts]);
 
   return (
     <Tabs
