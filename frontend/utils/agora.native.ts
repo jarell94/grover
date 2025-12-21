@@ -1,24 +1,14 @@
-// Agora module loader for native platforms only
-// This file is only imported on iOS/Android
+// Agora module for native platforms (iOS/Android)
+// This file is automatically selected by Metro bundler on native platforms
 
-import { Platform } from 'react-native';
+// Direct re-export from react-native-agora for native platforms
+// This allows full Agora functionality on iOS/Android
+export {
+  createAgoraRtcEngine,
+  RtcSurfaceView,
+  ChannelProfileType,
+  ClientRoleType,
+} from 'react-native-agora';
 
-export let createAgoraRtcEngine: any = null;
-export let RtcSurfaceView: any = null;
-export let ChannelProfileType: any = null;
-export let ClientRoleType: any = null;
-export let AGORA_AVAILABLE = false;
-
-// This module should only be imported on native
-if (Platform.OS !== 'web') {
-  try {
-    const AgoraModule = require('react-native-agora');
-    createAgoraRtcEngine = AgoraModule.createAgoraRtcEngine;
-    RtcSurfaceView = AgoraModule.RtcSurfaceView;
-    ChannelProfileType = AgoraModule.ChannelProfileType;
-    ClientRoleType = AgoraModule.ClientRoleType;
-    AGORA_AVAILABLE = true;
-  } catch (e) {
-    console.log('Agora SDK not available');
-  }
-}
+// Flag to indicate Agora is available on native
+export const AGORA_AVAILABLE = true;
