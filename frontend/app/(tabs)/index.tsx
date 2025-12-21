@@ -817,13 +817,18 @@ export default function HomeScreen() {
       <FlatList
         data={posts}
         renderItem={renderPost}
-        keyExtractor={(item) => item.post_id}
+        keyExtractor={(item) => String(item.post_id)}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.primary} />
         }
         onEndReached={loadMore}
         onEndReachedThreshold={0.3}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={5}
+        windowSize={5}
+        initialNumToRender={5}
+        updateCellsBatchingPeriod={50}
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.loadingMore}>
