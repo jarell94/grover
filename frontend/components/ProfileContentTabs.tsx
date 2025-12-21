@@ -204,9 +204,9 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
         ? `data:image/jpeg;base64,${item.media_url}`
         : undefined;
 
-    // For photos/videos tabs, open media viewer; for posts/audio, open post detail
+    // For photos/videos/audio tabs, open media viewer; for posts, open post detail
     const handlePress = () => {
-      if ((active === "photos" || active === "videos") && item.media_url) {
+      if ((active === "photos" || active === "videos" || active === "audio") && item.media_url) {
         openMediaViewer(index);
       } else {
         openPost(item);
