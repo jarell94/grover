@@ -187,8 +187,6 @@ async def test_stories_viewers_endpoint():
             # Step 3: View the story with the viewer user
             print("\n👀 Step 3: Viewing story with different user...")
             
-            viewer = test_users[1]
-            
             response = await client.post(
                 f"{BASE_URL}/stories/{story_id}/view",
                 headers={"Authorization": f"Bearer {viewer['token']}"}
@@ -215,12 +213,15 @@ async def test_stories_viewers_endpoint():
                 if "viewers" in viewers_response and "total_count" in viewers_response:
                     results.add_result("Get viewers - Response structure", True, "Contains viewers and total_count")
                     
-                    viewers = viewers_response["viewers"]
+                    viewers_list = viewers_response["viewers"]
                     total_count = viewers_response["total_count"]
+                    
+                    # Debug: Print the actual response
+                    print(f"   DEBUG: Viewers response: {viewers_response}")
                     
                     # Check if viewer is in the list
                     viewer_found = False
-                    for viewer_data in viewers:
+                    for viewer_data in viewers_list:
                         if "user" in viewer_data and "viewed_at" in viewer_data:
                             user_info = viewer_data["user"]
                             if user_info.get("user_id") == viewer["user_id"]:
@@ -242,10 +243,10 @@ async def test_stories_viewers_endpoint():
                     if viewer_found:
                         results.add_result("Viewer in viewers list", True, f"Found viewer {viewer['user_id']}")
                     else:
-                        results.add_result("Viewer in viewers list", False, "Viewer not found in list")
+                        results.add_result("Viewer in viewers list", False, f"Viewer {viewer['user_id']} not found in list")
                     
-                    results.add_result("Total count accuracy", total_count >= len(viewers), 
-                                     f"Total: {total_count}, List length: {len(viewers)}")
+                    results.add_result("Total count accuracy", total_count >= len(viewers_list), 
+                                     f"Total: {total_count}, List length: {len(viewers_list)}")
                     
                 else:
                     results.add_result("Get viewers - Response structure", False, 
@@ -313,10 +314,9 @@ async def test_stories_viewers_endpoint():
         
         finally:
             # Cleanup: Delete the test story if created
-            if story_id and test_users:
+            if story_id:
                 try:
                     print("\n🧹 Cleanup: Deleting test story...")
-                    owner = test_users[0]
                     await client.delete(
                         f"{BASE_URL}/stories/{story_id}",
                         headers={"Authorization": f"Bearer {owner['token']}"}
@@ -324,6 +324,22 @@ async def test_stories_viewers_endpoint():
                     print("✅ Test story deleted")
                 except Exception as e:
                     print(f"⚠️ Cleanup failed: {e}")
+            
+            # Cleanup: Delete the test viewer user if created
+            if viewer:
+                try:
+                    print("🧹 Cleanup: Deleting test viewer user...")
+                    import subprocess
+                    cleanup_cmd = f"""
+                    mongosh test_database --eval "
+                    db.users.deleteOne({{user_id: '{viewer['user_id']}'}});
+                    db.user_sessions.deleteOne({{user_id: '{viewer['user_id']}'}});
+                    " --quiet
+                    """
+                    subprocess.run(cleanup_cmd, shell=True, capture_output=True)
+                    print("✅ Test viewer user deleted")
+                except Exception as e:
+                    print(f"⚠️ Viewer cleanup failed: {e}")
     
     return results.summary()
 
