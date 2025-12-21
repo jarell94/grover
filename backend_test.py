@@ -155,7 +155,7 @@ class GroverAPITester:
             data = aiohttp.FormData()
             data.add_field('title', 'Test Live Stream')
             data.add_field('description', 'Testing stream creation')
-            data.add_field('enable_super_chat', 'false')
+            data.add_field('enable_super_chat', 'true')  # Enable super chat for testing
             
             async with self.session.post(url, data=data, headers={"Authorization": f"Bearer {self.auth_token}"}) as response:
                 if response.status == 200:
