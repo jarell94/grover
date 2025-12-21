@@ -147,6 +147,28 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
     router.push({ pathname: "/post/[id]", params: { id: post.post_id } });
   };
 
+  // Open media viewer for photos/videos tabs
+  const openMediaViewer = (index: number) => {
+    setViewerIndex(index);
+    setViewerVisible(true);
+  };
+
+  // Convert items to MediaViewer format
+  const mediaItems = useMemo(() => {
+    if (active !== "photos" && active !== "videos") return [];
+    
+    return items
+      .filter((item) => item.media_url)
+      .map((item) => ({
+        id: item.post_id,
+        uri: item.media_url!,
+        type: (active === "videos" ? "video" : "image") as "image" | "video",
+        caption: item.content,
+        likes_count: item.likes_count,
+        comments_count: item.comments_count,
+      }));
+  }, [items, active]);
+
   const renderTabBar = () => (
     <View style={styles.tabBar}>
       {tabs.map((t) => {
