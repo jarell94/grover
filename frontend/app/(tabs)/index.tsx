@@ -357,13 +357,13 @@ export default function HomeScreen() {
     if (!selectedRepostPost) return;
 
     try {
-      const result = await api.repostPost(
+      await api.repostPost(
         selectedRepostPost.post_id,
         repostComment.trim() || undefined
       );
       
-      // Update repost count in local state
-      setPosts(posts.map(p =>
+      // Update repost count with functional update
+      setPosts((prev) => prev.map(p =>
         p.post_id === selectedRepostPost.post_id
           ? { ...p, repost_count: (p.repost_count || 0) + 1, reposted: true }
           : p
@@ -373,9 +373,9 @@ export default function HomeScreen() {
       setRepostModalVisible(false);
       setSelectedRepostPost(null);
       Alert.alert('Success', 'Post reposted to your feed!');
-      loadFeed(); // Refresh to show the repost
+      loadFeed(true); // Refresh to show the repost
     } catch (error: any) {
-      console.error('Repost error:', error);
+      if (__DEV__) console.error('Repost error:', error);
       const message = error.message?.includes('already reposted')
         ? 'You have already reposted this'
         : 'Failed to repost';
