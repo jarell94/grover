@@ -321,6 +321,7 @@ export const api = {
   createStory: (formData: FormData) => apiRequest('/stories', { method: 'POST', body: formData }),
   getStories: () => apiRequest('/stories'),
   viewStory: (storyId: string) => apiRequest(`/stories/${storyId}/view`, { method: 'POST' }),
+  getStoryViewers: (storyId: string) => apiRequest(`/stories/${storyId}/viewers`),
   reactToStory: (storyId: string, reaction: string) => apiRequest(`/stories/${storyId}/react`, {
     method: 'POST',
     body: JSON.stringify({ reaction }),
