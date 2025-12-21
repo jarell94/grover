@@ -625,6 +625,9 @@ export default function HomeScreen() {
         mediaUrl={item.media_url}
         mediaType={item.media_type}
         title={item.content}
+        isVisible={visiblePosts.has(item.post_id)}
+        onDoubleTapLike={() => handleLike(item.post_id)}
+        preloadUri={getNextVideoUri(item.post_id)}
       />
 
       {/* Poll Display */}
