@@ -193,14 +193,14 @@ export default function StoriesScreen() {
       >
         {currentStory.media_type === 'video' ? (
           <VideoPlayer
-            source={`data:video/mp4;base64,${currentStory.media_url}`}
+            source={mediaUri}
             style={styles.media}
-            autoPlay
+            autoPlay={!paused}
             onEnd={handleNext}
           />
         ) : (
           <Image
-            source={{ uri: `data:image/jpeg;base64,${currentStory.media_url}` }}
+            source={{ uri: mediaUri }}
             style={styles.media}
             resizeMode="cover"
           />
