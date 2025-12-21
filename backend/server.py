@@ -21,6 +21,15 @@ from PIL import Image
 from paypal_service import create_payment, execute_payment, get_payment_details
 from paypal_payout_service import send_payout
 
+# Media Service (Cloudinary)
+from media_service import (
+    upload_media, 
+    delete_media, 
+    get_media_service_status,
+    get_optimized_url,
+    CLOUDINARY_CONFIGURED
+)
+
 # Agora Token Builder
 try:
     from agora_token_builder import RtcTokenBuilder, Role_Publisher, Role_Subscriber
@@ -30,7 +39,7 @@ except ImportError:
     print("Warning: agora_token_builder not installed. Live streaming will be limited.")
 
 # ============ SECURITY CONSTANTS ============
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB (increased for video uploads to cloud)
 MAX_INPUT_LENGTH = 10000  # Max characters for text input
 MAX_BIO_LENGTH = 500
 MAX_NAME_LENGTH = 100
