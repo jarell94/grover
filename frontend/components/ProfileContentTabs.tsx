@@ -191,7 +191,7 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
     </View>
   );
 
-  const renderGridItem = ({ item }: { item: Post }) => {
+  const renderGridItem = ({ item, index }: { item: Post; index: number }) => {
     const isImage = item.media_type === "image";
     const isVideo = item.media_type === "video";
     const isAudio = item.media_type === "audio";
@@ -203,8 +203,17 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
         ? `data:image/jpeg;base64,${item.media_url}`
         : undefined;
 
+    // For photos/videos tabs, open media viewer; for posts/audio, open post detail
+    const handlePress = () => {
+      if ((active === "photos" || active === "videos") && item.media_url) {
+        openMediaViewer(index);
+      } else {
+        openPost(item);
+      }
+    };
+
     return (
-      <TouchableOpacity style={styles.tile} activeOpacity={0.9} onPress={() => openPost(item)}>
+      <TouchableOpacity style={styles.tile} activeOpacity={0.9} onPress={handlePress}>
         {isImage && uri ? (
           <Image source={{ uri }} style={styles.tileImage} />
         ) : (
