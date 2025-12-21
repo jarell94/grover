@@ -78,6 +78,9 @@ export default function HomeScreen() {
   const [selectedRepostPost, setSelectedRepostPost] = useState<Post | null>(null);
   const [showPollOption, setShowPollOption] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
+  
+  // Track visible video posts for auto-play
+  const [visiblePosts, setVisiblePosts] = useState<Set<string>>(new Set());
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [pollDuration, setPollDuration] = useState(24);
 
