@@ -296,6 +296,9 @@ export const api = {
   joinStream: (streamId: string) => apiRequest(`/streams/${streamId}/join`, { method: 'POST' }),
   leaveStream: (streamId: string) => apiRequest(`/streams/${streamId}/leave`, { method: 'POST' }),
 
+  // Media Service Status
+  getMediaStatus: () => apiRequest('/media/status'),
+
   // Discovery & For You
   getForYouFeed: () => apiRequest('/discover/for-you'),
   getTrending: () => apiRequest('/discover/trending'),
