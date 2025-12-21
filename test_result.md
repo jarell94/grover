@@ -609,13 +609,8 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Cloudinary Media Upload Integration"
-    - "Agora Live Streaming Backend"
-    - "Posts Edit and Delete Endpoints"
-    - "Products Edit Endpoint"
-    - "User-specific Content Endpoints"
-    - "Notification Settings Endpoints"
-    - "Stories Endpoints"
+    - "Chat Screen"
+    - "Profile Screen"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
