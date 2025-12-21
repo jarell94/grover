@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 # Configuration
-BASE_URL = "https://grover-creator.preview.emergentagent.com/api"
+BASE_URL = "https://creator-hub-320.preview.emergentagent.com/api"
 TEST_USER_EMAIL = "testuser@grover.com"
 TEST_USER_NAME = "Test User"
 

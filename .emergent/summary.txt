@@ -2,176 +2,161 @@
 
 original_problem_statement: Build Grover - a social media creator platform mobile app (iOS & Android using Expo/React Native) with a FastAPI backend.
 
-PRODUCT REQUIREMENTS: The main outstanding requirement from a previous session was to make **ALL features accessible to EVERY user, removing any premium restrictions or paywalls.**
+The main outstanding requirement from a previous session was to make **ALL features accessible to EVERY user, removing any premium restrictions or paywalls.** This task remains unaddressed.
 
-During this session, the user guided the agent through a series of rapid-fire feature implementations, UI/UX improvements, a critical backend migration from base64 media storage to Cloudinary, and a full live-streaming integration with Agora. The original paywall removal task was not addressed.
+During this session, the user guided the agent through a massive series of feature implementations, UI/UX overhauls, bug fixes, and performance optimizations across the entire application.
 
 **User's preferred language**: en-US
 
 **what currently exists?**
-A full-stack social media application with a React Native/Expo frontend and a FastAPI/MongoDB backend. The application is feature-rich but has a critical bug on the web platform.
+A highly advanced, full-stack social media application with a React Native/Expo frontend and a FastAPI/MongoDB backend. The application is feature-rich, and the critical web build crash from the previous session has been resolved.
 
 Key enhancements from this session:
-- **Backend**:
-  - Migrated from storing media as base64 strings in MongoDB to uploading files to **Cloudinary** and storing the URL. A new  handles this, with a fallback to base64 if Cloudinary is not configured.
-  - Fully integrated **Agora** for live streaming, including endpoints for configuration, token generation, and stream management.
-  - Fixed a critical FastAPI route ordering bug where dynamic routes (e.g., ) were incorrectly matching static routes (e.g., ), causing 404 errors.
-  - Added several new, more efficient API endpoints, such as  and , to filter data by the authenticated user on the server.
-  - Added endpoints for updating posts/products (), marking single notifications as read, and managing notification settings.
-- **Frontend**:
-  - Implemented numerous new screens provided by the user, including , , , , and .
-  - Overhauled many existing components with user-provided code, creating advanced, feature-rich versions of , , , and a comprehensive  utility.
-  - Added UX improvements like  and  to the Explore and Profile screens.
-  - The root layout () has been updated to include routes for many new screens, some of which are not yet created.
+- **Bug Fixes & Stability:**
+  - **Fixed Web Build Crash:** Implemented platform-specific files (, ) to mock the  library on web, resolving the critical bundler crash.
+  - **Production Optimizations:** Added a global , implemented API request timeouts, optimized  performance on the home feed, added image caching, and included safe JSON parsing to prevent crashes.
+  - **Fixed Notification Badges:** Replaced hardcoded badge numbers with a  hook that fetches live data from the API, ensuring badges clear correctly.
+  - **Fixed Story Bugs:** Resolved issues with base64/URL media handling, pause/resume logic using  to prevent stale state, and improved navigation between different users' stories.
+- **Backend Enhancements:**
+  - **Agora Integration Fix:** Updated the backend to handle a breaking change in the  library and successfully configured it with user-provided credentials.
+  - **Paginated Notifications:** The  endpoint now supports  and  parameters for pagination.
+  - **Comprehensive Testing:** The backend passed a full suite of 22/22 tests from the testing agent.
+- **Frontend Feature Overhauls:**
+  - **Login Screen:** UI redesigned with distinct Sign Up and Sign In buttons.
+  - **Explore Screen:** Implemented infinite scroll using .
+  - **Chat Screen:** Completely rewritten with real-time updates via WebSockets, typing indicators, mark as read functionality, and improved auto-scrolling.
+  - **Notifications Screen:** Completely rewritten to use a  (Today, This Week), an Unread filter, pagination, and smart routing to the correct content.
+  - **Profile Screen:** Integrated a new, full-screen  component.
+  - **Home Feed:** Refactored logic to use functional  updates and upload media via file URI instead of base64.
+  - **New Components:**
+    - : A powerful, full-screen media viewer with image zoom, video controls, and an audio player.
+    - : An enhanced video player with double-tap-to-like gestures, seek controls, and preloading for the next video in a feed.
 
 **Last working item**:
-    - Last item agent was working: Fixing a web compatibility crash caused by the  library. The Metro bundler attempts to import native-only code even with platform checks, causing the web build to fail. The agent's last attempt involved creating a platform-specific file () but it was not fully implemented.
+    - Last item agent was working: Upgrading the  screen to include features like story viewer tracking and improved direct message replies. The agent successfully overwrote the frontend file () with the new, feature-rich code. The next step was to create the backend endpoint to support tracking who has viewed a story.
     - Status: IN PROGRESS
     - Agent Testing Done: N
-    - Which testing method agent to use? screenshot tool (to verify if the web preview loads without crashing after the fix).
+    - Which testing method agent to use? backend testing agent (to verify the new story viewer endpoint).
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-  - Issue 1:  **Agora Import Crashes Web Build (P0)**
-  - Issue 2:  **Monetization Paywalls Still Exist (P0)**
+  - Issue 1:  **Remove Monetization Paywalls (P0)**
   
   Issues Detail:
   - Issue 1: 
-     - Description: The  screen imports , which contains native code. This causes the web build to crash with an error: .
-     - Attempted fixes:
-        - A  block around the import (failed, as bundling happens before runtime).
-        - Creating a  file to isolate the native import (incomplete).
+     - Description: This is the original core requirement from two sessions ago. All paywalls, premium feature gates, and subscription logic must be removed from both the frontend and backend to make all features free for all users. This task has been consistently postponed in favor of new feature requests.
+     - Attempted fixes: None.
      - Next debug checklist: 
-        1. Create a mock/empty version of the Agora utility for web: .
-        2. In , import from  (without the extension). Metro/Webpack will automatically pick the correct file based on the platform.
-        3. The  file should export mock functions and components that render a Live streaming not available on web message.
-        4. The  file should re-export everything from .
-     - Why fix this issue and what will be achieved with the fix? This will resolve the web build crash, making the rest of the application accessible and testable on the web preview.
-     - Status:  IN PROGRESS
-     - Is recurring issue? N
-     - Should Test frontend/backend/both after fix? frontend
-     - Blocked on other issue: None
-  - Issue 2: 
-     - Description: The original core requirement from the previous session to remove all paywalls and make every feature free is still outstanding. The agent was side-tracked by the user's stream of feature requests. The backend and frontend still contain logic and UI related to premium features (e.g.,  state in ).
-     - Attempted fixes: None in this session.
-     - Next debug checklist: 
-        1. Audit  for all endpoints and logic related to subscriptions, tips, and premium feature gates.
-        2. Remove or comment out the logic that restricts access based on payment status.
-        3. Audit the frontend codebase (e.g., , ) to remove any UI elements related to premium, subscribe, or tip.
-        4. Present a plan to the user confirming which features will be made free before implementation.
-     - Why fix this issue and what will be achieved with the fix? This fulfills a primary, long-standing user requirement, simplifies the application's logic, and aligns the product with the user's stated vision.
+        1. Audit  for all endpoints and logic related to user subscriptions, tips, and premium features. Remove or comment out this logic.
+        2. Search the frontend codebase (e.g., , ) for UI elements like Go Premium, Subscribe, or modals like . Remove these components.
+        3. Confirm with the user that the goal is to make everything free before starting implementation.
+     - Why fix this issue and what will be achieved with the fix? Fulfills the user's primary, long-standing requirement, simplifies the application logic, and aligns the product with the user's vision.
      - Status:  NOT STARTED
      - Is recurring issue? Y
      - Should Test frontend/backend/both after fix? both
      - Blocked on other issue: None
 
 **In progress Task List**:
-- None
+  - Task 1:  **Complete the Story Screen Upgrade (P0)**
+
+ Task Detail:
+  - Task 1: 
+     - Where to resume: The frontend for the new story screen is complete. The next step is in . A new API endpoint needs to be created, likely , to log when a user views a story. Another endpoint, , will be needed to display the list of viewers to the story's creator.
+     - What will be achieved with this? This will complete the story feature overhaul requested by the user, adding viewer tracking and stats.
+     - Status:  IN PROGRESS
+     - Should Test frontend/backend/both after fix? backend
+     - Blocked on something: None
 
 **Upcoming and Future Tasks**
     Upcoming Tasks:
-    - **P1: Create Missing Feature Screens:** The  file defines routes for many screens that have not been created yet. These are linked from various parts of the UI (e.g., Studio, Profile).
-        - 
-        - 
-        - 
-        - 
-        -  & 
-        -  & 
-        - , 
-        - 
-    - **P2: User Verification of New Features:** A massive number of features were added rapidly (Cloudinary, Agora, new screens, new components). The user needs to test them to identify bugs and usability issues.
-    
+    - **P1: Implement Sticky Profile Header:** The user requested that the profile header and tabs stay pinned while the content scrolls. This was part of the Profile Upgrade request but was not implemented. This involves wrapping the profile content in a  or  and using an  for the header.
+    - **P2: Create Missing Feature Screens:** The  file defines routes for many screens that have not been created yet (e.g., , , , ). These should be created as placeholders to prevent crashes.
+
     Future Tasks:
-    - **P2: Refactor Monolithic Files:** The  and  files remain extremely large and should be broken down into smaller, manageable modules.
-    - **P2: Comprehensive Automated Testing:** Use testing agents to create a suite of backend and frontend tests to ensure stability after the major changes.
+    - **P2: Refactor Home Feed to use  Hook:** The agent created a reusable  hook for feed logic but did not integrate it into . Refactoring the home feed to use this hook would simplify the component and promote code reuse with the Explore and Profile feeds.
+    - **P3: Refactor Monolithic :** The main backend file is very large. It should be broken down into smaller, more manageable modules using FastAPI's .
 
 **Completed work in this session**
-- **Media Storage Migration to Cloudinary:**
-  - Integrated the  Python library.
-  - Created  to handle uploads to Cloudinary, with a base64 fallback.
-  - Updated all media upload endpoints (, , , profile picture) to use the new service.
-  - Configured with user-provided credentials and verified the integration is active.
-
-- **Agora Live Streaming Integration:**
-  - Installed  (frontend) and  (backend).
-  - Implemented backend endpoints for token generation () and configuration ().
-  - Created a full-featured live streaming screen () for both hosts and viewers.
-
-- **Critical Backend Bug Fix:**
-  - Resolved a FastAPI route ordering issue where  was being incorrectly matched by , causing 404 errors. Reordered routes to prioritize static paths over dynamic ones.
-
-- **Massive Frontend Feature Implementation (User-Provided Code):**
-  - **New Screens:** , , , , .
-  - **Component Overhauls:**
-    - : Now a sophisticated component with pagination, multiple media tabs, and infinite scroll.
-    -  & : Now custom players with scrubbing, play/pause, and other controls.
-    - : A robust, cross-platform utility for handling all media selection.
-    - : A component that correctly renders images, videos, or audio.
-  - **UI/UX Fixes:**
-    - Added  and  to  and .
-    - Fixed bugs in  and , including adding a new backend endpoint for marking single notifications as read.
+- **Critical Bug Fix:** Fixed the web build crash caused by  by creating platform-specific files.
+- **Backend Enhancements:**
+  - Updated Agora credentials and fixed the  integration.
+  - Added pagination support to the  endpoint.
+  - Passed a full backend test suite.
+- **Massive Frontend Overhauls:**
+  - **Login Screen ():** Redesigned UI and logic for separate sign-in/sign-up.
+  - **Chat Screen ():** Rewritten for real-time features (sockets, typing indicators, etc.).
+  - **Notifications Screen ():** Rewritten with , filters, pagination, and smart routing.
+  - **Explore Screen ():** Added infinite scroll.
+  - **Home Feed ():** Refactored to use functional state updates and file URI uploads instead of base64.
+  - **Stories Screen ():** Fixed numerous bugs and rewrote the UI (frontend part is done).
+- **New Reusable Components:**
+  - : For global crash prevention.
+  - : Full-screen, multi-format media viewer with advanced controls.
+  - : Performant video player for feeds with preloading and gesture support.
+- **Bug Fixes:** Resolved the sticky notification badge issue by fetching live data.
 
 **Earlier issues found/mentioned but not fixed**
    - **Issue 1: Remove All Paywalls**
-     - This was the highest priority task from the previous session's handover. The agent noted the existence of premium-related code in  but was immediately directed by the user to implement other features and did not return to this task.
+     - This was the highest priority task from the previous session's handover and was noted again in this session's handover. It remains completely unaddressed.
 
 **Known issue recurrence from previous fork**
-  - None.
+  - **Issue recurrence in previous fork**: Remove all paywalls and make every feature free.
+  - **Recurrence count**: 2 (Missed in the previous session and again in this one).
+  - **Status**: NOT STARTED
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- **Frontend**: React Native, Expo, Expo Router, TypeScript, , , 
-- **Backend**: FastAPI, Python, MongoDB (), , 
-- **Media Storage**: **Cloudinary** (primary), Base64 (fallback)
-- **Live Streaming**: **Agora**
-- **Key UX Patterns**: Debouncing (for saving settings),  (for video/audio scrubbing), Platform-specific file resolution (, ).
+- **Frontend**: React Native, Expo, Expo Router, TypeScript, , ,  &  performance optimization.
+- **Backend**: FastAPI, Python, MongoDB (), .
+- **Live Streaming**: Agora (fully configured).
+- **Media Storage**: Cloudinary (primary).
+- **Real-time Communication**: WebSockets () for chat.
+- **Key UX Patterns**: Infinite Scroll, Sticky Headers (pending), Full-Screen Media Viewers, Functional , Optimistic UI updates.
 
 **key DB schema**
-  - **streams**: , , , ,  ('live', 'ended'), , . (This collection was enhanced for Agora integration).
+  - **notifications**: , , , , , , .
+  - **messages**: , , , , .
+  - **Pending schema for  task**: A new collection, likely , will be needed with fields like , , .
 
 **changes in tech stack**
-  - **Media Storage**: Migrated from Base64-in-MongoDB to **Cloudinary** for scalable file storage.
-  - **Live Streaming**: Added **Agora** as the real-time communication provider.
+  - No new technologies were added in this session beyond what was integrated in the last one (Cloudinary, Agora). The focus was on refining implementations and adding features.
 
 **All files of reference**
-- **Backend Migration:**
-  - : Core of the new Cloudinary upload logic.
-  - : All upload endpoints were modified to use . Agora endpoints were added.
-- **Frontend Overhauls (User-provided):**
-  - : The new standard for all media selection in the app.
-  - : A key component for user profiles.
-  - : The main live streaming interface.
-  - : Defines the app's entire navigation structure.
+- **Last worked on:**  (frontend complete),  (needs backend implementation).
+- **Key New Components:**
+  - 
+  - 
+  - 
+- **Key Rewritten Screens:**
+  - 
+  - 
+  - 
+- **Key Refactored Files:**
+  - 
+  - 
+  - 
 
 **Areas that need refactoring**:
-- : Despite many additions, it remains a large monolithic file. It should be broken into logical  modules.
-- : This file was not touched much in this session but remains a very large god component.
+- **:** This hook was created but never used. The logic in  should be moved into this hook and then consumed by the component to improve separation of concerns.
+- **:** Remains a large monolithic file that should be broken into logical  modules (e.g., , , ).
 
 **key api endpoints**
-- **NEW (Media & Streaming):**
-  - , , : Now upload files to Cloudinary.
-  - : Checks if Cloudinary is configured.
-  - : Provides Agora App ID to the frontend.
-  - : Generates a secure token for a user to join a stream.
-- **NEW (Features):**
-  -  & : For editing.
-  - : For the edit product screen.
-  - : To mark a single notification as read.
-  -  & : For the settings screen.
-- **NEW (Efficiency):**
-  -  & : Fetches content for the authenticated user directly.
+- **UPDATED:**
+  - : Now supports  for pagination.
+- **PENDING:**
+  - : To track a story view.
+  - : To get the list of users who viewed a story.
 
 **Critical Info for New Agent**
-- **FIX THE WEB BUILD FIRST**: The  import crashes the web preview. This is P0 because it blocks all web-based testing. Use platform-specific files ( and ) to provide a mock implementation for the web.
-- **REMOVE PAYWALLS**: This is the most critical, long-standing user requirement that has been missed for two sessions. After fixing the web build, this should be the top priority. Confirm the plan with the user before starting.
-- **CLOUDINARY IS LIVE**: The app no longer uses base64 for new uploads. All media is sent to Cloudinary. The frontend  component correctly handles both old base64 strings and new Cloudinary URLs.
-- **MANY SCREENS ARE MISSING**: The main layout file () registers many routes for which no screen file exists. Be prepared to create these as the user navigates the app.
+- **COMPLETE THE STORIES FEATURE FIRST:** The last task was mid-flight. You need to add the backend endpoints in  to track and fetch story viewers to complete the feature.
+- **REMOVE PAYWALLS (P0 TASK):** This is a critical, long-standing user requirement that has been missed for two full sessions. After finishing the stories feature, this **must** be the next priority.
+- **IMPLEMENT STICKY PROFILE HEADER:** This was a user request that got missed. It's a high-impact UI improvement that should be addressed soon.
+- **The app is in a stable state.** The web build is fixed, and both frontend and backend passed their respective testing agent scans. You have a solid foundation to build upon.
 
 **documents created in this job**
   - 
-  -  (Incomplete attempt)
   - 
   - 
   - 
@@ -180,42 +165,44 @@ Key enhancements from this session:
   - 
 
 **Last 10 User Messages and any pending user messages**
-1.  **User provides code:** For a comprehensive  component. (Status: RESOLVED)
-2.  **User provides code:** For , a powerful utility to handle camera/gallery access. (Status: RESOLVED)
-3.  **User requests:** Switch backend to use real file URLs (S3/Cloudinary) instead of base64. (Status: RESOLVED)
-4.  **User specifies:** preferred provider 1 (Cloudinary) and to set up the structure first. (Status: RESOLVED)
-5.  **User provides:** Cloudinary credentials. (Status: RESOLVED)
-6.  **User reports:** An error related to  on web. (Status: IN PROGRESS)
-7.  **User provides code:** For a comprehensive  component. (Status: RESOLVED)
-8.  **User provides code:** For an advanced  component and its usage. (Status: RESOLVED)
-9.  **User provides code:** For , a component to render different media types. (Status: RESOLVED)
-10. **User provides code:** For a comprehensive  component. (Status: RESOLVED) (This appears to be a repeat but was processed again)
+1.  **Request:** Upgrade  with sticky header and full-screen media viewer. (Status: PARTIALLY DONE - Viewer is done, sticky header is pending).
+2.  **User provides code:** A complete rewrite of . (Status: COMPLETED).
+3.  **Request:** Upgrade video player with double-tap-like, seeking, and preloading. (Status: COMPLETED).
+4.  **User provides context:** Videos are rendered in Feed, Post View, and Explore. (Status: ADDRESSED).
+5.  **Request:** Upgrade  with full-screen viewer, auto-advance, reply, and viewer tracking. (Status: IN PROGRESS - Frontend is done, backend is pending).
+6.  **User provides context:** The current  file. (Status: ADDRESSED).
+7.  **User provides context:** The current  helper from the backend. (Status: ADDRESSED).
+8.  **User provides context:** The  helper usage. (Status: ADDRESSED).
+9.  **Request:** Add pagination to backend notifications endpoint. (Status: COMPLETED).
+10. **User provides code:** A full rewrite of the notifications screen. (Status: COMPLETED).
 
 **Project Health Check:**
-- Broken: The web preview is currently non-functional due to the Agora native module import crash.
-- Mocked: Nothing is mocked. Cloudinary and Agora are fully integrated, pending user verification of their functionality with the provided credentials.
-- Untested: The vast majority of new features implemented in this session (live streaming, story creation, new players, Cloudinary uploads, etc.) have not been tested by the user.
+- Broken: Nothing is critically broken. The web preview is functional.
+- Mocked: The  library is mocked on the web platform, which is the correct and intended behavior.
+- Untested: The newly rewritten  frontend and its pending backend counterpart.
 
 **3rd Party Integrations**
-	 •	**Cloudinary** — (NEW) Primary media storage. Requires User API Key (provided and configured).
-	 •	**Agora Video SDK** — (NEW & INTEGRATED) For live streaming. Requires User API Key (provided and configured).  is used on the frontend.
+	 •	**Cloudinary** — Primary media storage. Requires User API Key (provided and configured).
+	 •	**Agora Video SDK** — For live streaming. Requires User API Key (provided and configured).
 	 •	Emergent Google OAuth — uses Emergent Auth flow.
 	 •	PayPal SDK — requires User API Key.
 	 •	Redis — configured for backend caching.
+     •	**Socket.io** — For real-time chat.
 
 **Testing status**
-  - Testing agent used after significant changes: NO
+  - Testing agent used after significant changes: YES (Both backend and frontend agents were used and passed).
   - Troubleshoot agent used after agent stuck in loop: NO
   - Test files created: []
-  - Known regressions: The entire web build is broken due to the  import.
+  - Known regressions: None. The previous major regression (web build crash) was fixed.
 
 **Credentials to test flow:**
 - Google OAuth is handled by the user.
-- PayPal requires user-provided API keys in .
-- Cloudinary keys have been provided by the user and are in .
-- Agora keys have been provided by the user and are in .
+- Cloudinary keys have been provided and are in .
+- Agora keys have been provided and are in .
 
 **What agent forgot to execute**
-- **CRITICAL:** The agent completely missed the P0 task to **remove all paywalls and premium feature restrictions**. It was noted in the agent's thought process but was immediately superseded by the user's high-velocity feature requests.
+- **CRITICAL:** The agent once again completely missed the P0 task to **remove all paywalls and premium feature restrictions**.
+- The agent did not implement the **sticky header** on the profile screen, which was part of a user request.
+- The agent created the  hook but **did not refactor  to use it**, leaving a refactoring opportunity open.
 
 </analysis>
