@@ -592,7 +592,7 @@ frontend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
       - working: "NA"
         agent: "main"
@@ -600,6 +600,9 @@ frontend:
       - working: true
         agent: "testing"
         comment: "✅ Complete stories system working with Cloudinary integration - 4/4 endpoints tested successfully."
+      - working: "NA"
+        agent: "main"
+        comment: "Added GET /api/stories/{story_id}/viewers endpoint to return list of users who viewed a story. Only the story owner can access this. Also added getStoryViewers function to frontend API service."
 
 metadata:
   created_by: "main_agent"
