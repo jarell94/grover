@@ -1,223 +1,259 @@
-import * as ImagePicker from 'expo-image-picker';
-import { Platform, Alert } from 'react-native';
+import * as ImagePicker from "expo-image-picker";
+import { Alert, Platform } from "react-native";
+
+export type MediaKind = "image" | "video" | "audio" | "unknown";
 
 export interface MediaPickerResult {
   uri: string;
-  type?: string;
-  base64?: string;
+  kind: MediaKind;          // normalized kind: image/video/...
+  mimeType?: string;        // e.g. image/jpeg, video/mp4
+  fileName?: string;        // e.g. IMG_1234.jpg
+  fileSize?: number;        // bytes (not always available)
+  duration?: number;        // ms (usually for video)
   width?: number;
   height?: number;
+  base64?: string;          // only if requested and available
+}
+
+export interface MediaPickerMultiResult {
+  assets: MediaPickerResult[];
 }
 
 export interface MediaPickerOptions {
-  mediaTypes?: 'Images' | 'Videos' | 'All';
+  mediaTypes?: "Images" | "Videos" | "All";
   allowsEditing?: boolean;
   quality?: number;
-  base64?: boolean;
+  base64?: boolean; // only recommended for small images
   allowsMultipleSelection?: boolean;
+  selectionLimit?: number; // iOS 14+ style
+}
+
+const DEFAULTS: Required<Pick<
+  MediaPickerOptions,
+  "mediaTypes" | "allowsEditing" | "quality" | "base64" | "allowsMultipleSelection"
+>> = {
+  mediaTypes: "All",
+  allowsEditing: true,
+  quality: 0.8,
+  base64: false,
+  allowsMultipleSelection: false,
+};
+
+function mapPickerMediaTypes(mediaTypes: MediaPickerOptions["mediaTypes"]) {
+  if (mediaTypes === "Images") return ImagePicker.MediaTypeOptions.Images;
+  if (mediaTypes === "Videos") return ImagePicker.MediaTypeOptions.Videos;
+  return ImagePicker.MediaTypeOptions.All;
+}
+
+function normalizeKind(asset: ImagePicker.ImagePickerAsset): MediaKind {
+  // Expo asset.type is often "image" | "video"
+  const t = (asset.type || "").toLowerCase();
+  if (t === "image") return "image";
+  if (t === "video") return "video";
+
+  // fallback: infer from mimeType or fileName
+  const mt = (asset as any).mimeType?.toLowerCase?.() || "";
+  if (mt.startsWith("image/")) return "image";
+  if (mt.startsWith("video/")) return "video";
+  if (mt.startsWith("audio/")) return "audio";
+
+  const name = (asset.fileName || "").toLowerCase();
+  if (/\.(jpg|jpeg|png|webp|heic|heif)$/.test(name)) return "image";
+  if (/\.(mp4|mov|m4v|webm)$/.test(name)) return "video";
+  if (/\.(mp3|m4a|wav|aac)$/.test(name)) return "audio";
+
+  return "unknown";
+}
+
+function fallbackMime(kind: MediaKind, fileName?: string) {
+  const n = (fileName || "").toLowerCase();
+  if (kind === "image") {
+    if (n.endsWith(".png")) return "image/png";
+    if (n.endsWith(".webp")) return "image/webp";
+    if (n.endsWith(".heic") || n.endsWith(".heif")) return "image/heic";
+    return "image/jpeg";
+  }
+  if (kind === "video") {
+    if (n.endsWith(".webm")) return "video/webm";
+    return "video/mp4";
+  }
+  if (kind === "audio") {
+    if (n.endsWith(".wav")) return "audio/wav";
+    if (n.endsWith(".m4a")) return "audio/mp4";
+    return "audio/mpeg";
+  }
+  return "application/octet-stream";
+}
+
+function ensureFileName(asset: ImagePicker.ImagePickerAsset, kind: MediaKind) {
+  if (asset.fileName) return asset.fileName;
+
+  const ext =
+    kind === "image" ? "jpg" :
+    kind === "video" ? "mp4" :
+    kind === "audio" ? "mp3" : "bin";
+
+  return `${kind}_${Date.now()}.${ext}`;
+}
+
+function toResult(asset: ImagePicker.ImagePickerAsset, includeBase64: boolean): MediaPickerResult {
+  const kind = normalizeKind(asset);
+  const fileName = ensureFileName(asset, kind);
+
+  // Some platforms expose mimeType; if not, fallback.
+  const mimeType = (asset as any).mimeType || fallbackMime(kind, fileName);
+
+  return {
+    uri: asset.uri,
+    kind,
+    mimeType,
+    fileName,
+    fileSize: (asset as any).fileSize,
+    duration: (asset as any).duration,
+    width: asset.width,
+    height: asset.height,
+    base64: includeBase64 ? asset.base64 : undefined,
+  };
 }
 
 /**
- * Pick media (image or video) with proper web/mobile handling
+ * Pick media (image/video) with proper web/mobile handling
+ * - Returns ONE asset if allowsMultipleSelection is false
+ * - Returns MANY assets if allowsMultipleSelection is true
  */
 export async function pickMedia(
   options: MediaPickerOptions = {}
-): Promise<MediaPickerResult | null> {
+): Promise<MediaPickerResult | MediaPickerMultiResult | null> {
   try {
-    // Default options
+    const merged = { ...DEFAULTS, ...options };
     const {
-      mediaTypes = 'All',
-      allowsEditing = true,
-      quality = 0.8,
-      base64 = true,
-      allowsMultipleSelection = false,
-    } = options;
+      mediaTypes,
+      allowsEditing,
+      quality,
+      base64,
+      allowsMultipleSelection,
+      selectionLimit,
+    } = merged;
 
-    // Request permissions (returns true on web)
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
+    if (status !== "granted") {
       Alert.alert(
-        'Permission Required',
-        'Please grant camera roll permissions to upload media.',
-        [{ text: 'OK' }]
+        "Permission Required",
+        "Please grant camera roll permissions to upload media.",
+        [{ text: "OK" }]
       );
       return null;
     }
 
-    // Map media types
-    let mediaTypeOption: ImagePicker.MediaTypeOptions;
-    if (mediaTypes === 'Images') {
-      mediaTypeOption = ImagePicker.MediaTypeOptions.Images;
-    } else if (mediaTypes === 'Videos') {
-      mediaTypeOption = ImagePicker.MediaTypeOptions.Videos;
-    } else {
-      mediaTypeOption = ImagePicker.MediaTypeOptions.All;
-    }
+    const pickerMediaTypes = mapPickerMediaTypes(mediaTypes);
 
-    // On web, base64 conversion can be problematic, so disable it
-    const shouldUseBase64 = Platform.OS !== 'web' && base64;
+    // Base64 on web is often not what you want; also huge for videos.
+    const includeBase64 = Platform.OS !== "web" && base64;
 
-    // Launch image picker
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: mediaTypeOption,
-      allowsEditing: Platform.OS !== 'web' && allowsEditing, // Editing can be problematic on web
+      mediaTypes: pickerMediaTypes,
+      allowsEditing: Platform.OS !== "web" && allowsEditing && !allowsMultipleSelection, // editing + multi-select tends to be messy
       quality,
-      base64: shouldUseBase64,
+      base64: includeBase64,
       allowsMultipleSelection,
+      selectionLimit: selectionLimit ?? (allowsMultipleSelection ? 10 : 1),
     });
 
-    // Check if user cancelled
-    if (result.canceled || !result.assets || result.assets.length === 0) {
-      return null;
-    }
+    if (result.canceled || !result.assets?.length) return null;
 
-    // Return the first selected asset
-    const asset = result.assets[0];
-    
-    return {
-      uri: asset.uri,
-      type: asset.type,
-      base64: asset.base64,
-      width: asset.width,
-      height: asset.height,
-    };
+    const assets = result.assets.map((a) => toResult(a, includeBase64));
+
+    return allowsMultipleSelection ? { assets } : assets[0];
   } catch (error) {
-    console.error('Media picker error:', error);
-    
-    // Show user-friendly error
-    Alert.alert(
-      'Upload Error',
-      'Failed to pick media. Please try again.',
-      [{ text: 'OK' }]
-    );
-    
+    console.error("Media picker error:", error);
+    Alert.alert("Upload Error", "Failed to pick media. Please try again.", [{ text: "OK" }]);
     return null;
   }
 }
 
-/**
- * Pick image only with proper web/mobile handling
- */
 export async function pickImage(
-  options: Omit<MediaPickerOptions, 'mediaTypes'> = {}
-): Promise<MediaPickerResult | null> {
-  return pickMedia({ ...options, mediaTypes: 'Images' });
+  options: Omit<MediaPickerOptions, "mediaTypes"> = {}
+) {
+  return pickMedia({ ...options, mediaTypes: "Images" });
 }
 
-/**
- * Pick video only with proper web/mobile handling
- */
 export async function pickVideo(
-  options: Omit<MediaPickerOptions, 'mediaTypes'> = {}
-): Promise<MediaPickerResult | null> {
-  return pickMedia({ ...options, mediaTypes: 'Videos' });
+  options: Omit<MediaPickerOptions, "mediaTypes"> = {}
+) {
+  return pickMedia({ ...options, mediaTypes: "Videos" });
 }
 
-/**
- * Take a photo with camera
- */
 export async function takePhoto(
   options: MediaPickerOptions = {}
 ): Promise<MediaPickerResult | null> {
   try {
-    // Request camera permissions
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission Required',
-        'Please grant camera permissions to take photos.',
-        [{ text: 'OK' }]
-      );
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Please grant camera permissions to take photos.", [{ text: "OK" }]);
       return null;
     }
 
-    const {
-      allowsEditing = true,
-      quality = 0.8,
-      base64 = true,
-    } = options;
+    const merged = { ...DEFAULTS, ...options };
+    const { allowsEditing, quality, base64 } = merged;
 
-    // Launch camera
+    const includeBase64 = Platform.OS !== "web" && base64;
+
     const result = await ImagePicker.launchCameraAsync({
-      allowsEditing,
+      allowsEditing: Platform.OS !== "web" && allowsEditing,
       quality,
-      base64,
+      base64: includeBase64,
     });
 
-    // Check if user cancelled
-    if (result.canceled || !result.assets || result.assets.length === 0) {
-      return null;
-    }
+    if (result.canceled || !result.assets?.length) return null;
 
-    // Return the captured photo
-    const asset = result.assets[0];
-    
-    return {
-      uri: asset.uri,
-      type: asset.type,
-      base64: asset.base64,
-      width: asset.width,
-      height: asset.height,
-    };
+    return toResult(result.assets[0], includeBase64);
   } catch (error) {
-    console.error('Camera error:', error);
-    
-    // Show user-friendly error
-    Alert.alert(
-      'Camera Error',
-      'Failed to take photo. Please try again.',
-      [{ text: 'OK' }]
-    );
-    
+    console.error("Camera error:", error);
+    Alert.alert("Camera Error", "Failed to take photo. Please try again.", [{ text: "OK" }]);
     return null;
   }
+}
+
+/**
+ * Build a FormData file part correctly for React Native fetch/axios.
+ * This is the #1 reason uploads break.
+ */
+export function asFormDataFile(asset: MediaPickerResult) {
+  return {
+    uri: asset.uri,
+    name: asset.fileName || `upload_${Date.now()}`,
+    type: asset.mimeType || "application/octet-stream",
+  } as any;
 }
 
 /**
  * Show media picker options (Camera or Gallery)
  */
 export async function showMediaOptions(
-  onImagePicked: (result: MediaPickerResult) => void,
-  mediaType: 'Images' | 'Videos' | 'All' = 'All'
+  onPicked: (result: MediaPickerResult) => void,
+  mediaType: "Images" | "Videos" | "All" = "All"
 ): Promise<void> {
-  // On web, we can't show action sheet, so just open gallery
-  if (Platform.OS === 'web') {
-    const result = await pickMedia({ mediaTypes: mediaType });
-    if (result) {
-      onImagePicked(result);
-    }
+  if (Platform.OS === "web") {
+    const res = await pickMedia({ mediaTypes: mediaType });
+    if (res && !("assets" in res)) onPicked(res);
     return;
   }
 
-  // On mobile, show options
-  Alert.alert(
-    'Upload Media',
-    'Choose an option',
-    [
-      {
-        text: 'Take Photo',
-        onPress: async () => {
-          const result = await takePhoto();
-          if (result) {
-            onImagePicked(result);
-          }
-        },
+  Alert.alert("Upload Media", "Choose an option", [
+    {
+      text: "Take Photo",
+      onPress: async () => {
+        const res = await takePhoto({ base64: false });
+        if (res) onPicked(res);
       },
-      {
-        text: 'Choose from Gallery',
-        onPress: async () => {
-          const result = await pickMedia({ mediaTypes: mediaType });
-          if (result) {
-            onImagePicked(result);
-          }
-        },
+    },
+    {
+      text: "Choose from Gallery",
+      onPress: async () => {
+        const res = await pickMedia({ mediaTypes: mediaType, base64: false });
+        if (res && !("assets" in res)) onPicked(res);
       },
-      {
-        text: 'Cancel',
-        style: 'cancel',
-      },
-    ]
-  );
+    },
+    { text: "Cancel", style: "cancel" },
+  ]);
 }
