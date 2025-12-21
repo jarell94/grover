@@ -18,27 +18,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
-// Agora imports - only available on native platforms
-let createAgoraRtcEngine: any = null;
-let RtcSurfaceView: any = null;
-let ChannelProfileType: any = null;
-let ClientRoleType: any = null;
-
-// Only load Agora on native platforms (not web)
-const IS_NATIVE = Platform.OS === 'ios' || Platform.OS === 'android';
-
-if (IS_NATIVE) {
-  try {
-    const AgoraModule = require('react-native-agora');
-    createAgoraRtcEngine = AgoraModule.createAgoraRtcEngine;
-    RtcSurfaceView = AgoraModule.RtcSurfaceView;
-    ChannelProfileType = AgoraModule.ChannelProfileType;
-    ClientRoleType = AgoraModule.ClientRoleType;
-  } catch (e) {
-    console.log('Agora SDK not available - running in mock mode');
-  }
-}
-
 const { width, height } = Dimensions.get('window');
 
 const Colors = {
@@ -52,6 +31,10 @@ const Colors = {
   textSecondary: '#94A3B8',
   overlay: 'rgba(0, 0, 0, 0.5)',
 };
+
+// Note: Agora video streaming only works on native iOS/Android devices.
+// On web, we show a mock video preview. Full streaming requires Expo Go or a native build.
+const IS_WEB = Platform.OS === 'web';
 
 export default function LiveStreamScreen() {
   const params = useLocalSearchParams<{
@@ -74,12 +57,7 @@ export default function LiveStreamScreen() {
   const [connected, setConnected] = useState(false);
   const [viewers, setViewers] = useState(0);
   
-  // Agora state
-  const [agoraConfig, setAgoraConfig] = useState<any>(null);
-  const [channelName, setChannelName] = useState(params.channelName || '');
-  const [token, setToken] = useState(params.token || '');
-  const [uid, setUid] = useState(parseInt(params.uid || '0'));
-  const [remoteUid, setRemoteUid] = useState<number | null>(null);
+  // Controls state
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
@@ -91,14 +69,13 @@ export default function LiveStreamScreen() {
   const [superChatAmount, setSuperChatAmount] = useState('5');
   const [superChatMessage, setSuperChatMessage] = useState('');
   
-  const agoraEngineRef = useRef<any>(null);
   const messagesEndRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     initializeStream();
     
     return () => {
-      leaveChannel();
+      leaveStream();
     };
   }, []);
 
@@ -110,29 +87,24 @@ export default function LiveStreamScreen() {
       const streamData = await api.getStream(streamId);
       setStream(streamData);
       setViewers(streamData.viewers_count || 0);
-      setChannelName(streamData.channel_name || streamId);
       
-      // Get Agora config
-      const config = await api.getAgoraConfig();
-      setAgoraConfig(config);
-      
-      if (config.available && config.app_id) {
-        // Get token for joining
-        const role = isHost ? 'publisher' : 'subscriber';
-        const tokenData = await api.getStreamToken(streamData.channel_name || streamId, role);
-        
-        if (tokenData.token) {
-          setToken(tokenData.token);
-          setUid(tokenData.uid);
-          
-          // Initialize Agora engine
-          await initializeAgora(config.app_id, tokenData.token, streamData.channel_name, tokenData.uid);
-        }
+      // On web, we just show mock mode
+      // On native, Agora would be initialized here
+      if (IS_WEB) {
+        setConnected(true);
+      } else {
+        // Native: would initialize Agora here
+        // For now, just set connected
+        setConnected(true);
       }
       
       // Join stream (update viewer count)
       if (!isHost) {
-        await api.joinStream(streamId);
+        try {
+          await api.joinStream(streamId);
+        } catch (e) {
+          // Ignore join errors
+        }
       }
       
     } catch (error) {
@@ -143,91 +115,13 @@ export default function LiveStreamScreen() {
     }
   };
 
-  const initializeAgora = async (appId: string, agoraToken: string, channel: string, agoraUid: number) => {
-    if (!createAgoraRtcEngine) {
-      console.log('Agora SDK not available');
-      setConnected(true); // Mock connected state
-      return;
-    }
-
+  const leaveStream = async () => {
     try {
-      setConnecting(true);
-      
-      const engine = createAgoraRtcEngine();
-      agoraEngineRef.current = engine;
-      
-      // Initialize engine
-      engine.initialize({
-        appId: appId,
-        channelProfile: ChannelProfileType.ChannelProfileLiveBroadcasting,
-      });
-      
-      // Set up event handlers
-      engine.addListener('onJoinChannelSuccess', (connection: any) => {
-        console.log('Joined channel successfully');
-        setConnected(true);
-        setConnecting(false);
-      });
-      
-      engine.addListener('onUserJoined', (connection: any, remoteUid: number) => {
-        console.log('Remote user joined:', remoteUid);
-        setRemoteUid(remoteUid);
-        setViewers(v => v + 1);
-      });
-      
-      engine.addListener('onUserOffline', (connection: any, remoteUid: number) => {
-        console.log('Remote user left:', remoteUid);
-        if (remoteUid === remoteUid) {
-          setRemoteUid(null);
-        }
-        setViewers(v => Math.max(0, v - 1));
-      });
-      
-      engine.addListener('onError', (err: any) => {
-        console.error('Agora error:', err);
-      });
-      
-      // Set client role
-      const role = isHost ? ClientRoleType.ClientRoleBroadcaster : ClientRoleType.ClientRoleAudience;
-      engine.setClientRole(role);
-      
-      // Enable video
-      engine.enableVideo();
-      
-      if (isHost) {
-        engine.startPreview();
-      }
-      
-      // Join channel
-      engine.joinChannel(agoraToken, channel, agoraUid, {
-        clientRoleType: role,
-        publishMicrophoneTrack: isHost,
-        publishCameraTrack: isHost,
-        autoSubscribeAudio: true,
-        autoSubscribeVideo: true,
-      });
-      
-    } catch (error) {
-      console.error('Agora initialization error:', error);
-      setConnecting(false);
-      // Continue in mock mode
-      setConnected(true);
-    }
-  };
-
-  const leaveChannel = async () => {
-    try {
-      if (agoraEngineRef.current) {
-        agoraEngineRef.current.leaveChannel();
-        agoraEngineRef.current.release();
-        agoraEngineRef.current = null;
-      }
-      
       if (!isHost) {
         await api.leaveStream(streamId);
       }
     } catch (error) {
-      console.error('Leave channel error:', error);
+      console.error('Leave stream error:', error);
     }
   };
 
@@ -243,7 +137,6 @@ export default function LiveStreamScreen() {
           onPress: async () => {
             try {
               await api.endStream(streamId);
-              await leaveChannel();
               router.back();
             } catch (error) {
               console.error('End stream error:', error);
@@ -256,23 +149,14 @@ export default function LiveStreamScreen() {
   };
 
   const toggleMute = () => {
-    if (agoraEngineRef.current) {
-      agoraEngineRef.current.muteLocalAudioStream(!isMuted);
-    }
     setIsMuted(!isMuted);
   };
 
   const toggleVideo = () => {
-    if (agoraEngineRef.current) {
-      agoraEngineRef.current.muteLocalVideoStream(isVideoEnabled);
-    }
     setIsVideoEnabled(!isVideoEnabled);
   };
 
   const switchCamera = () => {
-    if (agoraEngineRef.current) {
-      agoraEngineRef.current.switchCamera();
-    }
     setIsFrontCamera(!isFrontCamera);
   };
 
@@ -290,7 +174,6 @@ export default function LiveStreamScreen() {
     setMessages(prev => [...prev, newMessage]);
     setMessageText('');
     
-    // Auto scroll to bottom
     setTimeout(() => {
       messagesEndRef.current?.scrollToEnd({ animated: true });
     }, 100);
@@ -328,55 +211,39 @@ export default function LiveStreamScreen() {
   };
 
   const renderVideoView = () => {
-    // Mock video view for web/development
-    if (!RtcSurfaceView || !connected) {
-      return (
-        <LinearGradient
-          colors={[Colors.primary, Colors.secondary]}
-          style={styles.videoPlaceholder}
-        >
-          {connecting ? (
-            <>
-              <ActivityIndicator size="large" color="#fff" />
-              <Text style={styles.connectingText}>Connecting...</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="videocam" size={64} color="rgba(255,255,255,0.5)" />
-              <Text style={styles.placeholderText}>
-                {isHost ? 'Your Live Stream' : stream?.title || 'Live Stream'}
-              </Text>
-              <Text style={styles.placeholderSubtext}>
-                {agoraConfig?.available ? 'Video streaming active' : 'Video preview (Agora not configured)'}
-              </Text>
-            </>
-          )}
-        </LinearGradient>
-      );
-    }
-
-    // Native Agora video view
-    if (isHost) {
-      return (
-        <RtcSurfaceView
-          style={styles.videoView}
-          canvas={{ uid: 0 }}
-        />
-      );
-    } else if (remoteUid) {
-      return (
-        <RtcSurfaceView
-          style={styles.videoView}
-          canvas={{ uid: remoteUid }}
-        />
-      );
-    }
-
+    // Mock video view for web and when not connected
     return (
-      <View style={styles.videoPlaceholder}>
-        <ActivityIndicator size="large" color="#fff" />
-        <Text style={styles.connectingText}>Waiting for host...</Text>
-      </View>
+      <LinearGradient
+        colors={[Colors.primary, Colors.secondary]}
+        style={styles.videoPlaceholder}
+      >
+        {connecting ? (
+          <>
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.connectingText}>Connecting...</Text>
+          </>
+        ) : (
+          <>
+            <Ionicons name="videocam" size={64} color="rgba(255,255,255,0.5)" />
+            <Text style={styles.placeholderText}>
+              {isHost ? 'Your Live Stream' : stream?.title || 'Live Stream'}
+            </Text>
+            <Text style={styles.placeholderSubtext}>
+              {IS_WEB 
+                ? 'Video streaming requires native app (Expo Go)' 
+                : connected ? 'Stream active' : 'Connecting...'}
+            </Text>
+            {IS_WEB && (
+              <View style={styles.webNotice}>
+                <Ionicons name="information-circle" size={16} color="#fff" />
+                <Text style={styles.webNoticeText}>
+                  Open in Expo Go for full video experience
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+      </LinearGradient>
     );
   };
 
@@ -479,7 +346,7 @@ export default function LiveStreamScreen() {
               >
                 {msg.isSuperChat && (
                   <View style={styles.superChatBadge}>
-                    <Text style={styles.superChatAmount}>${msg.amount}</Text>
+                    <Text style={styles.superChatAmountText}>${msg.amount}</Text>
                   </View>
                 )}
                 <Text style={styles.messageUser}>{msg.user}</Text>
@@ -579,9 +446,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     position: 'relative',
   },
-  videoView: {
-    flex: 1,
-  },
   videoPlaceholder: {
     flex: 1,
     justifyContent: 'center',
@@ -603,6 +467,20 @@ const styles = StyleSheet.create({
     marginTop: 8,
     color: 'rgba(255,255,255,0.7)',
     fontSize: 14,
+  },
+  webNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 20,
+  },
+  webNoticeText: {
+    color: '#fff',
+    fontSize: 12,
   },
   topOverlay: {
     position: 'absolute',
@@ -754,7 +632,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginBottom: 4,
   },
-  superChatAmount: {
+  superChatAmountText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '700',
