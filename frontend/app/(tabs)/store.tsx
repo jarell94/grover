@@ -110,11 +110,16 @@ export default function StoreScreen() {
       formData.append('description', description);
       formData.append('price', price);
 
-      if (selectedImage) {
+      if (selectedImage?.uri) {
+        const uri = selectedImage.uri;
+        // Infer file extension from URI
+        const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
+        const mimeType = fileExt === 'png' ? 'image/png' : fileExt === 'gif' ? 'image/gif' : 'image/jpeg';
+
         formData.append('image', {
-          uri: selectedImage.uri,
-          type: 'image/jpeg',
-          name: 'product.jpg',
+          uri,
+          name: `product.${fileExt}`,
+          type: mimeType,
         } as any);
       }
 
@@ -125,6 +130,7 @@ export default function StoreScreen() {
       setSelectedImage(null);
       setCreateModalVisible(false);
       loadProducts();
+      Alert.alert('Success', 'Product created successfully!');
     } catch (error) {
       console.error('Create product error:', error);
       Alert.alert('Error', 'Failed to create product');
