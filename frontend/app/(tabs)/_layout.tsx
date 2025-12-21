@@ -111,7 +111,7 @@ export default function TabsLayout() {
         options={{
           title: "Messages",
           headerShown: false,
-          tabBarBadge: unreadMessages ? unreadMessages : undefined,
+          tabBarBadge: unreadMessages > 0 ? unreadMessages : undefined,
           tabBarBadgeStyle: {
             backgroundColor: Colors.primary,
             color: Colors.background,
@@ -131,7 +131,7 @@ export default function TabsLayout() {
         options={{
           title: "Notifications",
           headerShown: false,
-          tabBarBadge: unreadNotifications ? unreadNotifications : undefined,
+          tabBarBadge: unreadNotifications > 0 ? unreadNotifications : undefined,
           tabBarBadgeStyle: {
             backgroundColor: Colors.primary,
             color: Colors.background,
