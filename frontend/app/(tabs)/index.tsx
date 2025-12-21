@@ -478,7 +478,6 @@ export default function HomeScreen() {
     setUploading(true);
     try {
       const formData = new FormData();
-      // Backend requires content field, use empty string if no text but has media/poll
       formData.append('content', newPostContent.trim() || '');
 
       if (taggedUsers.trim()) {
@@ -495,32 +494,47 @@ export default function HomeScreen() {
         formData.append('poll_duration_hours', pollDuration.toString());
       }
 
-      if (selectedMedia) {
-        let fileType = 'application/octet-stream';
+      if (selectedMedia?.uri) {
+        const uri = selectedMedia.uri;
+        const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
+        
+        // Infer MIME type from file extension
+        let mimeType = 'application/octet-stream';
         let fileName = 'media';
         
-        if (selectedMedia.type === 'video') {
-          fileType = 'video/mp4';
-          fileName = 'video.mp4';
-        } else if (selectedMedia.type === 'audio') {
-          fileType = selectedMedia.mimeType || 'audio/mpeg';
-          fileName = selectedMedia.name || 'audio.mp3';
-        } else {
-          fileType = selectedMedia.mimeType || 'image/jpeg';
+        if (['jpg', 'jpeg'].includes(fileExt)) {
+          mimeType = 'image/jpeg';
           fileName = 'image.jpg';
+        } else if (fileExt === 'png') {
+          mimeType = 'image/png';
+          fileName = 'image.png';
+        } else if (fileExt === 'gif') {
+          mimeType = 'image/gif';
+          fileName = 'image.gif';
+        } else if (['mp4', 'mov', 'm4v'].includes(fileExt)) {
+          mimeType = 'video/mp4';
+          fileName = 'video.mp4';
+        } else if (['mp3', 'm4a', 'aac'].includes(fileExt)) {
+          mimeType = 'audio/mpeg';
+          fileName = `audio.${fileExt}`;
+        } else if (fileExt === 'wav') {
+          mimeType = 'audio/wav';
+          fileName = 'audio.wav';
+        } else if (selectedMedia.mimeType) {
+          mimeType = selectedMedia.mimeType;
+          fileName = selectedMedia.name || `media.${fileExt}`;
         }
 
-        // Use native URI for React Native, fallback to base64 data URI for web
-        const mediaUri = selectedMedia.uri || `data:${fileType};base64,${selectedMedia.base64}`;
-        
-        formData.append("media", {
-          uri: mediaUri,
-          type: fileType,
+        formData.append('media', {
+          uri,
+          type: mimeType,
           name: fileName,
         } as any);
       }
 
       await api.createPost(formData);
+      
+      // Reset form
       setNewPostContent('');
       setTaggedUsers('');
       setLocation('');
@@ -530,10 +544,12 @@ export default function HomeScreen() {
       setPollOptions(['', '']);
       setPollDuration(24);
       setCreateModalVisible(false);
-      loadFeed();
+      
+      // Refresh feed
+      loadFeed(true);
       Alert.alert('Success', 'Post created successfully!');
     } catch (error) {
-      console.error('Create post error:', error);
+      if (__DEV__) console.error('Create post error:', error);
       Alert.alert('Error', 'Failed to create post. Please try again.');
     } finally {
       setUploading(false);
