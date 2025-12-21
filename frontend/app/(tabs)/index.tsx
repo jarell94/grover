@@ -396,6 +396,30 @@ export default function HomeScreen() {
     }
   };
 
+  // Get next video URI for preloading
+  const getNextVideoUri = useCallback((currentPostId: string) => {
+    const currentIndex = posts.findIndex(p => p.post_id === currentPostId);
+    if (currentIndex === -1) return undefined;
+    
+    // Find next video post
+    for (let i = currentIndex + 1; i < Math.min(currentIndex + 3, posts.length); i++) {
+      if (posts[i]?.media_type === 'video' && posts[i]?.media_url) {
+        return posts[i].media_url;
+      }
+    }
+    return undefined;
+  }, [posts]);
+
+  // Track visible posts for auto-play
+  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
+    const visibleIds = new Set(viewableItems.map((item: any) => item.item.post_id));
+    setVisiblePosts(visibleIds);
+  }, []);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
+
   const handleUnrepost = async (postId: string) => {
     Alert.alert(
       'Remove Repost',
