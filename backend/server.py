@@ -3249,18 +3249,30 @@ async def create_story(
     """Create a 24-hour disappearing story"""
     story_id = f"story_{uuid.uuid4().hex[:12]}"
     
-    # Read and encode media
+    # Read and validate media
     media_content = await media.read()
-    media_base64 = base64.b64encode(media_content).decode('utf-8')
-    media_type = 'video' if media.content_type.startswith('video') else 'image'
+    
+    # Determine media type
+    media_type = 'video' if media.content_type and media.content_type.startswith('video') else 'image'
+    
+    # Upload to Cloudinary (or base64 fallback)
+    upload_result = await upload_media(
+        file_data=media_content,
+        filename=media.filename or f"story_{story_id}",
+        content_type=media.content_type or "image/jpeg",
+        folder="grover/stories",
+        generate_thumbnail=media_type == "image"
+    )
     
     expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
     
     story_data = {
         "story_id": story_id,
         "user_id": current_user.user_id,
-        "media_url": media_base64,
-        "media_type": media_type,
+        "media_url": upload_result["url"],
+        "media_type": upload_result["media_type"],
+        "media_public_id": upload_result.get("public_id"),
+        "thumbnail_url": upload_result.get("thumbnail"),
         "caption": caption,
         "views_count": 0,
         "reactions_count": 0,
