@@ -44,6 +44,12 @@ export default function StoriesScreen() {
   
   const progressAnim = useRef(new Animated.Value(0)).current;
   const progressTimer = useRef<NodeJS.Timeout | null>(null);
+  const pausedRef = useRef(false);
+
+  // Keep pausedRef in sync with paused state
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   useEffect(() => {
     if (storiesParam) {
