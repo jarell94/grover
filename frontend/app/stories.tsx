@@ -167,6 +167,20 @@ export default function StoriesScreen() {
   const currentStory = currentUserStories[currentMediaIndex];
   const user = allStories[currentStoryIndex]?.user;
 
+  // Handle both Cloudinary URLs and legacy base64 data
+  const getMediaUri = (story: any) => {
+    if (!story?.media_url) return '';
+    if (story.media_url.startsWith('http')) {
+      return story.media_url;
+    }
+    // Legacy base64 fallback
+    return story.media_type === 'video'
+      ? `data:video/mp4;base64,${story.media_url}`
+      : `data:image/jpeg;base64,${story.media_url}`;
+  };
+
+  const mediaUri = getMediaUri(currentStory);
+
   return (
     <KeyboardAvoidingView 
       style={styles.container} 
