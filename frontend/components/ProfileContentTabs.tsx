@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -27,13 +27,23 @@ type Post = {
 type Props = {
   userId: string;
   api: {
-    // You can map these to your real API methods
     getUserPosts?: (userId: string, limit?: number, skip?: number) => Promise<Post[]>;
-    getUserMedia?: (userId: string, mediaType: "image" | "video" | "audio", limit?: number, skip?: number) => Promise<Post[]>;
+    getUserMedia?: (
+      userId: string,
+      mediaType: "image" | "video" | "audio",
+      limit?: number,
+      skip?: number
+    ) => Promise<Post[]>;
   };
 };
 
 const PAGE_SIZE = 18;
+
+function dedupeById(list: Post[]) {
+  const map = new Map<string, Post>();
+  for (const item of list) map.set(item.post_id, item);
+  return Array.from(map.values());
+}
 
 export default function ProfileContentTabs({ userId, api }: Props) {
   const tabs = useMemo(
@@ -54,8 +64,12 @@ export default function ProfileContentTabs({ userId, api }: Props) {
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
 
+  // guards against stale async responses (tab switches / refresh)
+  const requestSeq = useRef(0);
+
   const fetchPage = useCallback(
     async (tab: TabKey, pageToLoad: number, isRefresh = false) => {
+      const myReq = ++requestSeq.current; // newest request id
       const skip = pageToLoad * PAGE_SIZE;
 
       let data: Post[] = [];
@@ -68,14 +82,19 @@ export default function ProfileContentTabs({ userId, api }: Props) {
         data = await api.getUserMedia(userId, mediaType, PAGE_SIZE, skip);
       }
 
+      // stale response? ignore
+      if (myReq !== requestSeq.current) return;
+
       const safe = Array.isArray(data) ? data : [];
-      setHasMore(safe.length === PAGE_SIZE);
+      const more = safe.length === PAGE_SIZE;
+
+      setHasMore(more);
 
       if (isRefresh) {
-        setItems(safe);
+        setItems(dedupeById(safe));
         setPage(1);
       } else {
-        setItems((prev) => [...prev, ...safe]);
+        setItems((prev) => dedupeById([...prev, ...safe]));
         setPage(pageToLoad + 1);
       }
     },
@@ -118,10 +137,7 @@ export default function ProfileContentTabs({ userId, api }: Props) {
   }, [active, fetchPage, hasMore, loading, loadingMore, page, refreshing]);
 
   const openPost = (post: Post) => {
-    router.push({
-      pathname: "/post/[id]",
-      params: { id: post.post_id },
-    });
+    router.push({ pathname: "/post/[id]", params: { id: post.post_id } });
   };
 
   const renderTabBar = () => (
@@ -147,18 +163,21 @@ export default function ProfileContentTabs({ userId, api }: Props) {
   );
 
   const renderGridItem = ({ item }: { item: Post }) => {
-    // grid tiles: images show thumbnail, other types show an icon + snippet
     const isImage = item.media_type === "image";
     const isVideo = item.media_type === "video";
     const isAudio = item.media_type === "audio";
 
+    const uri =
+      item.media_url && item.media_url.startsWith("http")
+        ? item.media_url
+        : item.media_url
+        ? `data:image/jpeg;base64,${item.media_url}`
+        : undefined;
+
     return (
       <TouchableOpacity style={styles.tile} activeOpacity={0.9} onPress={() => openPost(item)}>
-        {isImage && item.media_url ? (
-          <Image
-            source={{ uri: item.media_url.startsWith("http") ? item.media_url : `data:image/jpeg;base64,${item.media_url}` }}
-            style={styles.tileImage}
-          />
+        {isImage && uri ? (
+          <Image source={{ uri }} style={styles.tileImage} />
         ) : (
           <View style={styles.tileFallback}>
             <Ionicons
@@ -171,6 +190,18 @@ export default function ProfileContentTabs({ userId, api }: Props) {
             </Text>
           </View>
         )}
+
+        {/* small badge for type */}
+        {(isVideo || isAudio) && (
+          <View style={styles.typeBadge}>
+            <Ionicons
+              name={isVideo ? "videocam" : "musical-notes"}
+              size={12}
+              color="#fff"
+            />
+          </View>
+        )}
+
         <View style={styles.tileOverlay}>
           <Ionicons name="heart" size={12} color="#fff" />
           <Text style={styles.tileOverlayText}>{item.likes_count ?? 0}</Text>
@@ -216,7 +247,13 @@ export default function ProfileContentTabs({ userId, api }: Props) {
         renderItem={renderGridItem}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={{ gap: 8 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+          />
+        }
         onEndReached={onEndReached}
         onEndReachedThreshold={0.35}
         ListEmptyComponent={<Empty />}
@@ -233,9 +270,7 @@ export default function ProfileContentTabs({ userId, api }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginTop: 8,
-  },
+  container: { marginTop: 8 },
   tabBar: {
     flexDirection: "row",
     gap: 8,
@@ -258,19 +293,10 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     backgroundColor: `${Colors.primary}15`,
   },
-  tabText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Colors.textSecondary,
-  },
-  tabTextActive: {
-    color: Colors.primary,
-  },
-  grid: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-    gap: 8,
-  },
+  tabText: { fontSize: 12, fontWeight: "700", color: Colors.textSecondary },
+  tabTextActive: { color: Colors.primary },
+
+  grid: { paddingHorizontal: 16, paddingBottom: 24, gap: 8 },
   tile: {
     flex: 1,
     aspectRatio: 1,
@@ -280,22 +306,20 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     backgroundColor: Colors.card,
   },
-  tileImage: {
-    width: "100%",
-    height: "100%",
+  tileImage: { width: "100%", height: "100%" },
+  tileFallback: { flex: 1, padding: 10, justifyContent: "center", alignItems: "center", gap: 8 },
+  tileText: { fontSize: 11, textAlign: "center", color: Colors.text },
+
+  typeBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  tileFallback: {
-    flex: 1,
-    padding: 10,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 8,
-  },
-  tileText: {
-    fontSize: 11,
-    textAlign: "center",
-    color: Colors.text,
-  },
+
   tileOverlay: {
     position: "absolute",
     bottom: 8,
@@ -308,28 +332,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
   },
-  tileOverlayText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  empty: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 56,
-    gap: 10,
-    width: "100%",
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: Colors.text,
-  },
-  emptySub: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    paddingHorizontal: 24,
-    lineHeight: 18,
-  },
+  tileOverlayText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+
+  empty: { alignItems: "center", justifyContent: "center", paddingVertical: 56, gap: 10, width: "100%" },
+  emptyTitle: { fontSize: 16, fontWeight: "800", color: Colors.text },
+  emptySub: { fontSize: 13, color: Colors.textSecondary, textAlign: "center", paddingHorizontal: 24, lineHeight: 18 },
 });
