@@ -11,6 +11,7 @@ import httpx
 import base64
 import uuid
 import re
+import time
 from pathlib import Path
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
@@ -19,6 +20,14 @@ from io import BytesIO
 from PIL import Image
 from paypal_service import create_payment, execute_payment, get_payment_details
 from paypal_payout_service import send_payout
+
+# Agora Token Builder
+try:
+    from agora_token_builder import RtcTokenBuilder, Role_Publisher, Role_Subscriber
+    AGORA_AVAILABLE = True
+except ImportError:
+    AGORA_AVAILABLE = False
+    print("Warning: agora_token_builder not installed. Live streaming will be limited.")
 
 # ============ SECURITY CONSTANTS ============
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
