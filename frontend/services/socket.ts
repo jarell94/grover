@@ -132,21 +132,58 @@ class SocketService {
     }
   }
 
-  onNewMessage(callback: (message: any) => void): void {
+  onNewMessage(callback: (message: any) => void): () => void {
     if (this.socket) {
       this.socket.on('new_message', callback);
+      return () => {
+        this.socket?.off('new_message', callback);
+      };
     }
+    return () => {};
   }
 
-  onUserTyping(callback: (data: any) => void): void {
+  onUserTyping(callback: (data: any) => void): () => void {
     if (this.socket) {
       this.socket.on('user_typing', callback);
+      return () => {
+        this.socket?.off('user_typing', callback);
+      };
     }
+    return () => {};
+  }
+
+  onTyping(callback: (payload: { conversationId: string; userId: string; isTyping: boolean }) => void): () => void {
+    if (this.socket) {
+      this.socket.on('typing_update', callback);
+      return () => {
+        this.socket?.off('typing_update', callback);
+      };
+    }
+    return () => {};
   }
 
   typing(conversationId: string, userId: string): void {
     if (this.socket && this.isConnected) {
       this.socket.emit('typing', {
+        conversation_id: conversationId,
+        user_id: userId,
+      });
+    }
+  }
+
+  setTyping(conversationId: string, userId: string, isTyping: boolean): void {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('typing_set', {
+        conversation_id: conversationId,
+        user_id: userId,
+        is_typing: isTyping,
+      });
+    }
+  }
+
+  leaveConversation(conversationId: string, userId: string): void {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('leave_conversation', {
         conversation_id: conversationId,
         user_id: userId,
       });
