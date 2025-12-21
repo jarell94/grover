@@ -3450,31 +3450,107 @@ async def get_user_highlights(user_id: str, current_user: User = Depends(require
 
 # ============ LIVE STREAMING ENDPOINTS ============
 
+# Agora configuration
+AGORA_APP_ID = os.environ.get('AGORA_APP_ID', '')
+AGORA_APP_CERTIFICATE = os.environ.get('AGORA_APP_CERTIFICATE', '')
+
+def generate_agora_token(channel_name: str, uid: int, role: str = 'publisher', expire_seconds: int = 3600):
+    """Generate Agora RTC token"""
+    if not AGORA_AVAILABLE or not AGORA_APP_ID or not AGORA_APP_CERTIFICATE:
+        return None
+    
+    try:
+        privilege_expire_ts = int(time.time()) + expire_seconds
+        
+        if role == 'publisher':
+            agora_role = Role_Publisher
+        else:
+            agora_role = Role_Subscriber
+        
+        token = RtcTokenBuilder.buildTokenWithUid(
+            AGORA_APP_ID,
+            AGORA_APP_CERTIFICATE,
+            channel_name,
+            uid,
+            agora_role,
+            privilege_expire_ts
+        )
+        return token
+    except Exception as e:
+        print(f"Agora token generation error: {e}")
+        return None
+
+@api_router.get("/streams/agora-config")
+async def get_agora_config(current_user: User = Depends(require_auth)):
+    """Get Agora configuration for client"""
+    return {
+        "app_id": AGORA_APP_ID if AGORA_APP_ID else None,
+        "available": bool(AGORA_APP_ID and AGORA_AVAILABLE)
+    }
+
+@api_router.post("/streams/token")
+async def get_stream_token(
+    channel_name: str = Form(...),
+    role: str = Form("subscriber"),
+    current_user: User = Depends(require_auth)
+):
+    """Get Agora token for joining a stream"""
+    validate_id(channel_name, "channel_name")
+    
+    # Generate a unique UID based on user_id
+    uid = abs(hash(current_user.user_id)) % (2**31)
+    
+    token = generate_agora_token(channel_name, uid, role)
+    
+    if not token:
+        # Return placeholder if Agora not configured
+        return {
+            "token": None,
+            "uid": uid,
+            "channel_name": channel_name,
+            "app_id": AGORA_APP_ID or None,
+            "message": "Agora not configured - using mock mode"
+        }
+    
+    return {
+        "token": token,
+        "uid": uid,
+        "channel_name": channel_name,
+        "app_id": AGORA_APP_ID
+    }
+
 @api_router.post("/streams/start")
 async def start_stream(
     title: str = Form(...),
     description: Optional[str] = Form(None),
     enable_super_chat: bool = Form(False),
     enable_shopping: bool = Form(False),
+    camera_facing: Optional[str] = Form("front"),
     current_user: User = Depends(require_auth)
 ):
     """Start a live stream"""
     stream_id = f"stream_{uuid.uuid4().hex[:12]}"
+    channel_name = stream_id
     
-    # In production, you would generate Agora token here
-    # For now, we'll use a placeholder
+    # Generate UID for the host
+    host_uid = abs(hash(current_user.user_id)) % (2**31)
+    
+    # Generate Agora token for host (publisher role)
+    agora_token = generate_agora_token(channel_name, host_uid, 'publisher', 7200)  # 2 hour expiry
+    
     stream_data = {
         "stream_id": stream_id,
         "user_id": current_user.user_id,
-        "title": title,
-        "description": description,
+        "title": sanitize_string(title, 200, "title"),
+        "description": sanitize_string(description, 1000, "description") if description else None,
         "enable_super_chat": enable_super_chat,
         "enable_shopping": enable_shopping,
         "status": "live",
         "viewers_count": 0,
-        "started_at": datetime.now(timezone.utc),
-        "channel_name": stream_id,  # Agora channel name
-        "agora_token": "temp_token",  # Would generate real token in production
+        "started_at": datetime.utcnow().isoformat(),
+        "channel_name": channel_name,
+        "host_uid": host_uid,
+        "camera_facing": camera_facing,
     }
     
     await db.streams.insert_one(stream_data)
@@ -3495,8 +3571,10 @@ async def start_stream(
     
     return {
         "stream_id": stream_id,
-        "channel_name": stream_id,
-        "token": "temp_token",
+        "channel_name": channel_name,
+        "token": agora_token,
+        "uid": host_uid,
+        "app_id": AGORA_APP_ID or None,
         "message": "Stream started successfully"
     }
 
