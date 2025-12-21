@@ -406,15 +406,15 @@ export default function HomeScreen() {
           onPress: async () => {
             try {
               await api.unrepostPost(postId);
-              setPosts(posts.map(p =>
+              setPosts((prev) => prev.map(p =>
                 p.post_id === postId
                   ? { ...p, repost_count: Math.max(0, (p.repost_count || 0) - 1), reposted: false }
                   : p
               ));
               Alert.alert('Success', 'Repost removed');
-              loadFeed();
+              loadFeed(true);
             } catch (error) {
-              console.error('Unrepost error:', error);
+              if (__DEV__) console.error('Unrepost error:', error);
               Alert.alert('Error', 'Failed to remove repost');
             }
           },
