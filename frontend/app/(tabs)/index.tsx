@@ -20,7 +20,6 @@ import { router, useFocusEffect } from 'expo-router';
 import { api } from '../../services/api';
 import { pickMedia as pickMediaUtil } from '../../utils/mediaPicker';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 import MediaDisplay from '../../components/MediaDisplay';
 
