@@ -145,6 +145,9 @@ export const api = {
   getUserStats: (userId: string) => apiRequest(`/users/${userId}/stats`),
   getPostsByUser: (userId: string, limit = 18, skip = 0) => apiRequest(`/posts?user_id=${userId}&limit=${limit}&skip=${skip}`),
   getPostsByUserMedia: (userId: string, mediaType: string, limit = 18, skip = 0) => apiRequest(`/posts/media?user_id=${userId}&media_type=${mediaType}&limit=${limit}&skip=${skip}`),
+  // Aliases for ProfileContentTabs component
+  getUserPosts: (userId: string, limit = 18, skip = 0) => apiRequest(`/posts?user_id=${userId}&limit=${limit}&skip=${skip}`),
+  getUserMedia: (userId: string, mediaType: "image" | "video" | "audio", limit = 18, skip = 0) => apiRequest(`/posts/media?user_id=${userId}&media_type=${mediaType}&limit=${limit}&skip=${skip}`),
   updateProfile: (data: any) => apiRequest('/users/me', {
     method: 'PUT',
     body: JSON.stringify(data),
