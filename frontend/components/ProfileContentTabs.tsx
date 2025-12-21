@@ -12,6 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Colors } from "../constants/Colors";
+import MediaViewer from "./MediaViewer";
 
 type TabKey = "posts" | "photos" | "videos" | "audio";
 
@@ -21,6 +22,7 @@ type Post = {
   media_url?: string;
   media_type?: string; // "image" | "video" | "audio"
   likes_count: number;
+  comments_count?: number;
   created_at: string;
 };
 
@@ -35,6 +37,7 @@ type Props = {
       skip?: number
     ) => Promise<Post[]>;
   };
+  stickyHeader?: boolean;
 };
 
 const PAGE_SIZE = 18;
