@@ -1614,10 +1614,21 @@ async def create_product(
         raise HTTPException(status_code=400, detail="Invalid price (must be between 0.01 and 100000)")
     
     image_url = None
+    image_public_id = None
     if image:
         # Security: Validate file upload
         file_content = await validate_file_upload(image, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
-        image_url = base64.b64encode(file_content).decode('utf-8')
+        
+        # Upload to Cloudinary (or base64 fallback)
+        upload_result = await upload_media(
+            file_data=file_content,
+            filename=image.filename or "product",
+            content_type=image.content_type or "image/jpeg",
+            folder="grover/products",
+            generate_thumbnail=False
+        )
+        image_url = upload_result["url"]
+        image_public_id = upload_result.get("public_id")
     
     product_id = f"prod_{uuid.uuid4().hex[:12]}"
     await db.products.insert_one({
@@ -1627,6 +1638,7 @@ async def create_product(
         "description": description,
         "price": round(price, 2),  # Ensure 2 decimal places
         "image_url": image_url,
+        "image_public_id": image_public_id,
         "created_at": datetime.now(timezone.utc)
     })
     
