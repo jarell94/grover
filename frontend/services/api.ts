@@ -264,7 +264,8 @@ export const api = {
   getEngagement: () => apiRequest('/analytics/engagement'),
 
   // Notifications
-  getNotifications: () => apiRequest('/notifications'),
+  getNotifications: (limit = 50, skip = 0, unreadOnly = false) => 
+    apiRequest(`/notifications?limit=${limit}&skip=${skip}&unread_only=${unreadOnly}`),
   markNotificationsRead: () => apiRequest('/notifications/mark-read', { method: 'POST' }),
   markNotificationRead: (notificationId: string) => apiRequest(`/notifications/${notificationId}/read`, { method: 'POST' }),
 
