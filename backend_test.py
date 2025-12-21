@@ -65,31 +65,24 @@ async def test_stories_viewers_endpoint():
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         
-        # Test data - use existing users from database
-        test_users = [
-            {
-                "user_id": "user_7e16d95525b7",
-                "token": "zhR2T4ZXwavcIx9KiHXW_T2qeHaIqkVt-6Q3ZstMWSc",
-                "name": "jarell chaffin",
-                "role": "owner"
-            },
-            {
-                "user_id": "user_de7370183547", 
-                "token": "zhR2T4ZXwavcIx9KiHXW_T2qeHaIqkVt-6Q3ZstMWSc",  # Using same token for simplicity
-                "name": "Test User",
-                "role": "viewer"
-            }
-        ]
+        # Test data - use existing user for owner, create new user for viewer
+        owner = {
+            "user_id": "user_7e16d95525b7",
+            "token": "zhR2T4ZXwavcIx9KiHXW_T2qeHaIqkVt-6Q3ZstMWSc",
+            "name": "jarell chaffin",
+            "role": "owner"
+        }
+        
+        viewer = None
         story_id = None
         
         try:
             print("🧪 Testing Stories Viewers Endpoint")
             print("=" * 50)
             
-            # Step 1: Verify authentication works
-            print("\n📝 Step 1: Verifying authentication...")
+            # Step 1: Verify authentication works for owner
+            print("\n📝 Step 1: Verifying owner authentication...")
             
-            owner = test_users[0]
             response = await client.get(
                 f"{BASE_URL}/auth/me",
                 headers={"Authorization": f"Bearer {owner['token']}"}
@@ -97,9 +90,70 @@ async def test_stories_viewers_endpoint():
             
             if response.status_code == 200:
                 auth_data = response.json()
-                results.add_result("Authentication verification", True, f"User: {auth_data.get('name', 'Unknown')}")
+                results.add_result("Owner authentication verification", True, f"User: {auth_data.get('name', 'Unknown')}")
             else:
-                results.add_result("Authentication verification", False, f"Status: {response.status_code}")
+                results.add_result("Owner authentication verification", False, f"Status: {response.status_code}")
+                return results.summary()
+            
+            # Step 1b: Create a second user for viewing
+            print("\n👤 Step 1b: Creating viewer user...")
+            
+            # Create a unique session ID for the viewer
+            viewer_session_id = f"viewer_test_{int(datetime.now().timestamp())}"
+            
+            # Insert a test user directly into the database
+            import subprocess
+            create_user_cmd = f"""
+            mongosh test_database --eval "
+            const userId = 'user_viewer_test_{int(datetime.now().timestamp())}';
+            const sessionToken = 'viewer_token_{int(datetime.now().timestamp())}';
+            
+            // Create user
+            db.users.insertOne({{
+                user_id: userId,
+                email: 'viewer@test.com',
+                name: 'Test Viewer',
+                picture: 'https://example.com/avatar.jpg',
+                bio: '',
+                is_premium: false,
+                is_private: false,
+                created_at: new Date()
+            }});
+            
+            // Create session
+            db.user_sessions.insertOne({{
+                user_id: userId,
+                session_token: sessionToken,
+                expires_at: new Date(Date.now() + 7*24*60*60*1000),
+                created_at: new Date()
+            }});
+            
+            print('Created user: ' + userId + ' with token: ' + sessionToken);
+            " --quiet
+            """
+            
+            result = subprocess.run(create_user_cmd, shell=True, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                # Extract user_id and token from output
+                output_lines = result.stdout.strip().split('\n')
+                for line in output_lines:
+                    if 'Created user:' in line:
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            viewer_user_id = parts[2]
+                            viewer_token = parts[5]
+                            viewer = {
+                                "user_id": viewer_user_id,
+                                "token": viewer_token,
+                                "name": "Test Viewer",
+                                "role": "viewer"
+                            }
+                            results.add_result("Create viewer user", True, f"User ID: {viewer_user_id}")
+                            break
+            
+            if not viewer:
+                results.add_result("Create viewer user", False, "Failed to create viewer user")
                 return results.summary()
             
             # Step 2: Create a story as the owner
