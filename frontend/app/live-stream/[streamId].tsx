@@ -18,22 +18,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
-// Agora imports - will only work on native
-let createAgoraRtcEngine: any;
-let RtcSurfaceView: any;
-let ChannelProfileType: any;
-let ClientRoleType: any;
-let IRtcEngine: any;
+// Agora imports - only available on native platforms
+let createAgoraRtcEngine: any = null;
+let RtcSurfaceView: any = null;
+let ChannelProfileType: any = null;
+let ClientRoleType: any = null;
 
-try {
-  const AgoraModule = require('react-native-agora');
-  createAgoraRtcEngine = AgoraModule.createAgoraRtcEngine;
-  RtcSurfaceView = AgoraModule.RtcSurfaceView;
-  ChannelProfileType = AgoraModule.ChannelProfileType;
-  ClientRoleType = AgoraModule.ClientRoleType;
-  IRtcEngine = AgoraModule.IRtcEngine;
-} catch (e) {
-  console.log('Agora SDK not available - running in mock mode');
+// Only load Agora on native platforms (not web)
+const IS_NATIVE = Platform.OS === 'ios' || Platform.OS === 'android';
+
+if (IS_NATIVE) {
+  try {
+    const AgoraModule = require('react-native-agora');
+    createAgoraRtcEngine = AgoraModule.createAgoraRtcEngine;
+    RtcSurfaceView = AgoraModule.RtcSurfaceView;
+    ChannelProfileType = AgoraModule.ChannelProfileType;
+    ClientRoleType = AgoraModule.ClientRoleType;
+  } catch (e) {
+    console.log('Agora SDK not available - running in mock mode');
+  }
 }
 
 const { width, height } = Dimensions.get('window');
