@@ -48,17 +48,42 @@ class GroverAPITester:
     async def authenticate(self) -> bool:
         """Create test session by directly inserting into database"""
         try:
-            # For testing, we'll create a mock session directly
-            # This simulates having a valid session token
-            import uuid
+            import subprocess
+            import json
             from datetime import datetime, timezone, timedelta
             
             # Generate test user and session data
             self.user_id = f"user_{uuid.uuid4().hex[:12]}"
             self.auth_token = f"test_session_{uuid.uuid4().hex[:16]}"
             
-            # We'll test without authentication first to see which endpoints require it
-            # Then we can create a proper test user if needed
+            # Create test user in MongoDB
+            user_doc = {
+                "user_id": self.user_id,
+                "email": TEST_USER_EMAIL,
+                "name": TEST_USER_NAME,
+                "picture": "https://via.placeholder.com/150",
+                "bio": "Test user for API testing",
+                "is_premium": False,
+                "is_private": False,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            # Insert user using mongosh
+            user_cmd = f'mongosh test_database --eval "db.users.insertOne({json.dumps(user_doc, default=str)})"'
+            subprocess.run(user_cmd, shell=True, capture_output=True)
+            
+            # Create session in MongoDB
+            session_doc = {
+                "user_id": self.user_id,
+                "session_token": self.auth_token,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            # Insert session using mongosh
+            session_cmd = f'mongosh test_database --eval "db.user_sessions.insertOne({json.dumps(session_doc, default=str)})"'
+            subprocess.run(session_cmd, shell=True, capture_output=True)
+            
             self.log_test("Authentication Setup", True, f"Test User ID: {self.user_id}")
             return True
             
