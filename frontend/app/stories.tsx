@@ -157,12 +157,15 @@ export default function StoriesScreen() {
     } else if (x > third * 2) {
       handleNext();
     } else {
-      setPaused(!paused);
-      if (!paused) {
-        stopProgress();
-      } else {
-        startProgress();
-      }
+      setPaused((prev) => {
+        const next = !prev;
+        if (next) {
+          stopProgress();     // pausing
+        } else {
+          startProgress();    // resuming
+        }
+        return next;
+      });
     }
   };
 
