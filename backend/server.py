@@ -32,7 +32,10 @@ from media_service import (
 
 # Agora Token Builder
 try:
-    from agora_token_builder import RtcTokenBuilder, Role_Publisher, Role_Subscriber
+    from agora_token_builder import RtcTokenBuilder
+    # Role constants: 1 = Publisher (broadcaster), 2 = Subscriber (audience)
+    Role_Publisher = 1
+    Role_Subscriber = 2
     AGORA_AVAILABLE = True
 except ImportError:
     AGORA_AVAILABLE = False
