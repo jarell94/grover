@@ -209,23 +209,28 @@ export default function StoriesScreen() {
 
       {/* Progress bars */}
       <View style={styles.progressContainer}>
-        {currentUserStories.map((_, index) => (
-          <View key={index} style={styles.progressBarBg}>
-            <Animated.View
-              style={[
-                styles.progressBar,
-                {
-                  width: progressAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['0%', '100%'],
-                  }),
-                  opacity: index === currentMediaIndex ? 1 : index < currentMediaIndex ? 1 : 0.3,
-                  backgroundColor: index < currentMediaIndex ? '#fff' : index === currentMediaIndex ? '#fff' : 'transparent',
-                },
-              ]}
-            />
-          </View>
-        ))}
+        {currentUserStories.map((_, index) => {
+          const isPast = index < currentMediaIndex;
+          const isCurrent = index === currentMediaIndex;
+
+          return (
+            <View key={index} style={styles.progressBarBg}>
+              <Animated.View
+                style={[
+                  styles.progressBar,
+                  isPast && { width: '100%' },
+                  isCurrent && {
+                    width: progressAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0%', '100%'],
+                    }),
+                  },
+                  !isPast && !isCurrent && { width: '0%' },
+                ]}
+              />
+            </View>
+          );
+        })}
       </View>
 
       {/* Header */}
