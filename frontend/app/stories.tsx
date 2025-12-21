@@ -112,11 +112,9 @@ export default function StoriesScreen() {
 
   const handleNext = () => {
     if (currentMediaIndex < currentUserStories.length - 1) {
-      setCurrentMediaIndex(currentMediaIndex + 1);
+      setCurrentMediaIndex((i) => i + 1);
     } else if (currentStoryIndex < allStories.length - 1) {
-      setCurrentStoryIndex(currentStoryIndex + 1);
-      setCurrentUserStories(allStories[currentStoryIndex + 1].stories);
-      setCurrentMediaIndex(0);
+      setCurrentStoryIndex((i) => i + 1);
     } else {
       router.back();
     }
@@ -124,12 +122,14 @@ export default function StoriesScreen() {
 
   const handlePrevious = () => {
     if (currentMediaIndex > 0) {
-      setCurrentMediaIndex(currentMediaIndex - 1);
+      setCurrentMediaIndex((i) => i - 1);
     } else if (currentStoryIndex > 0) {
-      setCurrentStoryIndex(currentStoryIndex - 1);
-      const prevStories = allStories[currentStoryIndex - 1].stories;
+      setCurrentStoryIndex((i) => i - 1);
+      // When story index changes, effect will set stories + media index to 0
+      // But we want the last media of the previous user:
+      const prevStories = allStories[currentStoryIndex - 1]?.stories || [];
       setCurrentUserStories(prevStories);
-      setCurrentMediaIndex(prevStories.length - 1);
+      setCurrentMediaIndex(Math.max(prevStories.length - 1, 0));
     }
   };
 
