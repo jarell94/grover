@@ -2497,12 +2497,29 @@ async def get_engagement_analytics(current_user: User = Depends(require_auth)):
 # ============ NOTIFICATION ENDPOINTS ============
 
 @api_router.get("/notifications")
-async def get_notifications(current_user: User = Depends(require_auth)):
+async def get_notifications(
+    limit: int = 50,
+    skip: int = 0,
+    unread_only: bool = False,
+    current_user: User = Depends(require_auth)
+):
+    query = {"user_id": current_user.user_id}
+    if unread_only:
+        query["read"] = False
+    
     notifications = await db.notifications.find(
-        {"user_id": current_user.user_id},
+        query,
         {"_id": 0}
-    ).sort("created_at", -1).to_list(100)
-    return notifications
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Get total count for pagination
+    total = await db.notifications.count_documents(query)
+    
+    return {
+        "notifications": notifications,
+        "total": total,
+        "has_more": skip + len(notifications) < total
+    }
 
 @api_router.post("/notifications/mark-read")
 async def mark_notifications_read(current_user: User = Depends(require_auth)):
