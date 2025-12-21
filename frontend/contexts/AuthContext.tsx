@@ -59,7 +59,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async () => {
+  const login = async (args?: LoginArgs) => {
+    const mode = args?.mode || 'signin';
+    
     try {
       let redirectUrl = '';
       
@@ -73,8 +75,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         redirectUrl = Linking.createURL('/');
       }
 
-      console.log('Login - Redirect URL:', redirectUrl);
-      const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+      console.log('Login - Mode:', mode, 'Redirect URL:', redirectUrl);
+      // Include mode in auth URL for Emergent Auth to differentiate sign up vs sign in
+      const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}&mode=${mode}`;
       console.log('Login - Auth URL:', authUrl);
 
       if (Platform.OS === 'web') {
