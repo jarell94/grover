@@ -12,7 +12,7 @@ import time
 from io import BytesIO
 
 # Configuration
-BASE_URL = "https://creator-hub-317.preview.emergentagent.com/api"
+BASE_URL = "https://grover-creator.preview.emergentagent.com/api"
 
 class SecurityTester:
     def __init__(self):
@@ -264,7 +264,7 @@ class SecurityTester:
             if cors_origin == "*":
                 print("⚠️  CORS allows all origins (*) - consider restricting in production")
                 passed += 1  # Still functional, but not ideal
-            elif "groversocial" in cors_origin or cors_origin == "https://creator-hub-317.preview.emergentagent.com":
+            elif "groversocial" in cors_origin or cors_origin == "https://grover-creator.preview.emergentagent.com":
                 print("✅ CORS properly configured for specific domain")
                 passed += 1
             else:
