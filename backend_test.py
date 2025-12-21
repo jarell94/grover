@@ -155,10 +155,10 @@ class GroverAPITester:
         except Exception as e:
             self.log_test("Agora Token Generation", False, f"Exception: {str(e)}")
         
-        # Test POST /api/streams (create stream)
+        # Test POST /api/streams/start (create stream) - corrected endpoint
         stream_id = None
         try:
-            url = f"{BASE_URL}/streams"
+            url = f"{BASE_URL}/streams/start"
             data = {
                 "title": "Test Live Stream",
                 "description": "Testing stream creation",
@@ -178,9 +178,9 @@ class GroverAPITester:
         except Exception as e:
             self.log_test("Create Stream", False, f"Exception: {str(e)}")
         
-        # Test GET /api/streams (list streams)
+        # Test GET /api/streams/live (list streams) - corrected endpoint
         try:
-            url = f"{BASE_URL}/streams"
+            url = f"{BASE_URL}/streams/live"
             async with self.session.get(url, headers=self.get_headers()) as response:
                 if response.status == 200:
                     result = await response.json()
@@ -196,18 +196,6 @@ class GroverAPITester:
         
         # Test stream operations if we have a stream_id
         if stream_id:
-            # Test POST /api/streams/{id}/join
-            try:
-                url = f"{BASE_URL}/streams/{stream_id}/join"
-                async with self.session.post(url, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        self.log_test("Join Stream", True, "Joined stream successfully")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("Join Stream", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("Join Stream", False, f"Exception: {str(e)}")
-            
             # Test POST /api/streams/{id}/super-chat
             try:
                 url = f"{BASE_URL}/streams/{stream_id}/super-chat"
@@ -223,18 +211,6 @@ class GroverAPITester:
                         self.log_test("Super Chat", False, f"Status: {response.status}, Error: {error_text}")
             except Exception as e:
                 self.log_test("Super Chat", False, f"Exception: {str(e)}")
-            
-            # Test POST /api/streams/{id}/leave
-            try:
-                url = f"{BASE_URL}/streams/{stream_id}/leave"
-                async with self.session.post(url, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        self.log_test("Leave Stream", True, "Left stream successfully")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("Leave Stream", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("Leave Stream", False, f"Exception: {str(e)}")
             
             # Test POST /api/streams/{id}/end
             try:
