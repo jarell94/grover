@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Backend API Testing Suite for Grover Social Media Platform
-Tests all backend endpoints with proper authentication and validation
 FOCUS: Testing the newly added GET /api/stories/{story_id}/viewers endpoint
 """
 
@@ -18,8 +17,6 @@ from PIL import Image
 
 # Configuration
 BASE_URL = "https://creator-hub-320.preview.emergentagent.com/api"
-TEST_USER_EMAIL = "testuser@grover.com"
-TEST_USER_NAME = "Test User"
 
 class TestResults:
     def __init__(self):
@@ -61,454 +58,254 @@ def create_test_image():
     img.save(img_bytes, format='JPEG')
     img_bytes.seek(0)
     return img_bytes.getvalue()
+
+async def test_stories_viewers_endpoint():
+    """Test the GET /api/stories/{story_id}/viewers endpoint"""
+    results = TestResults()
     
-    async def test_media_status(self):
-        """Test GET /api/media/status endpoint"""
-        try:
-            url = f"{BASE_URL}/media/status"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    expected_keys = ["cloudinary_available", "cloudinary_configured", "storage_mode"]
-                    if all(key in result for key in expected_keys):
-                        self.log_test("Media Status", True, f"Storage mode: {result.get('storage_mode')}")
-                    else:
-                        self.log_test("Media Status", False, f"Missing keys in response: {result}")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Media Status", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Media Status", False, f"Exception: {str(e)}")
-    
-    async def test_agora_endpoints(self):
-        """Test Agora live streaming endpoints"""
-        # Test GET /api/streams/agora-config
-        try:
-            url = f"{BASE_URL}/streams/agora-config"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "app_id" in result:
-                        self.log_test("Agora Config", True, f"App ID configured")
-                    else:
-                        self.log_test("Agora Config", False, "No app_id in response")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Agora Config", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Agora Config", False, f"Exception: {str(e)}")
+    async with httpx.AsyncClient(timeout=30.0) as client:
         
-        # Test POST /api/streams/token
-        try:
-            url = f"{BASE_URL}/streams/token"
-            # Use form data instead of JSON
-            data = aiohttp.FormData()
-            data.add_field('channel_name', f"test_channel_{uuid.uuid4().hex[:8]}")
-            data.add_field('role', 'publisher')
-            
-            async with self.session.post(url, data=data, headers={"Authorization": f"Bearer {self.auth_token}"}) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "token" in result or "message" in result:
-                        self.log_test("Agora Token Generation", True, "Token endpoint working (may be mock mode)")
-                    else:
-                        self.log_test("Agora Token Generation", False, "No token or message in response")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Agora Token Generation", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Agora Token Generation", False, f"Exception: {str(e)}")
-        
-        # Test POST /api/streams/start (create stream) - corrected endpoint
-        stream_id = None
-        try:
-            url = f"{BASE_URL}/streams/start"
-            # Use form data instead of JSON
-            data = aiohttp.FormData()
-            data.add_field('title', 'Test Live Stream')
-            data.add_field('description', 'Testing stream creation')
-            data.add_field('enable_super_chat', 'true')  # Enable super chat for testing
-            
-            async with self.session.post(url, data=data, headers={"Authorization": f"Bearer {self.auth_token}"}) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "stream_id" in result:
-                        stream_id = result["stream_id"]
-                        self.log_test("Create Stream", True, f"Stream ID: {stream_id}")
-                    else:
-                        self.log_test("Create Stream", False, "No stream_id in response")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Create Stream", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Create Stream", False, f"Exception: {str(e)}")
-        
-        # Test GET /api/streams/live (list streams) - corrected endpoint
-        try:
-            url = f"{BASE_URL}/streams/live"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if isinstance(result, list):
-                        self.log_test("List Streams", True, f"Found {len(result)} streams")
-                    else:
-                        self.log_test("List Streams", False, "Response is not a list")
-                else:
-                    error_text = await response.text()
-                    self.log_test("List Streams", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("List Streams", False, f"Exception: {str(e)}")
-        
-        # Test stream operations if we have a stream_id
-        if stream_id:
-            # Test POST /api/streams/{id}/super-chat
-            try:
-                url = f"{BASE_URL}/streams/{stream_id}/super-chat"
-                # Use query parameters instead of JSON body
-                params = {
-                    "message": "Test super chat message!",
-                    "amount": 5.00
-                }
-                async with self.session.post(url, params=params, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        self.log_test("Super Chat", True, "Super chat sent successfully")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("Super Chat", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("Super Chat", False, f"Exception: {str(e)}")
-            
-            # Test POST /api/streams/{id}/end
-            try:
-                url = f"{BASE_URL}/streams/{stream_id}/end"
-                async with self.session.post(url, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        self.log_test("End Stream", True, "Stream ended successfully")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("End Stream", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("End Stream", False, f"Exception: {str(e)}")
-    
-    async def test_posts_endpoints(self):
-        """Test posts edit endpoints and user-specific content"""
-        # First create a test post
-        post_id = None
-        try:
-            url = f"{BASE_URL}/posts"
-            # Create form data for post creation
-            data = aiohttp.FormData()
-            data.add_field('content', 'Test post for editing')
-            data.add_field('location', 'Test Location')
-            data.add_field('tagged_users', f'{self.user_id}')
-            
-            async with self.session.post(url, data=data, headers={"Authorization": f"Bearer {self.auth_token}"}) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    post_id = result.get("post_id")
-                    self.log_test("Create Test Post", True, f"Post ID: {post_id}")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Create Test Post", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Create Test Post", False, f"Exception: {str(e)}")
-        
-        # Test PUT /api/posts/{post_id} (edit post)
-        if post_id:
-            try:
-                url = f"{BASE_URL}/posts/{post_id}"
-                data = {
-                    "content": "Updated test post content"
-                }
-                async with self.session.put(url, json=data, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        self.log_test("Edit Post", True, "Post updated successfully")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("Edit Post", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("Edit Post", False, f"Exception: {str(e)}")
-        
-        # Test GET /api/posts/me (user-specific posts)
-        try:
-            url = f"{BASE_URL}/posts/me"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if isinstance(result, list):
-                        self.log_test("Get My Posts", True, f"Found {len(result)} posts")
-                    else:
-                        self.log_test("Get My Posts", False, "Response is not a list")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Get My Posts", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Get My Posts", False, f"Exception: {str(e)}")
-    
-    async def test_products_endpoints(self):
-        """Test products edit endpoints and user-specific content"""
-        # First create a test product
-        product_id = None
-        try:
-            url = f"{BASE_URL}/products"
-            # Create form data for product creation
-            data = aiohttp.FormData()
-            data.add_field('name', 'Test Product')
-            data.add_field('description', 'Test product description')
-            data.add_field('price', '29.99')
-            
-            async with self.session.post(url, data=data, headers={"Authorization": f"Bearer {self.auth_token}"}) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    product_id = result.get("product_id")
-                    self.log_test("Create Test Product", True, f"Product ID: {product_id}")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Create Test Product", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Create Test Product", False, f"Exception: {str(e)}")
-        
-        # Test GET /api/products/{product_id} (get single product)
-        if product_id:
-            try:
-                url = f"{BASE_URL}/products/{product_id}"
-                async with self.session.get(url, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        if "product_id" in result and "name" in result:
-                            self.log_test("Get Product by ID", True, f"Product: {result.get('name')}")
-                        else:
-                            self.log_test("Get Product by ID", False, "Missing required fields in response")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("Get Product by ID", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("Get Product by ID", False, f"Exception: {str(e)}")
-            
-            # Test PUT /api/products/{product_id} (edit product)
-            try:
-                url = f"{BASE_URL}/products/{product_id}"
-                data = {
-                    "name": "Updated Test Product",
-                    "description": "Updated product description",
-                    "price": 39.99
-                }
-                async with self.session.put(url, json=data, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        self.log_test("Edit Product", True, "Product updated successfully")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("Edit Product", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("Edit Product", False, f"Exception: {str(e)}")
-        
-        # Test GET /api/products/me (user-specific products)
-        try:
-            url = f"{BASE_URL}/products/me"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if isinstance(result, list):
-                        self.log_test("Get My Products", True, f"Found {len(result)} products")
-                    else:
-                        self.log_test("Get My Products", False, "Response is not a list")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Get My Products", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Get My Products", False, f"Exception: {str(e)}")
-    
-    async def test_notification_settings(self):
-        """Test notification settings endpoints"""
-        # Test GET /api/users/me/notification-settings
-        try:
-            url = f"{BASE_URL}/users/me/notification-settings"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    expected_keys = ["notify_followers", "notify_likes", "notify_comments", "notify_messages"]
-                    if all(key in result for key in expected_keys):
-                        self.log_test("Get Notification Settings", True, "All notification settings present")
-                    else:
-                        self.log_test("Get Notification Settings", False, f"Missing keys in response: {result}")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Get Notification Settings", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Get Notification Settings", False, f"Exception: {str(e)}")
-        
-        # Test PUT /api/users/me/notification-settings
-        try:
-            url = f"{BASE_URL}/users/me/notification-settings"
-            data = {
-                "notify_followers": True,
-                "notify_likes": False,
-                "notify_comments": True,
-                "notify_messages": True,
-                "notify_sales": False
-            }
-            async with self.session.put(url, json=data, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "message" in result:
-                        self.log_test("Update Notification Settings", True, "Settings updated successfully")
-                    else:
-                        self.log_test("Update Notification Settings", False, "No message in response")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Update Notification Settings", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Update Notification Settings", False, f"Exception: {str(e)}")
-        
-        # Test POST /api/notifications/mark-read/{notification_id}
-        # First, we need to create a notification (this might not work without actual notifications)
-        try:
-            # Use a dummy notification ID for testing
-            notification_id = f"notif_{uuid.uuid4().hex[:12]}"
-            url = f"{BASE_URL}/notifications/mark-read/{notification_id}"
-            async with self.session.post(url, headers=self.get_headers()) as response:
-                # This might return 404 if notification doesn't exist, which is expected
-                if response.status in [200, 404]:
-                    self.log_test("Mark Notification Read", True, f"Endpoint accessible (status: {response.status})")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Mark Notification Read", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Mark Notification Read", False, f"Exception: {str(e)}")
-    
-    async def test_stories_endpoints(self):
-        """Test stories endpoints"""
-        # Test POST /api/stories (create story)
+        # Test data
+        test_users = []
         story_id = None
+        
         try:
-            url = f"{BASE_URL}/stories"
-            # Create form data for story creation with actual file upload
-            data = aiohttp.FormData()
-            data.add_field('caption', 'Test story caption')
+            print("🧪 Testing Stories Viewers Endpoint")
+            print("=" * 50)
             
-            # Create a small test image file
-            test_image_data = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==")
-            data.add_field('media', test_image_data, filename='test.png', content_type='image/png')
+            # Step 1: Create test users and authenticate
+            print("\n📝 Step 1: Creating test users...")
             
-            async with self.session.post(url, data=data, headers={"Authorization": f"Bearer {self.auth_token}"}) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    story_id = result.get("story_id")
-                    self.log_test("Create Story", True, f"Story ID: {story_id}")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Create Story", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Create Story", False, f"Exception: {str(e)}")
-        
-        # Test GET /api/stories (get stories from followed users)
-        try:
-            url = f"{BASE_URL}/stories"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if isinstance(result, list):
-                        self.log_test("Get Stories", True, f"Found {len(result)} stories")
+            # Create first test user (story owner)
+            user1_data = {
+                "session_id": f"test_session_owner_{datetime.now().timestamp()}"
+            }
+            
+            response = await client.get(
+                f"{BASE_URL}/auth/session",
+                params=user1_data
+            )
+            
+            if response.status_code == 200:
+                user1_auth = response.json()
+                test_users.append({
+                    "user_id": user1_auth["user_id"],
+                    "token": user1_auth["session_token"],
+                    "name": user1_auth["name"],
+                    "role": "owner"
+                })
+                results.add_result("Create story owner user", True, f"User ID: {user1_auth['user_id']}")
+            else:
+                results.add_result("Create story owner user", False, f"Status: {response.status_code}")
+                return results.summary()
+            
+            # Create second test user (viewer)
+            user2_data = {
+                "session_id": f"test_session_viewer_{datetime.now().timestamp()}"
+            }
+            
+            response = await client.get(
+                f"{BASE_URL}/auth/session",
+                params=user2_data
+            )
+            
+            if response.status_code == 200:
+                user2_auth = response.json()
+                test_users.append({
+                    "user_id": user2_auth["user_id"],
+                    "token": user2_auth["session_token"],
+                    "name": user2_auth["name"],
+                    "role": "viewer"
+                })
+                results.add_result("Create viewer user", True, f"User ID: {user2_auth['user_id']}")
+            else:
+                results.add_result("Create viewer user", False, f"Status: {response.status_code}")
+                return results.summary()
+            
+            # Step 2: Create a story as the owner
+            print("\n📸 Step 2: Creating a story...")
+            
+            owner = test_users[0]
+            test_image = create_test_image()
+            
+            files = {
+                'media': ('test_story.jpg', test_image, 'image/jpeg')
+            }
+            data = {
+                'caption': 'Test story for viewers endpoint testing'
+            }
+            
+            response = await client.post(
+                f"{BASE_URL}/stories",
+                headers={"Authorization": f"Bearer {owner['token']}"},
+                files=files,
+                data=data
+            )
+            
+            if response.status_code == 200:
+                story_response = response.json()
+                story_id = story_response["story_id"]
+                results.add_result("Create story", True, f"Story ID: {story_id}")
+            else:
+                results.add_result("Create story", False, f"Status: {response.status_code}, Response: {response.text}")
+                return results.summary()
+            
+            # Step 3: View the story with the viewer user
+            print("\n👀 Step 3: Viewing story with different user...")
+            
+            viewer = test_users[1]
+            
+            response = await client.post(
+                f"{BASE_URL}/stories/{story_id}/view",
+                headers={"Authorization": f"Bearer {viewer['token']}"}
+            )
+            
+            if response.status_code == 200:
+                view_response = response.json()
+                results.add_result("View story as viewer", True, f"Views count: {view_response.get('views_count', 'N/A')}")
+            else:
+                results.add_result("View story as viewer", False, f"Status: {response.status_code}, Response: {response.text}")
+            
+            # Step 4: Get viewers list as story owner
+            print("\n📊 Step 4: Getting viewers list as story owner...")
+            
+            response = await client.get(
+                f"{BASE_URL}/stories/{story_id}/viewers",
+                headers={"Authorization": f"Bearer {owner['token']}"}
+            )
+            
+            if response.status_code == 200:
+                viewers_response = response.json()
+                
+                # Validate response structure
+                if "viewers" in viewers_response and "total_count" in viewers_response:
+                    results.add_result("Get viewers - Response structure", True, "Contains viewers and total_count")
+                    
+                    viewers = viewers_response["viewers"]
+                    total_count = viewers_response["total_count"]
+                    
+                    # Check if viewer is in the list
+                    viewer_found = False
+                    for viewer_data in viewers:
+                        if "user" in viewer_data and "viewed_at" in viewer_data:
+                            user_info = viewer_data["user"]
+                            if user_info.get("user_id") == viewer["user_id"]:
+                                viewer_found = True
+                                # Validate user info structure
+                                required_fields = ["user_id", "name", "picture"]
+                                has_all_fields = all(field in user_info for field in required_fields)
+                                results.add_result("Viewer user info structure", has_all_fields, 
+                                                 f"Fields: {list(user_info.keys())}")
+                                
+                                # Validate viewed_at timestamp
+                                viewed_at = viewer_data["viewed_at"]
+                                if isinstance(viewed_at, str) and viewed_at:
+                                    results.add_result("Viewed_at timestamp", True, f"Timestamp: {viewed_at}")
+                                else:
+                                    results.add_result("Viewed_at timestamp", False, f"Invalid timestamp: {viewed_at}")
+                                break
+                    
+                    if viewer_found:
+                        results.add_result("Viewer in viewers list", True, f"Found viewer {viewer['user_id']}")
                     else:
-                        self.log_test("Get Stories", False, "Response is not a list")
+                        results.add_result("Viewer in viewers list", False, "Viewer not found in list")
+                    
+                    results.add_result("Total count accuracy", total_count >= len(viewers), 
+                                     f"Total: {total_count}, List length: {len(viewers)}")
+                    
                 else:
-                    error_text = await response.text()
-                    self.log_test("Get Stories", False, f"Status: {response.status}, Error: {error_text}")
+                    results.add_result("Get viewers - Response structure", False, 
+                                     f"Missing required fields. Response: {viewers_response}")
+            else:
+                results.add_result("Get viewers as owner", False, 
+                                 f"Status: {response.status_code}, Response: {response.text}")
+            
+            # Step 5: Test authorization - non-owner should get 403
+            print("\n🔒 Step 5: Testing authorization (non-owner access)...")
+            
+            response = await client.get(
+                f"{BASE_URL}/stories/{story_id}/viewers",
+                headers={"Authorization": f"Bearer {viewer['token']}"}
+            )
+            
+            if response.status_code == 403:
+                results.add_result("Non-owner 403 error", True, "Correctly denied access")
+            else:
+                results.add_result("Non-owner 403 error", False, 
+                                 f"Expected 403, got {response.status_code}")
+            
+            # Step 6: Test pagination parameters
+            print("\n📄 Step 6: Testing pagination parameters...")
+            
+            response = await client.get(
+                f"{BASE_URL}/stories/{story_id}/viewers",
+                headers={"Authorization": f"Bearer {owner['token']}"},
+                params={"limit": 10, "skip": 0}
+            )
+            
+            if response.status_code == 200:
+                results.add_result("Pagination parameters", True, "Limit and skip parameters accepted")
+            else:
+                results.add_result("Pagination parameters", False, 
+                                 f"Status: {response.status_code}")
+            
+            # Step 7: Test with invalid story ID
+            print("\n❌ Step 7: Testing with invalid story ID...")
+            
+            response = await client.get(
+                f"{BASE_URL}/stories/invalid_story_id/viewers",
+                headers={"Authorization": f"Bearer {owner['token']}"}
+            )
+            
+            if response.status_code == 404:
+                results.add_result("Invalid story ID 404", True, "Correctly returned 404")
+            else:
+                results.add_result("Invalid story ID 404", False, 
+                                 f"Expected 404, got {response.status_code}")
+            
+            # Step 8: Test without authentication
+            print("\n🚫 Step 8: Testing without authentication...")
+            
+            response = await client.get(f"{BASE_URL}/stories/{story_id}/viewers")
+            
+            if response.status_code == 401:
+                results.add_result("No auth 401 error", True, "Correctly required authentication")
+            else:
+                results.add_result("No auth 401 error", False, 
+                                 f"Expected 401, got {response.status_code}")
+            
         except Exception as e:
-            self.log_test("Get Stories", False, f"Exception: {str(e)}")
+            results.add_result("Test execution", False, f"Exception: {str(e)}")
         
-        # Test GET /api/users/{user_id}/highlights (get user's highlighted stories)
-        try:
-            url = f"{BASE_URL}/users/{self.user_id}/highlights"
-            async with self.session.get(url, headers=self.get_headers()) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if isinstance(result, list):
-                        self.log_test("Get User Highlights", True, f"Found {len(result)} highlighted stories")
-                    elif isinstance(result, dict):
-                        self.log_test("Get User Highlights", True, f"Highlights response received (dict format)")
-                    else:
-                        self.log_test("Get User Highlights", False, f"Unexpected response format: {type(result)}")
-                else:
-                    error_text = await response.text()
-                    self.log_test("Get User Highlights", False, f"Status: {response.status}, Error: {error_text}")
-        except Exception as e:
-            self.log_test("Get User Highlights", False, f"Exception: {str(e)}")
-        
-        # Test POST /api/stories/{id}/view (mark story as viewed)
-        if story_id:
-            try:
-                url = f"{BASE_URL}/stories/{story_id}/view"
-                async with self.session.post(url, headers=self.get_headers()) as response:
-                    if response.status == 200:
-                        self.log_test("View Story", True, "Story marked as viewed")
-                    else:
-                        error_text = await response.text()
-                        self.log_test("View Story", False, f"Status: {response.status}, Error: {error_text}")
-            except Exception as e:
-                self.log_test("View Story", False, f"Exception: {str(e)}")
+        finally:
+            # Cleanup: Delete the test story if created
+            if story_id and test_users:
+                try:
+                    print("\n🧹 Cleanup: Deleting test story...")
+                    owner = test_users[0]
+                    await client.delete(
+                        f"{BASE_URL}/stories/{story_id}",
+                        headers={"Authorization": f"Bearer {owner['token']}"}
+                    )
+                    print("✅ Test story deleted")
+                except Exception as e:
+                    print(f"⚠️ Cleanup failed: {e}")
     
-    async def run_all_tests(self):
-        """Run all backend tests"""
-        print("🚀 Starting Grover Backend API Tests")
-        print("=" * 50)
-        
-        # Authenticate first
-        if not await self.authenticate():
-            print("❌ Authentication failed. Cannot proceed with tests.")
-            return
-        
-        print("\n📊 Testing Media Upload Integration...")
-        await self.test_media_status()
-        
-        print("\n🎥 Testing Agora Live Streaming...")
-        await self.test_agora_endpoints()
-        
-        print("\n📝 Testing Posts Endpoints...")
-        await self.test_posts_endpoints()
-        
-        print("\n🛍️ Testing Products Endpoints...")
-        await self.test_products_endpoints()
-        
-        print("\n🔔 Testing Notification Settings...")
-        await self.test_notification_settings()
-        
-        print("\n📖 Testing Stories Endpoints...")
-        await self.test_stories_endpoints()
-        
-        # Summary
-        print("\n" + "=" * 50)
-        print("📋 TEST SUMMARY")
-        print("=" * 50)
-        
-        passed = sum(1 for result in self.test_results if result["success"])
-        total = len(self.test_results)
-        failed = total - passed
-        
-        print(f"Total Tests: {total}")
-        print(f"✅ Passed: {passed}")
-        print(f"❌ Failed: {failed}")
-        print(f"Success Rate: {(passed/total*100):.1f}%")
-        
-        if failed > 0:
-            print("\n🔍 FAILED TESTS:")
-            for result in self.test_results:
-                if not result["success"]:
-                    print(f"   ❌ {result['test']}: {result['details']}")
-        
-        return {
-            "total": total,
-            "passed": passed,
-            "failed": failed,
-            "success_rate": passed/total*100,
-            "results": self.test_results
-        }
+    return results.summary()
 
 async def main():
-    """Main test runner"""
-    async with GroverAPITester() as tester:
-        results = await tester.run_all_tests()
-        return results
+    """Main test function"""
+    print("🚀 Starting Stories Viewers Endpoint Tests")
+    print(f"Backend URL: {BASE_URL}")
+    
+    success = await test_stories_viewers_endpoint()
+    
+    if success:
+        print("\n🎉 All tests passed!")
+        exit(0)
+    else:
+        print("\n💥 Some tests failed!")
+        exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
