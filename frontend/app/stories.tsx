@@ -53,10 +53,19 @@ export default function StoriesScreen() {
 
   useEffect(() => {
     if (storiesParam) {
-      const parsed = JSON.parse(storiesParam as string);
-      setAllStories(parsed);
-      if (parsed[currentStoryIndex]) {
-        setCurrentUserStories(parsed[currentStoryIndex].stories);
+      try {
+        const parsed = JSON.parse(storiesParam as string);
+        if (Array.isArray(parsed)) {
+          setAllStories(parsed);
+          if (parsed[currentStoryIndex]?.stories) {
+            setCurrentUserStories(parsed[currentStoryIndex].stories);
+          }
+        }
+      } catch (error) {
+        if (__DEV__) {
+          console.error('Failed to parse stories:', error);
+        }
+        router.back();
       }
     }
   }, [storiesParam]);
@@ -70,9 +79,11 @@ export default function StoriesScreen() {
   }, [currentStoryIndex, allStories]);
 
   useEffect(() => {
-    if (currentUserStories.length > 0) {
+    if (currentUserStories.length > 0 && currentUserStories[currentMediaIndex]) {
       const story = currentUserStories[currentMediaIndex];
-      viewStory(story.story_id);
+      if (story?.story_id) {
+        viewStory(story.story_id);
+      }
       startProgress();
     }
     return () => stopProgress();
