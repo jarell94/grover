@@ -155,15 +155,16 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
 
   // Convert items to MediaViewer format
   const mediaItems = useMemo(() => {
-    if (active !== "photos" && active !== "videos") return [];
+    if (active !== "photos" && active !== "videos" && active !== "audio") return [];
     
     return items
       .filter((item) => item.media_url)
       .map((item) => ({
         id: item.post_id,
         uri: item.media_url!,
-        type: (active === "videos" ? "video" : "image") as "image" | "video",
+        type: (active === "videos" ? "video" : active === "audio" ? "audio" : "image") as "image" | "video" | "audio",
         caption: item.content,
+        title: item.content,
         likes_count: item.likes_count,
         comments_count: item.comments_count,
       }));
