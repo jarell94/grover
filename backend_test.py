@@ -159,7 +159,6 @@ async def test_stories_viewers_endpoint():
             # Step 2: Create a story as the owner
             print("\n📸 Step 2: Creating a story...")
             
-            owner = test_users[0]
             test_image = create_test_image()
             
             files = {
