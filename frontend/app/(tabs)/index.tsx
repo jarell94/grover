@@ -171,13 +171,13 @@ export default function HomeScreen() {
   const handleCommentLike = async (commentId: string) => {
     try {
       const result = await api.likeComment(commentId);
-      setComments(comments.map(c =>
+      setComments((prev) => prev.map(c =>
         c.comment_id === commentId
           ? { ...c, liked: result.liked, likes_count: c.likes_count + (result.liked ? 1 : -1) }
           : c
       ));
     } catch (error) {
-      console.error('Comment like error:', error);
+      if (__DEV__) console.error('Comment like error:', error);
     }
   };
 
