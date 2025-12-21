@@ -48,7 +48,7 @@ function dedupeById(list: Post[]) {
   return Array.from(map.values());
 }
 
-export default function ProfileContentTabs({ userId, api }: Props) {
+export default function ProfileContentTabs({ userId, api, stickyHeader }: Props) {
   const tabs = useMemo(
     () => [
       { key: "posts" as const, label: "Posts", icon: "apps" },
@@ -66,6 +66,10 @@ export default function ProfileContentTabs({ userId, api }: Props) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
+
+  // Media viewer state
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
 
   // guards against stale async responses (tab switches / refresh)
   const requestSeq = useRef(0);
