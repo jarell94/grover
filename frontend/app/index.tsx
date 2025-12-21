@@ -161,7 +161,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     padding: 16,
     borderRadius: 16,
-    backdropFilter: 'blur(10px)',
   },
   featureText: {
     fontSize: 16,
