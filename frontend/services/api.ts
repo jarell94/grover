@@ -59,6 +59,8 @@ export const setAuthToken = (token: string | null) => {
 
 export const getAuthToken = () => authToken;
 
+const REQUEST_TIMEOUT = 30000; // 30 seconds
+
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   initializeUrls(); // Ensure URLs are initialized
   
@@ -79,25 +81,65 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   }
 
   const url = `${API_URL}${endpoint}`;
-  console.log('API Request:', { url, method: options.method || 'GET' });
+  
+  // Only log in development
+  if (__DEV__) {
+    console.log('API Request:', { url, method: options.method || 'GET' });
+  }
+
+  // Create abort controller for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
   try {
     const response = await fetch(url, {
       ...options,
       headers,
+      signal: controller.signal,
     });
 
-    console.log('API Response:', { url, status: response.status, ok: response.ok });
+    clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('API Error:', { url, status: response.status, error });
-      throw new Error(error || `Request failed with status ${response.status}`);
+    if (__DEV__) {
+      console.log('API Response:', { url, status: response.status, ok: response.ok });
     }
 
-    return response.json();
-  } catch (error) {
-    console.error('API Request Failed:', { url, error });
+    if (!response.ok) {
+      let errorMessage = `Request failed with status ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {
+        // Use default error message
+      }
+      throw new Error(errorMessage);
+    }
+
+    // Handle empty responses
+    const text = await response.text();
+    if (!text) return null;
+    
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    
+    // Handle timeout
+    if (error.name === 'AbortError') {
+      throw new Error('Request timeout. Please check your connection.');
+    }
+    
+    // Handle network errors
+    if (error.message === 'Network request failed') {
+      throw new Error('Network error. Please check your connection.');
+    }
+    
+    if (__DEV__) {
+      console.error('API Request Failed:', { url, error: error.message });
+    }
     throw error;
   }
 };
@@ -112,24 +154,47 @@ const apiFormRequest = async (endpoint: string, formData: FormData) => {
   }
 
   const url = `${API_URL}${endpoint}`;
-  console.log('API Form Request:', { url });
+  
+  if (__DEV__) {
+    console.log('API Form Request:', { url });
+  }
+
+  // Create abort controller for timeout (longer for file uploads)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT * 2);
 
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers,
       body: formData,
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      const error = await response.text();
-      console.error('API Form Error:', { url, status: response.status, error });
-      throw new Error(error || `Request failed with status ${response.status}`);
+      let errorMessage = `Request failed with status ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {
+        // Use default error message
+      }
+      throw new Error(errorMessage);
     }
 
     return response.json();
-  } catch (error) {
-    console.error('API Form Request Failed:', { url, error });
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      throw new Error('Upload timeout. Please try again.');
+    }
+    
+    if (__DEV__) {
+      console.error('API Form Request Failed:', { url, error: error.message });
+    }
     throw error;
   }
 };
