@@ -344,6 +344,11 @@ async def require_auth(current_user: Optional[User] = Depends(get_current_user))
 
 # ============ AUTH ENDPOINTS ============
 
+@api_router.get("/media/status")
+async def get_media_status():
+    """Get media upload service status"""
+    return get_media_service_status()
+
 @api_router.get("/auth/session")
 async def create_session(session_id: str):
     """Exchange session_id for user data and create session"""
