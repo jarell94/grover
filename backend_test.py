@@ -2,15 +2,19 @@
 """
 Backend API Testing Suite for Grover Social Media Platform
 Tests all backend endpoints with proper authentication and validation
+FOCUS: Testing the newly added GET /api/stories/{story_id}/viewers endpoint
 """
 
 import asyncio
-import aiohttp
+import httpx
 import json
 import base64
 import uuid
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional
+from io import BytesIO
+from PIL import Image
 
 # Configuration
 BASE_URL = "https://creator-hub-320.preview.emergentagent.com/api"
