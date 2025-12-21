@@ -3,6 +3,7 @@ import { View, Image, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import VideoPlayer from './VideoPlayer';
 import AudioPlayer from './AudioPlayer';
+import FeedVideoPlayer from './FeedVideoPlayer';
 import { Colors } from '../constants/Colors';
 
 interface MediaDisplayProps {
@@ -10,6 +11,10 @@ interface MediaDisplayProps {
   mediaType?: 'image' | 'video' | 'audio' | string;
   title?: string;
   style?: any;
+  isVisible?: boolean;
+  onDoubleTapLike?: () => void;
+  preloadUri?: string;
+  useFeedPlayer?: boolean;
 }
 
 function resolveUri(mediaUrl: string, mediaType: string) {
@@ -36,6 +41,10 @@ export default function MediaDisplay({
   mediaType,
   title,
   style,
+  isVisible = true,
+  onDoubleTapLike,
+  preloadUri,
+  useFeedPlayer = true,
 }: MediaDisplayProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -77,6 +86,22 @@ export default function MediaDisplay({
   }
 
   if (mediaType === 'video') {
+    // Use enhanced FeedVideoPlayer with gestures
+    if (useFeedPlayer) {
+      return (
+        <FeedVideoPlayer
+          uri={mediaUrl}
+          style={style}
+          isVisible={isVisible}
+          onDoubleTapLike={onDoubleTapLike}
+          preloadUri={preloadUri}
+          showControls={true}
+          autoPlay={isVisible}
+          loop={true}
+        />
+      );
+    }
+    // Fallback to basic player
     return <VideoPlayer uri={uri} style={style} />;
   }
 
