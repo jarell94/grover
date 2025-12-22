@@ -4225,10 +4225,154 @@ async def get_poll_results(post_id: str, current_user: User = Depends(require_au
 # ============ SOCKET.IO HANDLERS ============
 
 active_users = {}
+stream_viewers = {}  # {stream_id: {user_id: sid}}
 
 @sio.event
 async def connect(sid, environ):
     logger.info(f"Client {sid} connected")
+
+# ============ STREAMING SOCKET.IO EVENTS ============
+
+@sio.event
+async def join_stream(sid, data):
+    """Join a stream room for real-time updates"""
+    stream_id = data.get("stream_id")
+    user_id = data.get("user_id")
+    
+    if stream_id and user_id:
+        sio.enter_room(sid, f"stream_{stream_id}")
+        
+        # Track viewer
+        if stream_id not in stream_viewers:
+            stream_viewers[stream_id] = {}
+        stream_viewers[stream_id][user_id] = sid
+        
+        # Get updated viewer count
+        viewer_count = len(stream_viewers.get(stream_id, {}))
+        
+        # Broadcast viewer count to stream room
+        await sio.emit('stream:viewers', {
+            "stream_id": stream_id,
+            "viewers_count": viewer_count
+        }, room=f"stream_{stream_id}")
+        
+        logger.info(f"User {user_id} joined stream {stream_id}, viewers: {viewer_count}")
+
+@sio.event
+async def leave_stream(sid, data):
+    """Leave a stream room"""
+    stream_id = data.get("stream_id")
+    user_id = data.get("user_id")
+    
+    if stream_id and user_id:
+        sio.leave_room(sid, f"stream_{stream_id}")
+        
+        # Remove from tracking
+        if stream_id in stream_viewers and user_id in stream_viewers[stream_id]:
+            del stream_viewers[stream_id][user_id]
+        
+        # Get updated viewer count
+        viewer_count = len(stream_viewers.get(stream_id, {}))
+        
+        # Broadcast viewer count to stream room
+        await sio.emit('stream:viewers', {
+            "stream_id": stream_id,
+            "viewers_count": viewer_count
+        }, room=f"stream_{stream_id}")
+        
+        logger.info(f"User {user_id} left stream {stream_id}, viewers: {viewer_count}")
+
+@sio.event
+async def stream_chat(sid, data):
+    """Handle real-time chat in a stream"""
+    stream_id = data.get("stream_id")
+    user_id = data.get("user_id")
+    text = data.get("text")
+    
+    if not all([stream_id, user_id, text]):
+        return
+    
+    # Get user info
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        return
+    
+    message_id = f"chat_{uuid.uuid4().hex[:12]}"
+    
+    # Store chat message
+    await db.stream_chats.insert_one({
+        "message_id": message_id,
+        "stream_id": stream_id,
+        "user_id": user_id,
+        "text": text[:500],  # Limit message length
+        "type": "chat",
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Broadcast to stream room
+    await sio.emit('stream:chat', {
+        "message_id": message_id,
+        "user": {
+            "user_id": user_id,
+            "name": user.get("name", "Anonymous"),
+            "picture": user.get("picture")
+        },
+        "text": text[:500],
+        "type": "chat",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }, room=f"stream_{stream_id}")
+
+@sio.event
+async def stream_like(sid, data):
+    """Handle likes in a stream"""
+    stream_id = data.get("stream_id")
+    user_id = data.get("user_id")
+    
+    if stream_id and user_id:
+        # Increment likes in DB
+        await db.streams.update_one(
+            {"stream_id": stream_id},
+            {"$inc": {"likes_count": 1}}
+        )
+        
+        # Get updated count
+        stream = await db.streams.find_one({"stream_id": stream_id})
+        likes_count = stream.get("likes_count", 0) if stream else 0
+        
+        # Broadcast to stream room
+        await sio.emit('stream:likes', {
+            "stream_id": stream_id,
+            "likes_count": likes_count,
+            "user_id": user_id
+        }, room=f"stream_{stream_id}")
+
+@sio.event
+async def end_stream(sid, data):
+    """Handle stream end event"""
+    stream_id = data.get("stream_id")
+    user_id = data.get("user_id")
+    
+    if stream_id:
+        # Verify host
+        stream = await db.streams.find_one({"stream_id": stream_id})
+        if stream and stream.get("user_id") == user_id:
+            # Update stream status
+            await db.streams.update_one(
+                {"stream_id": stream_id},
+                {"$set": {"status": "ended", "ended_at": datetime.now(timezone.utc)}}
+            )
+            
+            # Broadcast end to all viewers
+            await sio.emit('stream:ended', {
+                "stream_id": stream_id,
+                "message": "Stream has ended"
+            }, room=f"stream_{stream_id}")
+            
+            # Clean up viewers
+            if stream_id in stream_viewers:
+                del stream_viewers[stream_id]
+            
+            logger.info(f"Stream {stream_id} ended by host {user_id}")
 
 @sio.event
 async def disconnect(sid):
