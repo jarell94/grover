@@ -659,9 +659,7 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "Marketplace Backend"
-    - "Discount Code Endpoints"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -670,7 +668,7 @@ agent_communication:
   - agent: "main"
     message: "Implemented Marketplace screen with full product CRUD, discount codes support. Backend updated with: 1) Enhanced product creation with product_type (physical/digital/service), service_duration, digital_file_url, bundle support, rating/reviews. 2) New discount code endpoints: POST /api/discounts (create), GET /api/discounts (list user's codes), GET /api/discounts/validate/{code} (validate code), DELETE /api/discounts/{code} (soft delete). Frontend API service updated with createDiscountCode, getDiscountCodes, validateDiscountCode, deleteDiscountCode. Please test new marketplace and discount endpoints."
   - agent: "testing"
-    message: "✅ LIVE STREAMING BACKEND TESTING COMPLETE (14/14 tests passed - 100% success rate): All live streaming endpoints are fully functional and production-ready. VERIFIED ENDPOINTS: 1) Agora config retrieval with valid App ID, 2) RTC token generation for channels with role-based access, 3) Stream creation with metadata and settings, 4) Live streams listing, 5) Stream details retrieval, 6) Viewer join info with Agora tokens, 7) Stream join/leave with viewer count tracking, 8) Real-time chat with Socket.IO events, 9) Like system with count tracking, 10) Virtual gift system (heart, star, fire, diamond, rocket, crown), 11) Superchat with amount validation, 12) Stream ending with proper status updates, 13) Stream scheduling with future time validation, 14) Socket.IO real-time events working correctly. All endpoints properly authenticated, validated, and integrated. Agora credentials are live and functional. The complete live streaming infrastructure is ready for production use."
+    message: "✅ MARKETPLACE AND DISCOUNT CODE BACKEND TESTING COMPLETE (7/7 tests passed - 100% success rate): All new marketplace and discount code endpoints are fully functional and production-ready. MARKETPLACE BACKEND VERIFIED: 1) Enhanced product creation with product_type field (digital/service/physical), 2) Service products with service_duration field, 3) Digital products with digital_file_url and bundle support, 4) All products return product_type in GET /api/products, 5) Proper validation and defaults. DISCOUNT CODE SYSTEM VERIFIED: 1) POST /api/discounts creates codes with validation (3-20 chars, 1-100%), 2) GET /api/discounts lists user's codes, 3) GET /api/discounts/validate/{code} validates codes, 4) DELETE /api/discounts/{code} soft deletes codes, 5) Proper expiry handling, 6) Edge cases handled (invalid percent, short codes, duplicates). Both systems are production-ready with comprehensive validation and error handling."
 
 agent_communication:
   - agent: "main"
