@@ -1314,6 +1314,56 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
     
     return posts
 
+@api_router.get("/mentions")
+async def get_mentions(current_user: User = Depends(require_auth)):
+    """Get posts where the current user has been mentioned/tagged"""
+    # Find posts where current user is in tagged_users array
+    posts = await db.posts.find(
+        {"tagged_users": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Add user data and liked status for each post
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # Check if current user reacted/liked this post
+        user_reaction = await db.reactions.find_one({
+            "user_id": current_user.user_id,
+            "post_id": post["post_id"]
+        })
+        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
+        post["is_liked"] = user_reaction and user_reaction["reaction_type"] == "like"
+        post["liked"] = post["is_liked"]  # backward compatibility
+    
+    return posts
+
+@api_router.delete("/posts/{post_id}/like")
+async def unlike_post(post_id: str, current_user: User = Depends(require_auth)):
+    """Remove a like/reaction from a post"""
+    validate_id(post_id, "post_id")
+    
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Remove the reaction
+    result = await db.reactions.delete_one({
+        "post_id": post_id,
+        "user_id": current_user.user_id
+    })
+    
+    if result.deleted_count > 0:
+        # Decrement the likes count
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$inc": {"likes_count": -1}}
+        )
+        return {"message": "Like removed", "liked": False}
+    
+    return {"message": "No like to remove", "liked": False}
+
 @api_router.put("/posts/{post_id}")
 async def update_post(
     post_id: str,
