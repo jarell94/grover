@@ -1710,6 +1710,111 @@ async def delete_product(product_id: str, current_user: User = Depends(require_a
     await db.products.delete_one({"product_id": product_id})
     return {"message": "Product deleted"}
 
+# ============ DISCOUNT CODE ENDPOINTS ============
+
+class DiscountCodeCreate(BaseModel):
+    code: str
+    percent: float
+    expiry: Optional[str] = None
+
+@api_router.post("/discounts")
+async def create_discount(
+    data: DiscountCodeCreate,
+    current_user: User = Depends(require_auth)
+):
+    """Create a new discount code"""
+    code = data.code.strip().upper()
+    
+    if not code or len(code) < 3 or len(code) > 20:
+        raise HTTPException(status_code=400, detail="Code must be 3-20 characters")
+    
+    if data.percent <= 0 or data.percent > 100:
+        raise HTTPException(status_code=400, detail="Percent must be between 1-100")
+    
+    # Check if code already exists
+    existing = await db.discounts.find_one({"code": code})
+    if existing:
+        raise HTTPException(status_code=400, detail="Discount code already exists")
+    
+    # Parse expiry date if provided
+    expires_at = None
+    if data.expiry:
+        try:
+            expires_at = datetime.fromisoformat(data.expiry.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid expiry date format")
+    
+    discount_data = {
+        "code": code,
+        "percent": data.percent,
+        "user_id": current_user.user_id,
+        "expires_at": expires_at,
+        "uses_count": 0,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.discounts.insert_one(discount_data)
+    
+    return {
+        "code": code,
+        "percent": data.percent,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "message": "Discount code created"
+    }
+
+@api_router.get("/discounts")
+async def get_my_discounts(current_user: User = Depends(require_auth)):
+    """Get all discount codes created by the current user"""
+    discounts = await db.discounts.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return discounts
+
+@api_router.get("/discounts/validate/{code}")
+async def validate_discount(code: str, current_user: User = Depends(require_auth)):
+    """Validate a discount code"""
+    code = code.strip().upper()
+    
+    discount = await db.discounts.find_one({"code": code, "is_active": True}, {"_id": 0})
+    if not discount:
+        raise HTTPException(status_code=404, detail="Invalid or expired discount code")
+    
+    # Check expiry
+    if discount.get("expires_at"):
+        expires_at = discount["expires_at"]
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Discount code has expired")
+    
+    return {
+        "code": discount["code"],
+        "percent": discount["percent"],
+        "valid": True
+    }
+
+@api_router.delete("/discounts/{code}")
+async def delete_discount(code: str, current_user: User = Depends(require_auth)):
+    """Delete a discount code (soft delete - sets is_active to false)"""
+    code = code.strip().upper()
+    
+    discount = await db.discounts.find_one({"code": code})
+    if not discount:
+        raise HTTPException(status_code=404, detail="Discount code not found")
+    
+    if discount["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.discounts.update_one(
+        {"code": code},
+        {"$set": {"is_active": False}}
+    )
+    
+    return {"message": "Discount code deleted"}
+
 # ============ ORDER ENDPOINTS ============
 
 @api_router.post("/paypal/create-payment")
