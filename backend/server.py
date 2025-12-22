@@ -3994,7 +3994,7 @@ async def like_stream(stream_id: str, current_user: User = Depends(require_auth)
         raise HTTPException(status_code=404, detail="Stream not found")
     
     # Increment likes count
-    result = await db.streams.update_one(
+    await db.streams.update_one(
         {"stream_id": stream_id},
         {"$inc": {"likes_count": 1}}
     )
