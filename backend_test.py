@@ -147,17 +147,27 @@ class BackendTester:
                     self.log("❌ No products found", "ERROR")
                     return False
                 
-                # Check if product_type field is present
+                # Check if our newly created products have product_type field
                 types_found = set()
-                for product in products:
-                    if "product_type" in product:
-                        types_found.add(product["product_type"])
-                    else:
-                        self.log(f"❌ Product {product.get('product_id', 'unknown')} missing product_type field", "ERROR")
-                        return False
+                new_products_found = 0
                 
-                self.log(f"✅ Products retrieved with types: {list(types_found)}")
-                return True
+                for product in products:
+                    # Check if this is one of our newly created products
+                    if product.get("product_id") in self.created_products:
+                        new_products_found += 1
+                        if "product_type" in product:
+                            types_found.add(product["product_type"])
+                            self.log(f"✅ New product {product['product_id']} has type: {product['product_type']}")
+                        else:
+                            self.log(f"❌ New product {product.get('product_id', 'unknown')} missing product_type field", "ERROR")
+                            return False
+                
+                if new_products_found == len(self.created_products):
+                    self.log(f"✅ All {new_products_found} newly created products have product_type field with types: {list(types_found)}")
+                    return True
+                else:
+                    self.log(f"❌ Expected {len(self.created_products)} new products, found {new_products_found}", "ERROR")
+                    return False
             else:
                 self.log(f"❌ Failed to get products: {response.status_code} - {response.text}", "ERROR")
                 return False
