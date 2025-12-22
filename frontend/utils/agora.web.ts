@@ -13,8 +13,9 @@ export const createAgoraRtcEngine = () => {
 
 // Mock RtcSurfaceView component for web
 export const RtcSurfaceView: React.FC<any> = ({ style }) => {
+  const combinedStyles = style ? [styles.mockView, style] : [styles.mockView];
   return (
-    <View style={[styles.mockView, style]}>
+    <View style={combinedStyles}>
       <Text style={styles.mockText}>Video streaming requires native app</Text>
     </View>
   );
