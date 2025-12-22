@@ -3831,7 +3831,7 @@ async def schedule_stream(
     # Parse scheduled time
     try:
         scheduled_dt = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
-    except:
+    except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid datetime format")
     
     if scheduled_dt <= datetime.now(timezone.utc):
