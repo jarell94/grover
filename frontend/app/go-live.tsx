@@ -8,11 +8,12 @@ import {
   ScrollView,
   Switch,
   Alert,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 
 import { api } from '../services/api';
 
@@ -35,102 +36,54 @@ export default function GoLiveScreen() {
   const [enableSuperChat, setEnableSuperChat] = useState(false);
   const [enableShop, setEnableShop] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Camera permissions
-  const [permission, requestPermission] = useCameraPermissions();
-  const [micGranted, setMicGranted] = useState<boolean>(false);
-
-  // Camera state
   const [facing, setFacing] = useState<'front' | 'back'>('front');
-  const cameraRef = useRef<CameraView | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      // Ask camera permission
-      if (!permission?.granted) {
-        await requestPermission();
-      }
-
-      // Ask mic permission (CameraView uses system mic permission too)
-      // expo-camera uses the same permission hook; mic permission is handled by OS
-      // We'll just show guidance if camera is granted but mic isn't available at runtime.
-      // For most Expo setups, requesting camera permission will also trigger mic when needed.
-      setMicGranted(true);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const toggleFacing = () => setFacing((p) => (p === 'front' ? 'back' : 'front'));
 
   const handleGoLive = async () => {
+    if (isLoading) return;
+
     if (!streamTitle.trim()) {
       Alert.alert('Error', 'Please enter a title for your stream');
       return;
     }
 
-    if (!permission?.granted) {
-      Alert.alert('Permissions', 'Camera permission is required to go live.');
-      await requestPermission();
-      return;
-    }
-
     setIsLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('title', streamTitle.trim());
-      if (streamDescription.trim()) formData.append('description', streamDescription.trim());
-      formData.append('enable_super_chat', String(enableSuperChat));
-      formData.append('enable_shopping', String(enableShop));
+      const payload = {
+        title: streamTitle.trim(),
+        description: streamDescription.trim() || undefined,
+        enable_super_chat: enableSuperChat,
+        enable_shopping: enableShop,
+        camera_facing: facing,
+      };
 
-      // Helpful metadata (optional, but good for backend debugging)
-      formData.append('camera_facing', facing);
+      const result = await api.startStream(payload as any);
 
-      const result = await api.startStream(formData);
+      if (!result?.stream_id) {
+        throw new Error('Missing stream_id from server');
+      }
 
-      // IMPORTANT: your RootLayout expects live-stream/[streamId]
-      // so route should be `/live-stream/${id}` (dynamic route), not `/live-stream`
       router.push(`/live-stream/${result.stream_id}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Start stream error:', error);
-      Alert.alert('Error', 'Failed to start stream. Please try again.');
+      const msg =
+        typeof error?.message === 'string'
+          ? error.message
+          : 'Failed to start stream. Please try again.';
+      Alert.alert('Error', msg);
     } finally {
       setIsLoading(false);
     }
   };
 
   const renderPreview = () => {
-    if (!permission) {
-      return (
-        <View style={styles.previewFallback}>
-          <Text style={styles.previewText}>Loading permissions…</Text>
-        </View>
-      );
-    }
-
-    if (!permission.granted) {
-      return (
-        <LinearGradient colors={[Colors.primary, Colors.secondary]} style={styles.previewGradient}>
-          <Ionicons name="videocam" size={64} color="rgba(255, 255, 255, 0.3)" />
-          <Text style={styles.previewText}>Camera permission needed</Text>
-          <Text style={styles.previewSubtext}>Tap below to allow access</Text>
-
-          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-            <Ionicons name="lock-open-outline" size={18} color="#fff" />
-            <Text style={styles.permissionButtonText}>Allow Camera</Text>
-          </TouchableOpacity>
-        </LinearGradient>
-      );
-    }
-
     return (
-      <View style={{ flex: 1 }}>
-        <CameraView
-          ref={(r) => (cameraRef.current = r)}
-          style={StyleSheet.absoluteFill}
-          facing={facing}
-        />
+      <LinearGradient colors={[Colors.primary, Colors.secondary]} style={styles.previewGradient}>
+        <Ionicons name="videocam" size={64} color="rgba(255, 255, 255, 0.3)" />
+        <Text style={styles.previewText}>Camera Preview</Text>
+        <Text style={styles.previewSubtext}>Will activate when you go live</Text>
 
-        {/* Overlay controls */}
         <View style={styles.previewOverlayTop}>
           <View style={styles.livePill}>
             <Ionicons name="radio" size={14} color="#fff" />
@@ -141,14 +94,7 @@ export default function GoLiveScreen() {
             <Ionicons name="camera-reverse" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
-
-        {!micGranted && (
-          <View style={styles.micWarning}>
-            <Ionicons name="mic-off" size={16} color="#fff" />
-            <Text style={styles.micWarningText}>Microphone permission required</Text>
-          </View>
-        )}
-      </View>
+      </LinearGradient>
     );
   };
 
@@ -163,10 +109,8 @@ export default function GoLiveScreen() {
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Real Preview */}
         <View style={styles.previewContainer}>{renderPreview()}</View>
 
-        {/* Stream Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Stream Details</Text>
 
@@ -189,7 +133,6 @@ export default function GoLiveScreen() {
           />
         </View>
 
-        {/* Features */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Stream Features</Text>
 
@@ -234,27 +177,25 @@ export default function GoLiveScreen() {
           </View>
         </View>
 
-        {/* Info Cards */}
         <View style={styles.infoCard}>
           <Ionicons name="information-circle" size={24} color={Colors.primary} />
           <View style={styles.infoContent}>
             <Text style={styles.infoTitle}>Stream Requirements</Text>
-            <Text style={styles.infoText}>• Stable internet connection (3+ Mbps)</Text>
-            <Text style={styles.infoText}>• Camera and microphone permissions</Text>
-            <Text style={styles.infoText}>• At least 100 followers to go live</Text>
+            <Text style={styles.infoText}>Stable internet connection (3+ Mbps)</Text>
+            <Text style={styles.infoText}>Camera and microphone permissions</Text>
+            <Text style={styles.infoText}>At least 100 followers to go live</Text>
           </View>
         </View>
 
         <View style={styles.tipsCard}>
-          <Text style={styles.tipsTitle}>💡 Live Streaming Tips</Text>
-          <Text style={styles.tip}>• Test your internet before going live</Text>
-          <Text style={styles.tip}>• Have good lighting and audio</Text>
-          <Text style={styles.tip}>• Engage with your viewers in chat</Text>
-          <Text style={styles.tip}>• Promote your stream in advance</Text>
+          <Text style={styles.tipsTitle}>Live Streaming Tips</Text>
+          <Text style={styles.tip}>Test your internet before going live</Text>
+          <Text style={styles.tip}>Have good lighting and audio</Text>
+          <Text style={styles.tip}>Engage with your viewers in chat</Text>
+          <Text style={styles.tip}>Promote your stream in advance</Text>
         </View>
       </ScrollView>
 
-      {/* Footer */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.goLiveButton, isLoading && { opacity: 0.7 }]}
@@ -262,8 +203,14 @@ export default function GoLiveScreen() {
           disabled={isLoading}
         >
           <LinearGradient colors={[Colors.error, Colors.secondary]} style={styles.goLiveGradient}>
-            <Ionicons name="radio" size={24} color="#fff" />
-            <Text style={styles.goLiveText}>{isLoading ? 'Starting…' : 'Go Live'}</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="radio" size={24} color="#fff" />
+                <Text style={styles.goLiveText}>Go Live</Text>
+              </>
+            )}
           </LinearGradient>
         </TouchableOpacity>
 
@@ -299,26 +246,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
   previewGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  previewFallback: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  previewText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.92)',
-    marginTop: 12,
-  },
+  previewText: { fontSize: 18, fontWeight: '600', color: 'rgba(255, 255, 255, 0.92)', marginTop: 12 },
   previewSubtext: { fontSize: 14, color: 'rgba(255, 255, 255, 0.65)', marginTop: 4 },
-
-  permissionButton: {
-    marginTop: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  permissionButtonText: { color: '#fff', fontWeight: '700' },
 
   previewOverlayTop: {
     position: 'absolute',
@@ -349,22 +278,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  micWarning: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: 'rgba(239,68,68,0.35)',
-  },
-  micWarningText: { color: '#fff', fontWeight: '700' },
-
   section: { paddingHorizontal: 16, paddingVertical: 16 },
   sectionTitle: { fontSize: 18, fontWeight: '600', color: Colors.text, marginBottom: 16 },
+
   input: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -426,6 +342,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
     backgroundColor: Colors.background,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
@@ -439,6 +356,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   goLiveText: { fontSize: 18, fontWeight: '600', color: '#fff' },
-  scheduleButton: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12, gap: 8 },
+
+  scheduleButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 8,
+  },
   scheduleText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
 });

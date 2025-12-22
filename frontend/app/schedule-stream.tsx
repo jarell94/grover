@@ -6,12 +6,14 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  Platform,
   Alert,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { api } from '../services/api';
 
 const Colors = {
   primary: '#8B5CF6',
@@ -21,27 +23,42 @@ const Colors = {
   border: '#334155',
   text: '#F1F5F9',
   textSecondary: '#94A3B8',
-  success: '#10B981',
 };
 
 export default function ScheduleStreamScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSchedule = () => {
+  const handleSchedule = async () => {
     if (!title.trim()) {
-      Alert.alert('Error', 'Please enter a title');
+      Alert.alert('Error', 'Please enter a stream title');
+      return;
+    }
+    if (!scheduledDate.trim() || !scheduledTime.trim()) {
+      Alert.alert('Error', 'Please select date and time');
       return;
     }
 
-    Alert.alert(
-      'Stream Scheduled!',
-      `Your stream "${title}" has been scheduled for ${date.toLocaleString()}. You'll receive a notification 10 minutes before.`,
-      [{ text: 'OK', onPress: () => router.back() }]
-    );
+    setIsLoading(true);
+    try {
+      await api.scheduleStream({
+        title: title.trim(),
+        description: description.trim(),
+        scheduled_at: `${scheduledDate}T${scheduledTime}:00`,
+      });
+
+      Alert.alert('Success', 'Stream scheduled successfully!', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } catch (error) {
+      console.error('Schedule stream error:', error);
+      Alert.alert('Error', 'Failed to schedule stream');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -54,20 +71,32 @@ export default function ScheduleStreamScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content}>
-        <View style={styles.section}>
-          <Text style={styles.label}>Stream Title *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="What's your stream about?"
-            placeholderTextColor={Colors.textSecondary}
-            value={title}
-            onChangeText={setTitle}
-          />
+      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
+        <View style={styles.iconContainer}>
+          <LinearGradient
+            colors={[Colors.primary, Colors.secondary]}
+            style={styles.iconGradient}
+          >
+            <Ionicons name="calendar" size={40} color="#fff" />
+          </LinearGradient>
+          <Text style={styles.iconTitle}>Schedule a Live Stream</Text>
+          <Text style={styles.iconSubtitle}>
+            Let your followers know when you are going live
+          </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>Description</Text>
+          <Text style={styles.label}>Stream Title</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="What will you be streaming?"
+            placeholderTextColor={Colors.textSecondary}
+            value={title}
+            onChangeText={setTitle}
+            maxLength={100}
+          />
+
+          <Text style={styles.label}>Description (Optional)</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             placeholder="Tell viewers what to expect..."
@@ -75,74 +104,56 @@ export default function ScheduleStreamScreen() {
             value={description}
             onChangeText={setDescription}
             multiline
-            numberOfLines={4}
+            maxLength={500}
+          />
+
+          <Text style={styles.label}>Date</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={Colors.textSecondary}
+            value={scheduledDate}
+            onChangeText={setScheduledDate}
+          />
+
+          <Text style={styles.label}>Time</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="HH:MM (24-hour format)"
+            placeholderTextColor={Colors.textSecondary}
+            value={scheduledTime}
+            onChangeText={setScheduledTime}
           />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Date & Time</Text>
-          
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={() => setShowDatePicker(true)}
-          >
-            <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
-            <Text style={styles.dateText}>{date.toLocaleDateString()}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={() => setShowTimePicker(true)}
-          >
-            <Ionicons name="time-outline" size={20} color={Colors.primary} />
-            <Text style={styles.dateText}>{date.toLocaleTimeString()}</Text>
-          </TouchableOpacity>
-
-          {showDatePicker && (
-            <DateTimePicker
-              value={date}
-              mode="date"
-              display="default"
-              onChange={(event, selectedDate) => {
-                setShowDatePicker(Platform.OS === 'ios');
-                if (selectedDate) {
-                  setDate(selectedDate);
-                }
-              }}
-              minimumDate={new Date()}
-            />
-          )}
-
-          {showTimePicker && (
-            <DateTimePicker
-              value={date}
-              mode="time"
-              display="default"
-              onChange={(event, selectedTime) => {
-                setShowTimePicker(Platform.OS === 'ios');
-                if (selectedTime) {
-                  setDate(selectedTime);
-                }
-              }}
-            />
-          )}
-        </View>
-
         <View style={styles.infoCard}>
-          <Ionicons name="information-circle" size={24} color={Colors.primary} />
-          <View style={styles.infoContent}>
-            <Text style={styles.infoTitle}>Scheduling Tips</Text>
-            <Text style={styles.infoText}>• Schedule at least 1 hour in advance</Text>
-            <Text style={styles.infoText}>• Promote on your feed before going live</Text>
-            <Text style={styles.infoText}>• You'll get a reminder 10 minutes before</Text>
-            <Text style={styles.infoText}>• Viewers will see it in their calendar</Text>
-          </View>
+          <Ionicons name="information-circle" size={20} color={Colors.primary} />
+          <Text style={styles.infoText}>
+            Your followers will be notified when you schedule a stream.
+            You can start the stream up to 30 minutes before the scheduled time.
+          </Text>
         </View>
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.scheduleButton} onPress={handleSchedule}>
-          <Text style={styles.scheduleButtonText}>Schedule Stream</Text>
+        <TouchableOpacity
+          style={[styles.scheduleButton, isLoading && styles.buttonDisabled]}
+          onPress={handleSchedule}
+          disabled={isLoading}
+        >
+          <LinearGradient
+            colors={[Colors.primary, Colors.secondary]}
+            style={styles.buttonGradient}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="calendar-outline" size={20} color="#fff" />
+                <Text style={styles.buttonText}>Schedule Stream</Text>
+              </>
+            )}
+          </LinearGradient>
         </TouchableOpacity>
       </View>
     </View>
@@ -150,10 +161,7 @@ export default function ScheduleStreamScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -164,24 +172,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text,
+  headerTitle: { fontSize: 18, fontWeight: '600', color: Colors.text },
+  content: { flex: 1 },
+
+  iconContainer: { alignItems: 'center', padding: 32 },
+  iconGradient: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 8,
-  },
+  iconTitle: { fontSize: 20, fontWeight: 'bold', color: Colors.text, marginBottom: 8 },
+  iconSubtitle: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
+
+  section: { paddingHorizontal: 16 },
+  label: { fontSize: 14, fontWeight: '600', color: Colors.text, marginBottom: 8, marginTop: 16 },
   input: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -189,60 +196,37 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 16,
   },
-  textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    gap: 12,
-  },
-  dateText: {
-    fontSize: 16,
-    color: Colors.text,
-    fontWeight: '500',
-  },
+  textArea: { minHeight: 100, textAlignVertical: 'top' },
+
   infoCard: {
     flexDirection: 'row',
     backgroundColor: Colors.surface,
     padding: 16,
     borderRadius: 12,
-    marginTop: 16,
+    margin: 16,
+    gap: 12,
   },
-  infoContent: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 8,
-  },
-  infoText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 4,
-  },
+  infoText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
+
   footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    backgroundColor: Colors.background,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
-  scheduleButton: {
-    backgroundColor: Colors.primary,
-    padding: 16,
-    borderRadius: 12,
+  scheduleButton: { borderRadius: 12, overflow: 'hidden' },
+  buttonDisabled: { opacity: 0.6 },
+  buttonGradient: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 16,
+    gap: 8,
   },
-  scheduleButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
+  buttonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
 });
