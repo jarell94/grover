@@ -4322,8 +4322,8 @@ async def handle_stream_chat(sid, data):
         "created_at": datetime.now(timezone.utc).isoformat()
     }, room=f"stream_{stream_id}")
 
-@sio.event
-async def stream_like(sid, data):
+@sio.on('stream:like')
+async def handle_stream_like(sid, data):
     """Handle likes in a stream"""
     stream_id = data.get("stream_id")
     user_id = data.get("user_id")
