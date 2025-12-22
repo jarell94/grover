@@ -29,32 +29,41 @@ class BackendTester:
         print(f"[{timestamp}] {level}: {message}")
         
     def create_test_user_and_auth(self):
-        """Create a test user session for authentication"""
-        self.log("Creating test user session...")
-        
-        # Mock session data for testing (simulating Emergent OAuth)
-        session_id = f"test_session_{uuid.uuid4().hex[:16]}"
+        """Get a valid session token from existing database sessions"""
+        self.log("Getting valid session token from database...")
         
         try:
-            # Try to create session (this will create a new user if needed)
-            response = requests.get(
-                f"{BACKEND_URL}/auth/session",
-                params={"session_id": session_id},
-                timeout=10
-            )
+            # Import MongoDB client
+            from motor.motor_asyncio import AsyncIOMotorClient
+            import asyncio
             
-            if response.status_code == 200:
-                data = response.json()
-                self.session_token = data.get("session_token", session_id)
-                self.user_id = data["user_id"]
-                self.log(f"✅ User created/authenticated: {self.user_id}")
+            async def get_valid_session():
+                client = AsyncIOMotorClient('mongodb://localhost:27017')
+                db = client['test_database']
+                
+                # Find a valid session that hasn't expired
+                session = await db.user_sessions.find_one(
+                    {'expires_at': {'$gt': datetime.now()}},
+                    {'_id': 0}
+                )
+                
+                client.close()
+                return session
+            
+            # Run async function
+            session = asyncio.run(get_valid_session())
+            
+            if session:
+                self.session_token = session['session_token']
+                self.user_id = session['user_id']
+                self.log(f"✅ Using existing session for user: {self.user_id}")
                 return True
             else:
-                self.log(f"❌ Failed to create session: {response.status_code} - {response.text}", "ERROR")
+                self.log("❌ No valid sessions found in database", "ERROR")
                 return False
                 
         except Exception as e:
-            self.log(f"❌ Session creation error: {str(e)}", "ERROR")
+            self.log(f"❌ Session retrieval error: {str(e)}", "ERROR")
             return False
     
     def get_headers(self):
