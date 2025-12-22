@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../services/api';
 import socketService from '../../services/socket';
 
+// Import Agora utilities (platform-specific)
+import { createAgoraEngine, AgoraView } from '../../utils/agora';
+
 const Colors = {
   background: '#0F172A',
   surface: '#1E293B',
@@ -30,6 +33,8 @@ const Colors = {
   success: '#10B981',
   accent: '#FBBF24',
 };
+
+const AGORA_APP_ID = process.env.EXPO_PUBLIC_AGORA_APP_ID || '';
 
 type ChatMsg = {
   id: string;
@@ -54,15 +59,28 @@ export default function WatchStreamScreen() {
   const params = useLocalSearchParams();
   const streamId = params.id as string;
 
+  // Agora engine ref (will be null on web)
+  const engineRef = useRef<any>(null);
+
+  // Stream join info from backend
   const [loading, setLoading] = useState(true);
+  const [joining, setJoining] = useState(false);
+  const [channelName, setChannelName] = useState('');
+  const [token, setToken] = useState('');
+  const [uid, setUid] = useState<number>(0);
+
+  // Host info from backend
+  const [hostUid, setHostUid] = useState<number | null>(null);
   const [title, setTitle] = useState<string>('Live Stream');
   const [hostName, setHostName] = useState<string>('Host');
 
+  // Realtime state
   const [viewerCount, setViewerCount] = useState<number>(0);
   const [likeCount, setLikeCount] = useState<number>(0);
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [chatText, setChatText] = useState('');
 
+  // UI state
   const [chatOpen, setChatOpen] = useState(true);
   const [giftModalOpen, setGiftModalOpen] = useState(false);
   const [superChatModalOpen, setSuperChatModalOpen] = useState(false);
@@ -71,7 +89,12 @@ export default function WatchStreamScreen() {
 
   const [joined, setJoined] = useState(false);
 
-  // Load stream info
+  const hasCreds = useMemo(
+    () => !!channelName && !!token && !!uid,
+    [channelName, token, uid]
+  );
+
+  // ---------- Load stream info from backend ----------
   useEffect(() => {
     let mounted = true;
 
@@ -79,22 +102,25 @@ export default function WatchStreamScreen() {
       try {
         setLoading(true);
 
+        // Backend returns: { channelName, token, uid, hostUid, title, hostName, viewerCount, likeCount, recentChat }
         const joinInfo = await api.getStreamJoinInfo(streamId);
 
         if (!mounted) return;
+
+        setChannelName(joinInfo.channelName || '');
+        setToken(joinInfo.token || '');
+        setUid(Number(joinInfo.uid) || 0);
+
+        // Host UID is critical - backend should provide this
+        if (joinInfo.hostUid != null) setHostUid(Number(joinInfo.hostUid));
 
         if (joinInfo.title) setTitle(joinInfo.title);
         if (joinInfo.hostName) setHostName(joinInfo.hostName);
         if (typeof joinInfo.viewerCount === 'number') setViewerCount(joinInfo.viewerCount);
         if (typeof joinInfo.likeCount === 'number') setLikeCount(joinInfo.likeCount);
         if (Array.isArray(joinInfo.recentChat)) setChat(joinInfo.recentChat);
-
-        setJoined(true);
-
-        // Join socket room
-        socketService.emit('stream:join', { streamId });
       } catch (e) {
-        console.error(e);
+        console.error('Load stream info error:', e);
         Alert.alert('Error', 'Failed to load stream');
         router.back();
       } finally {
@@ -108,7 +134,109 @@ export default function WatchStreamScreen() {
     };
   }, [streamId]);
 
-  // Socket listeners
+  // ---------- Initialize Agora Engine (Native only) ----------
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      // Agora RTC not supported on web - use placeholder
+      return;
+    }
+
+    const initAgora = async () => {
+      try {
+        const engine = createAgoraEngine();
+        if (!engine) return;
+
+        engineRef.current = engine;
+
+        // Initialize with Live Broadcasting profile
+        engine.initialize({
+          appId: AGORA_APP_ID,
+          // IMPORTANT: Use Live Broadcasting for live streams
+          channelProfile: 1, // ChannelProfileType.ChannelProfileLiveBroadcasting
+        });
+
+        // Enable video
+        engine.enableVideo();
+
+        // IMPORTANT: Set client role to AUDIENCE for viewers
+        engine.setClientRole(2); // ClientRoleType.ClientRoleAudience
+
+        // Register event handlers
+        engine.registerEventHandler({
+          onJoinChannelSuccess: () => {
+            console.log('Joined channel successfully');
+            setJoined(true);
+          },
+          onLeaveChannel: () => {
+            console.log('Left channel');
+            setJoined(false);
+          },
+          // Host video appears as remote user for audience
+          onUserJoined: (_connection: any, remoteUid: number) => {
+            console.log('Remote user joined:', remoteUid);
+            // If backend provided hostUid, use that; otherwise first remote is likely host
+            if (hostUid == null) {
+              setHostUid(remoteUid);
+            }
+          },
+          // IMPORTANT: If host leaves, viewers should exit
+          onUserOffline: (_connection: any, remoteUid: number, reason: number) => {
+            console.log('Remote user offline:', remoteUid, reason);
+            if (hostUid != null && remoteUid === hostUid) {
+              Alert.alert('Stream Ended', 'The host has ended the stream.', [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            }
+          },
+          onError: (err: number, msg: string) => {
+            console.error('Agora error:', err, msg);
+          },
+        });
+      } catch (e) {
+        console.error('Agora init error:', e);
+      }
+    };
+
+    initAgora();
+
+    return () => {
+      try {
+        engineRef.current?.leaveChannel();
+        engineRef.current?.release();
+        engineRef.current = null;
+      } catch {}
+    };
+  }, [hostUid]);
+
+  // ---------- Join Agora channel when credentials are ready ----------
+  useEffect(() => {
+    if (!hasCreds || joined || Platform.OS === 'web') return;
+
+    const joinChannel = async () => {
+      if (!engineRef.current) return;
+
+      setJoining(true);
+      try {
+        // Join as audience
+        engineRef.current.joinChannel(token, channelName, uid, {
+          clientRoleType: 2, // ClientRoleType.ClientRoleAudience
+        });
+
+        // Join socket room for chat/likes/gifts
+        socketService.emit('stream:join', { streamId });
+        socketService.emit('stream:sync', { streamId });
+      } catch (e) {
+        console.error('Join channel error:', e);
+        Alert.alert('Error', 'Failed to join stream');
+      } finally {
+        setJoining(false);
+      }
+    };
+
+    joinChannel();
+  }, [hasCreds, joined, token, channelName, uid, streamId]);
+
+  // ---------- Socket listeners for real-time updates ----------
   useEffect(() => {
     const onViewerCount = (payload: { streamId: string; count: number }) => {
       if (payload.streamId === streamId) setViewerCount(payload.count);
@@ -125,7 +253,7 @@ export default function WatchStreamScreen() {
 
     const onEnded = (payload: { streamId: string }) => {
       if (payload.streamId !== streamId) return;
-      Alert.alert('Stream ended', 'The host ended the stream.', [
+      Alert.alert('Stream Ended', 'The host ended the stream.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     };
@@ -135,6 +263,12 @@ export default function WatchStreamScreen() {
     socketService.on('stream:chat', onChat);
     socketService.on('stream:ended', onEnded);
 
+    // Join socket room on web (since Agora won't join)
+    if (Platform.OS === 'web' && !loading) {
+      socketService.emit('stream:join', { streamId });
+      setJoined(true);
+    }
+
     return () => {
       socketService.off('stream:viewers', onViewerCount);
       socketService.off('stream:likes', onLikes);
@@ -142,8 +276,9 @@ export default function WatchStreamScreen() {
       socketService.off('stream:ended', onEnded);
       socketService.emit('stream:leave', { streamId });
     };
-  }, [streamId]);
+  }, [streamId, loading]);
 
+  // ---------- Actions ----------
   const sendChat = async () => {
     const text = chatText.trim();
     if (!text) return;
@@ -246,7 +381,44 @@ export default function WatchStreamScreen() {
   };
 
   const leave = () => {
+    engineRef.current?.leaveChannel();
     router.back();
+  };
+
+  // ---------- Render video area ----------
+  const renderVideo = () => {
+    // On web, show placeholder
+    if (Platform.OS === 'web') {
+      return (
+        <LinearGradient
+          colors={[Colors.primary, Colors.secondary]}
+          style={styles.videoPlaceholder}
+        >
+          <Ionicons name="videocam" size={64} color="rgba(255,255,255,0.3)" />
+          <Text style={styles.videoText}>Live Video Feed</Text>
+          <Text style={styles.videoSubtext}>
+            Video requires native app (Expo Go or dev build)
+          </Text>
+        </LinearGradient>
+      );
+    }
+
+    // On native, show Agora view or waiting state
+    if (hostUid != null) {
+      return (
+        <AgoraView
+          style={StyleSheet.absoluteFill}
+          uid={hostUid}
+        />
+      );
+    }
+
+    return (
+      <View style={[styles.videoPlaceholder, { backgroundColor: '#000' }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.videoText}>Waiting for host video...</Text>
+      </View>
+    );
   };
 
   const renderChatItem = ({ item }: { item: ChatMsg }) => {
@@ -284,16 +456,9 @@ export default function WatchStreamScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Video area - placeholder */}
-      <LinearGradient
-        colors={[Colors.primary, Colors.secondary]}
-        style={styles.videoWrap}
-      >
-        <View style={styles.videoPlaceholder}>
-          <Ionicons name="videocam" size={64} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.videoText}>Live Video Feed</Text>
-          <Text style={styles.videoSubtext}>Agora SDK required for real video</Text>
-        </View>
+      {/* Video area */}
+      <View style={styles.videoWrap}>
+        {renderVideo()}
 
         {/* Top bar */}
         <View style={styles.topBar}>
@@ -316,7 +481,7 @@ export default function WatchStreamScreen() {
           </View>
         </View>
 
-        {/* Right actions */}
+        {/* Right action rail */}
         <View style={styles.rightRail}>
           <TouchableOpacity style={styles.railBtn} onPress={like}>
             <Ionicons name="heart" size={22} color={Colors.secondary} />
@@ -373,7 +538,17 @@ export default function WatchStreamScreen() {
             </View>
           </KeyboardAvoidingView>
         )}
-      </LinearGradient>
+
+        {/* Joining overlay */}
+        {joining && (
+          <View style={styles.joiningOverlay}>
+            <ActivityIndicator color="#fff" />
+            <Text style={{ color: '#fff', marginTop: 10, fontWeight: '700' }}>
+              Joining...
+            </Text>
+          </View>
+        )}
+      </View>
 
       {/* Gift Modal */}
       <Modal
@@ -462,7 +637,7 @@ const styles = StyleSheet.create({
   center: { justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: Colors.textSecondary, marginTop: 16, fontSize: 16 },
 
-  videoWrap: { flex: 1, position: 'relative' },
+  videoWrap: { flex: 1, backgroundColor: '#000', position: 'relative' },
   videoPlaceholder: {
     flex: 1,
     justifyContent: 'center',
@@ -478,6 +653,8 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     fontSize: 14,
     marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 32,
   },
 
   topBar: {
@@ -580,6 +757,13 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 12,
     backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  joiningOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
