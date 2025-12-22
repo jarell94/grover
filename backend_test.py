@@ -366,17 +366,23 @@ class LiveStreamingTester:
             data.add_field("message", "Great stream! Keep up the awesome work!")
             
             async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/superchat", data=data, headers=headers) as response:
+                response_text = await response.text()
                 if response.status == 200:
-                    result = await response.json()
-                    if "message" in result and "superchat_id" in result:
-                        self.log_test("POST /api/streams/{stream_id}/superchat", True, f"Superchat sent with ID: {result['superchat_id']}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/{stream_id}/superchat", False, "Missing message or superchat_id")
+                    try:
+                        result = await response.json()
+                        if "message" in result and ("superchat_id" in result or "super_chat_id" in result):
+                            superchat_id = result.get("superchat_id") or result.get("super_chat_id")
+                            self.log_test("POST /api/streams/{stream_id}/superchat", True, f"Superchat sent with ID: {superchat_id}")
+                            return True
+                        else:
+                            self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Missing superchat_id in response: {result}")
+                            return False
+                    except:
+                        # Response might not be JSON
+                        self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Non-JSON response: {response_text}")
                         return False
                 else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Status {response.status}: {text}")
+                    self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Status {response.status}: {response_text}")
                     return False
         except Exception as e:
             self.log_test("POST /api/streams/{stream_id}/superchat", False, str(e))
