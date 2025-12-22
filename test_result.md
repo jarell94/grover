@@ -627,11 +627,14 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Chat Screen"
-    - "Profile Screen"
+    - "Live Streaming Complete Backend"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Implemented complete live streaming backend with ALL missing endpoints for the frontend. New endpoints added: GET /api/streams/{id}/join-info (get viewer join info with Agora token), POST /api/streams/schedule (schedule future streams), POST /api/streams/{id}/join (join as viewer), POST /api/streams/{id}/leave (leave stream), POST /api/streams/{id}/chat (send chat message), POST /api/streams/{id}/like (send like), POST /api/streams/{id}/gift (send virtual gift), POST /api/streams/{id}/superchat (send superchat). Also added Socket.IO event handlers for real-time streaming: stream:join, stream:leave, stream:chat, stream:like, stream:end. All endpoints connect to the frontend API service calls in api.ts. Please test all new streaming endpoints."
 
 agent_communication:
   - agent: "main"
