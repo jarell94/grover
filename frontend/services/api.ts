@@ -370,6 +370,21 @@ export const api = {
   }),
   joinStream: (streamId: string) => apiRequest(`/streams/${streamId}/join`, { method: 'POST' }),
   leaveStream: (streamId: string) => apiRequest(`/streams/${streamId}/leave`, { method: 'POST' }),
+  
+  // Stream interactions
+  sendStreamChat: (streamId: string, data: { text: string }) => apiRequest(`/streams/${streamId}/chat`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  likeStream: (streamId: string) => apiRequest(`/streams/${streamId}/like`, { method: 'POST' }),
+  sendStreamGift: (streamId: string, data: { giftId: string }) => apiRequest(`/streams/${streamId}/gift`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  sendStreamSuperChat: (streamId: string, data: { amount: number; message: string }) => apiRequest(`/streams/${streamId}/superchat`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
 
   // Media Service Status
   getMediaStatus: () => apiRequest('/media/status'),
