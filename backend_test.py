@@ -16,7 +16,7 @@ from io import BytesIO
 from PIL import Image
 
 # Configuration
-BASE_URL = "https://creator-hub-320.preview.emergentagent.com/api"
+BASE_URL = "https://creator-hub-323.preview.emergentagent.com/api"
 
 class TestResults:
     def __init__(self):
