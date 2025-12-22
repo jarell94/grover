@@ -4233,8 +4233,8 @@ async def connect(sid, environ):
 
 # ============ STREAMING SOCKET.IO EVENTS ============
 
-@sio.event
-async def join_stream(sid, data):
+@sio.on('stream:join')
+async def handle_join_stream(sid, data):
     """Join a stream room for real-time updates"""
     stream_id = data.get("stream_id")
     user_id = data.get("user_id")
