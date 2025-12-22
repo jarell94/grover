@@ -456,4 +456,13 @@ export const api = {
   // Community Discovery
   getDiscoverCommunities: () => apiRequest('/communities/discover'),
   getCommunityDetail: (communityId: string) => apiRequest(`/communities/${communityId}`),
+
+  // Discount Codes
+  createDiscountCode: (data: { code: string; percent: number; expiry?: string }) => apiRequest('/discounts', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getDiscountCodes: () => apiRequest('/discounts'),
+  validateDiscountCode: (code: string) => apiRequest(`/discounts/validate/${code}`),
+  deleteDiscountCode: (code: string) => apiRequest(`/discounts/${code}`, { method: 'DELETE' }),
 };
