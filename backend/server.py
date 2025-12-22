@@ -1654,7 +1654,7 @@ async def create_product(
         try:
             import json
             bundle_items_list = json.loads(bundle_items)
-        except:
+        except (json.JSONDecodeError, ValueError, TypeError):
             pass
     
     product_id = f"prod_{uuid.uuid4().hex[:12]}"
