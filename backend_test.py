@@ -180,19 +180,22 @@ class BackendTester:
         """Test discount code creation"""
         self.log("Testing discount code creation...")
         
+        # Generate unique codes to avoid conflicts
+        unique_suffix = uuid.uuid4().hex[:6].upper()
+        
         test_codes = [
             {
-                "code": "SAVE20",
+                "code": f"SAVE20_{unique_suffix}",
                 "percent": 20,
                 "expiry": None
             },
             {
-                "code": "FLASH50",
+                "code": f"FLASH50_{unique_suffix}",
                 "percent": 50,
                 "expiry": (datetime.now() + timedelta(days=30)).isoformat()
             },
             {
-                "code": "WELCOME10",
+                "code": f"WELCOME10_{unique_suffix}",
                 "percent": 10,
                 "expiry": None
             }
