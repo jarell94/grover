@@ -446,10 +446,10 @@ class LiveStreamingTester:
         await self.setup_session()
         
         try:
-            # Step 1: Create test users (will use mock tokens for testing)
-            print("\n📝 Step 1: Setting up test users...")
-            self.streamer_token = await self.create_test_user(TEST_USER_EMAIL, TEST_USER_NAME)
-            self.viewer_token = await self.create_test_user(TEST_VIEWER_EMAIL, TEST_VIEWER_NAME)
+            # Step 1: Get a valid session token from the database
+            print("\n📝 Step 1: Getting valid session token...")
+            self.streamer_token = await self.get_valid_session_token()
+            self.viewer_token = self.streamer_token  # Use same token for both for testing
             
             # Step 2: Test Agora config endpoint
             print("\n🔧 Step 2: Testing Agora configuration...")
