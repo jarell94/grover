@@ -4282,8 +4282,8 @@ async def handle_leave_stream(sid, data):
         
         logger.info(f"User {user_id} left stream {stream_id}, viewers: {viewer_count}")
 
-@sio.event
-async def stream_chat(sid, data):
+@sio.on('stream:chat')
+async def handle_stream_chat(sid, data):
     """Handle real-time chat in a stream"""
     stream_id = data.get("stream_id")
     user_id = data.get("user_id")
