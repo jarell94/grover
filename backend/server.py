@@ -4346,8 +4346,8 @@ async def handle_stream_like(sid, data):
             "user_id": user_id
         }, room=f"stream_{stream_id}")
 
-@sio.event
-async def end_stream(sid, data):
+@sio.on('stream:end')
+async def handle_end_stream(sid, data):
     """Handle stream end event"""
     stream_id = data.get("stream_id")
     user_id = data.get("user_id")
