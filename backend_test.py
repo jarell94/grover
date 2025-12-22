@@ -47,30 +47,33 @@ class LiveStreamingTester:
         if details:
             print(f"   Details: {details}")
             
-    async def create_test_user(self, email: str, name: str) -> Optional[str]:
-        """Create a test user and return auth token"""
+    async def get_valid_session_token(self) -> Optional[str]:
+        """Get a valid session token from the database"""
         try:
-            # Simulate session creation (using a mock session_id)
-            session_id = f"test_session_{uuid.uuid4().hex[:16]}"
+            import asyncio
+            from motor.motor_asyncio import AsyncIOMotorClient
+            from datetime import datetime, timezone
             
-            # Try to get session - this will fail but we'll handle it
-            async with self.session.get(
-                f"{BACKEND_URL}/auth/session",
-                params={"session_id": session_id}
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get("session_token")
-                else:
-                    # For testing, we'll create a mock token
-                    # In real scenario, this would go through proper OAuth flow
-                    mock_token = f"mock_token_{uuid.uuid4().hex[:16]}"
-                    self.log_test(f"Create test user {name}", False, 
-                                f"Cannot create real user without OAuth flow. Using mock token for testing.")
-                    return mock_token
-                    
+            client = AsyncIOMotorClient('mongodb://localhost:27017')
+            db = client['test_database']
+            
+            # Find a valid session that hasn't expired
+            session = await db.user_sessions.find_one(
+                {"expires_at": {"$gt": datetime.now(timezone.utc)}},
+                {"_id": 0}
+            )
+            
+            client.close()
+            
+            if session:
+                self.log_test("Get valid session token", True, f"Using session for user: {session['user_id']}")
+                return session['session_token']
+            else:
+                self.log_test("Get valid session token", False, "No valid sessions found")
+                return None
+                
         except Exception as e:
-            self.log_test(f"Create test user {name}", False, str(e))
+            self.log_test("Get valid session token", False, str(e))
             return None
             
     async def test_agora_config(self) -> bool:
