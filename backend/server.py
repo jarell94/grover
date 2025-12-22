@@ -4258,8 +4258,8 @@ async def handle_join_stream(sid, data):
         
         logger.info(f"User {user_id} joined stream {stream_id}, viewers: {viewer_count}")
 
-@sio.event
-async def leave_stream(sid, data):
+@sio.on('stream:leave')
+async def handle_leave_stream(sid, data):
     """Leave a stream room"""
     stream_id = data.get("stream_id")
     user_id = data.get("user_id")
