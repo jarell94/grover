@@ -1607,6 +1607,11 @@ async def create_product(
     name: str = Form(...),
     description: str = Form(...),
     price: float = Form(...),
+    product_type: str = Form("physical"),  # physical, digital, service
+    service_duration: Optional[int] = Form(None),  # minutes for service type
+    digital_file_url: Optional[str] = Form(None),  # URL for digital downloads
+    is_bundle: bool = Form(False),
+    bundle_items: Optional[str] = Form(None),  # JSON array of product IDs
     image: Optional[UploadFile] = File(None),
     current_user: User = Depends(require_auth)
 ):
@@ -1616,6 +1621,11 @@ async def create_product(
         raise HTTPException(status_code=400, detail="Product name is required")
     
     description = sanitize_string(description, 2000, "description")
+    
+    # Validate product type
+    valid_types = ["physical", "digital", "service"]
+    if product_type not in valid_types:
+        product_type = "physical"
     
     # Validate price
     if price <= 0 or price > 100000:
@@ -1638,17 +1648,40 @@ async def create_product(
         image_url = upload_result["url"]
         image_public_id = upload_result.get("public_id")
     
+    # Parse bundle items if provided
+    bundle_items_list = []
+    if bundle_items:
+        try:
+            import json
+            bundle_items_list = json.loads(bundle_items)
+        except:
+            pass
+    
     product_id = f"prod_{uuid.uuid4().hex[:12]}"
-    await db.products.insert_one({
+    product_data = {
         "product_id": product_id,
         "user_id": current_user.user_id,
         "name": name,
         "description": description,
         "price": round(price, 2),  # Ensure 2 decimal places
+        "product_type": product_type,
         "image_url": image_url,
         "image_public_id": image_public_id,
+        "is_bundle": is_bundle,
+        "rating": 0,
+        "reviews_count": 0,
         "created_at": datetime.now(timezone.utc)
-    })
+    }
+    
+    # Add type-specific fields
+    if product_type == "service" and service_duration:
+        product_data["service_duration"] = service_duration
+    if product_type == "digital" and digital_file_url:
+        product_data["digital_file_url"] = digital_file_url
+    if is_bundle and bundle_items_list:
+        product_data["bundle_items"] = bundle_items_list
+    
+    await db.products.insert_one(product_data)
     
     return {"product_id": product_id, "message": "Product created"}
 
