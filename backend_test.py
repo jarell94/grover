@@ -1,543 +1,391 @@
 #!/usr/bin/env python3
 """
-Backend Testing Suite for Grover Live Streaming API
-Tests all live streaming endpoints as specified in the review request.
+Backend Testing Script for Grover Marketplace and Discount Code Endpoints
+Tests the new marketplace and discount code functionality
 """
 
-import asyncio
-import aiohttp
+import requests
 import json
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional
+from datetime import datetime, timedelta
+import os
+import sys
 
 # Configuration
 BACKEND_URL = "https://creator-hub-323.preview.emergentagent.com/api"
-TEST_USER_EMAIL = "streamer@grover.test"
-TEST_USER_NAME = "Live Streamer"
-TEST_VIEWER_EMAIL = "viewer@grover.test"
-TEST_VIEWER_NAME = "Stream Viewer"
+TEST_USER_EMAIL = f"testuser_{uuid.uuid4().hex[:8]}@example.com"
+TEST_USER_NAME = "Test User Marketplace"
 
-class LiveStreamingTester:
+class BackendTester:
     def __init__(self):
-        self.session = None
-        self.streamer_token = None
-        self.viewer_token = None
-        self.test_stream_id = None
-        self.test_results = []
+        self.session_token = None
+        self.user_id = None
+        self.created_products = []
+        self.created_discounts = []
         
-    async def setup_session(self):
-        """Initialize HTTP session"""
-        self.session = aiohttp.ClientSession()
+    def log(self, message, level="INFO"):
+        """Log test messages"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"[{timestamp}] {level}: {message}")
         
-    async def cleanup_session(self):
-        """Cleanup HTTP session"""
-        if self.session:
-            await self.session.close()
-            
-    def log_test(self, test_name: str, success: bool, details: str = ""):
-        """Log test result"""
-        status = "✅ PASS" if success else "❌ FAIL"
-        self.test_results.append({
-            "test": test_name,
-            "success": success,
-            "details": details
-        })
-        print(f"{status}: {test_name}")
-        if details:
-            print(f"   Details: {details}")
-            
-    async def get_valid_session_token(self) -> Optional[str]:
-        """Get a valid session token from the database"""
+    def create_test_user_and_auth(self):
+        """Create a test user session for authentication"""
+        self.log("Creating test user session...")
+        
+        # Mock session data for testing (simulating Emergent OAuth)
+        session_id = f"test_session_{uuid.uuid4().hex[:16]}"
+        
         try:
-            import asyncio
-            from motor.motor_asyncio import AsyncIOMotorClient
-            from datetime import datetime, timezone
-            
-            client = AsyncIOMotorClient('mongodb://localhost:27017')
-            db = client['test_database']
-            
-            # Find a valid session that hasn't expired
-            session = await db.user_sessions.find_one(
-                {"expires_at": {"$gt": datetime.now(timezone.utc)}},
-                {"_id": 0}
+            # Try to create session (this will create a new user if needed)
+            response = requests.get(
+                f"{BACKEND_URL}/auth/session",
+                params={"session_id": session_id},
+                timeout=10
             )
             
-            client.close()
-            
-            if session:
-                self.log_test("Get valid session token", True, f"Using session for user: {session['user_id']}")
-                return session['session_token']
+            if response.status_code == 200:
+                data = response.json()
+                self.session_token = data.get("session_token", session_id)
+                self.user_id = data["user_id"]
+                self.log(f"✅ User created/authenticated: {self.user_id}")
+                return True
             else:
-                self.log_test("Get valid session token", False, "No valid sessions found")
-                return None
+                self.log(f"❌ Failed to create session: {response.status_code} - {response.text}", "ERROR")
+                return False
                 
         except Exception as e:
-            self.log_test("Get valid session token", False, str(e))
-            return None
-            
-    async def test_agora_config(self) -> bool:
-        """Test GET /api/streams/agora-config"""
-        try:
-            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
-            async with self.session.get(f"{BACKEND_URL}/streams/agora-config", headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if "app_id" in data:
-                        self.log_test("GET /api/streams/agora-config", True, f"App ID: {data['app_id']}")
-                        return True
-                    else:
-                        self.log_test("GET /api/streams/agora-config", False, "Missing app_id in response")
-                        return False
+            self.log(f"❌ Session creation error: {str(e)}", "ERROR")
+            return False
+    
+    def get_headers(self):
+        """Get authentication headers"""
+        return {
+            "Authorization": f"Bearer {self.session_token}",
+            "Content-Type": "application/json"
+        }
+    
+    def test_enhanced_product_creation(self):
+        """Test enhanced product creation with new fields"""
+        self.log("Testing enhanced product creation...")
+        
+        test_cases = [
+            {
+                "name": "Digital Course Bundle",
+                "description": "Complete web development course with bonus materials",
+                "price": 99.99,
+                "product_type": "digital",
+                "digital_file_url": "https://example.com/course-download",
+                "is_bundle": True,
+                "bundle_items": json.dumps(["item1", "item2", "item3"])
+            },
+            {
+                "name": "1-Hour Consultation Service",
+                "description": "Personal consultation session with expert",
+                "price": 150.00,
+                "product_type": "service",
+                "service_duration": 60,
+                "is_bundle": False
+            },
+            {
+                "name": "Physical Product",
+                "description": "Traditional physical merchandise",
+                "price": 29.99,
+                "product_type": "physical",
+                "is_bundle": False
+            }
+        ]
+        
+        success_count = 0
+        
+        for i, product_data in enumerate(test_cases, 1):
+            try:
+                response = requests.post(
+                    f"{BACKEND_URL}/products",
+                    data=product_data,
+                    headers={"Authorization": f"Bearer {self.session_token}"},
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    product_id = result.get("product_id")
+                    self.created_products.append(product_id)
+                    self.log(f"✅ Product {i} created: {product_id} ({product_data['product_type']})")
+                    success_count += 1
                 else:
-                    text = await response.text()
-                    self.log_test("GET /api/streams/agora-config", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("GET /api/streams/agora-config", False, str(e))
-            return False
-            
-    async def test_token_generation(self) -> bool:
-        """Test POST /api/streams/token"""
+                    self.log(f"❌ Product {i} creation failed: {response.status_code} - {response.text}", "ERROR")
+                    
+            except Exception as e:
+                self.log(f"❌ Product {i} creation error: {str(e)}", "ERROR")
+        
+        return success_count == len(test_cases)
+    
+    def test_get_products_with_types(self):
+        """Test getting products and verify product_type is returned"""
+        self.log("Testing product retrieval with product types...")
+        
         try:
-            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
-            data = aiohttp.FormData()
-            data.add_field("channel_name", "test_channel_123")
-            data.add_field("role", "1")  # Publisher role
+            response = requests.get(
+                f"{BACKEND_URL}/products",
+                headers=self.get_headers(),
+                timeout=10
+            )
             
-            async with self.session.post(f"{BACKEND_URL}/streams/token", data=data, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "token" in result and "channel_name" in result:
-                        self.log_test("POST /api/streams/token", True, f"Token generated for channel: {result['channel_name']}")
-                        return True
+            if response.status_code == 200:
+                products = response.json()
+                
+                if not products:
+                    self.log("❌ No products found", "ERROR")
+                    return False
+                
+                # Check if product_type field is present
+                types_found = set()
+                for product in products:
+                    if "product_type" in product:
+                        types_found.add(product["product_type"])
                     else:
-                        self.log_test("POST /api/streams/token", False, "Missing token or channel_name in response")
+                        self.log(f"❌ Product {product.get('product_id', 'unknown')} missing product_type field", "ERROR")
                         return False
-                else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/token", False, f"Status {response.status}: {text}")
-                    return False
+                
+                self.log(f"✅ Products retrieved with types: {list(types_found)}")
+                return True
+            else:
+                self.log(f"❌ Failed to get products: {response.status_code} - {response.text}", "ERROR")
+                return False
+                
         except Exception as e:
-            self.log_test("POST /api/streams/token", False, str(e))
+            self.log(f"❌ Get products error: {str(e)}", "ERROR")
             return False
-            
-    async def test_start_stream(self) -> bool:
-        """Test POST /api/streams/start"""
-        try:
-            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
-            data = aiohttp.FormData()
-            data.add_field("title", "Test Live Stream")
-            data.add_field("description", "This is a test live stream for backend testing")
-            data.add_field("enable_super_chat", "true")
-            data.add_field("enable_shopping", "false")
-            data.add_field("camera_facing", "front")
-            
-            async with self.session.post(f"{BACKEND_URL}/streams/start", data=data, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "stream_id" in result:
-                        self.test_stream_id = result["stream_id"]
-                        self.log_test("POST /api/streams/start", True, f"Stream started with ID: {self.test_stream_id}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/start", False, "Missing stream_id in response")
-                        return False
+    
+    def test_discount_code_creation(self):
+        """Test discount code creation"""
+        self.log("Testing discount code creation...")
+        
+        test_codes = [
+            {
+                "code": "SAVE20",
+                "percent": 20,
+                "expiry": None
+            },
+            {
+                "code": "FLASH50",
+                "percent": 50,
+                "expiry": (datetime.now() + timedelta(days=30)).isoformat()
+            },
+            {
+                "code": "WELCOME10",
+                "percent": 10,
+                "expiry": None
+            }
+        ]
+        
+        success_count = 0
+        
+        for i, code_data in enumerate(test_codes, 1):
+            try:
+                response = requests.post(
+                    f"{BACKEND_URL}/discounts",
+                    json=code_data,
+                    headers=self.get_headers(),
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    code = result.get("code")
+                    self.created_discounts.append(code)
+                    self.log(f"✅ Discount code {i} created: {code} ({code_data['percent']}%)")
+                    success_count += 1
                 else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/start", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/start", False, str(e))
-            return False
-            
-    async def test_get_live_streams(self) -> bool:
-        """Test GET /api/streams/live"""
+                    self.log(f"❌ Discount code {i} creation failed: {response.status_code} - {response.text}", "ERROR")
+                    
+            except Exception as e:
+                self.log(f"❌ Discount code {i} creation error: {str(e)}", "ERROR")
+        
+        return success_count == len(test_codes)
+    
+    def test_get_user_discounts(self):
+        """Test getting user's discount codes"""
+        self.log("Testing user discount codes retrieval...")
+        
         try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            async with self.session.get(f"{BACKEND_URL}/streams/live", headers=headers) as response:
-                if response.status == 200:
-                    streams = await response.json()
-                    if isinstance(streams, list):
-                        self.log_test("GET /api/streams/live", True, f"Found {len(streams)} live streams")
-                        return True
-                    else:
-                        self.log_test("GET /api/streams/live", False, "Response is not a list")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("GET /api/streams/live", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("GET /api/streams/live", False, str(e))
-            return False
+            response = requests.get(
+                f"{BACKEND_URL}/discounts",
+                headers=self.get_headers(),
+                timeout=10
+            )
             
-    async def test_get_stream_details(self) -> bool:
-        """Test GET /api/streams/{stream_id}"""
-        if not self.test_stream_id:
-            self.log_test("GET /api/streams/{stream_id}", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            async with self.session.get(f"{BACKEND_URL}/streams/{self.test_stream_id}", headers=headers) as response:
-                if response.status == 200:
-                    stream = await response.json()
-                    if "stream_id" in stream and "title" in stream:
-                        self.log_test("GET /api/streams/{stream_id}", True, f"Stream details: {stream['title']}")
-                        return True
-                    else:
-                        self.log_test("GET /api/streams/{stream_id}", False, "Missing stream_id or title in response")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("GET /api/streams/{stream_id}", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("GET /api/streams/{stream_id}", False, str(e))
-            return False
-            
-    async def test_get_join_info(self) -> bool:
-        """Test GET /api/streams/{stream_id}/join-info"""
-        if not self.test_stream_id:
-            self.log_test("GET /api/streams/{stream_id}/join-info", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            async with self.session.get(f"{BACKEND_URL}/streams/{self.test_stream_id}/join-info", headers=headers) as response:
-                if response.status == 200:
-                    join_info = await response.json()
-                    if "viewer_token" in join_info and "channel_name" in join_info:
-                        self.log_test("GET /api/streams/{stream_id}/join-info", True, f"Join info with channel: {join_info['channel_name']}")
-                        return True
-                    else:
-                        self.log_test("GET /api/streams/{stream_id}/join-info", False, "Missing viewer_token or channel_name")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("GET /api/streams/{stream_id}/join-info", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("GET /api/streams/{stream_id}/join-info", False, str(e))
-            return False
-            
-    async def test_join_stream(self) -> bool:
-        """Test POST /api/streams/{stream_id}/join"""
-        if not self.test_stream_id:
-            self.log_test("POST /api/streams/{stream_id}/join", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/join", headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "message" in result and "viewers_count" in result:
-                        self.log_test("POST /api/streams/{stream_id}/join", True, f"Joined stream, viewers: {result['viewers_count']}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/{stream_id}/join", False, "Missing message or viewers_count")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/{stream_id}/join", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/{stream_id}/join", False, str(e))
-            return False
-            
-    async def test_leave_stream(self) -> bool:
-        """Test POST /api/streams/{stream_id}/leave"""
-        if not self.test_stream_id:
-            self.log_test("POST /api/streams/{stream_id}/leave", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/leave", headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "message" in result and "viewers_count" in result:
-                        self.log_test("POST /api/streams/{stream_id}/leave", True, f"Left stream, viewers: {result['viewers_count']}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/{stream_id}/leave", False, "Missing message or viewers_count")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/{stream_id}/leave", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/{stream_id}/leave", False, str(e))
-            return False
-            
-    async def test_send_chat(self) -> bool:
-        """Test POST /api/streams/{stream_id}/chat"""
-        if not self.test_stream_id:
-            self.log_test("POST /api/streams/{stream_id}/chat", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            data = aiohttp.FormData()
-            data.add_field("text", "Hello from the test suite! This is a test chat message.")
-            
-            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/chat", data=data, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "message" in result and "message_id" in result:
-                        self.log_test("POST /api/streams/{stream_id}/chat", True, f"Chat sent with ID: {result['message_id']}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/{stream_id}/chat", False, "Missing message or message_id")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/{stream_id}/chat", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/{stream_id}/chat", False, str(e))
-            return False
-            
-    async def test_send_like(self) -> bool:
-        """Test POST /api/streams/{stream_id}/like"""
-        if not self.test_stream_id:
-            self.log_test("POST /api/streams/{stream_id}/like", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/like", headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "message" in result and "likes_count" in result:
-                        self.log_test("POST /api/streams/{stream_id}/like", True, f"Like sent, total likes: {result['likes_count']}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/{stream_id}/like", False, "Missing message or likes_count")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/{stream_id}/like", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/{stream_id}/like", False, str(e))
-            return False
-            
-    async def test_send_gift(self) -> bool:
-        """Test POST /api/streams/{stream_id}/gift"""
-        if not self.test_stream_id:
-            self.log_test("POST /api/streams/{stream_id}/gift", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            data = aiohttp.FormData()
-            data.add_field("gift_id", "heart")  # Test with heart gift
-            
-            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/gift", data=data, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "message" in result and "gift" in result:
-                        self.log_test("POST /api/streams/{stream_id}/gift", True, f"Gift sent: {result['gift']['name']}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/{stream_id}/gift", False, "Missing message or gift data")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/{stream_id}/gift", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/{stream_id}/gift", False, str(e))
-            return False
-            
-    async def test_send_superchat(self) -> bool:
-        """Test POST /api/streams/{stream_id}/superchat"""
-        if not self.test_stream_id:
-            self.log_test("POST /api/streams/{stream_id}/superchat", False, "No test stream ID available")
-            return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
-            data = aiohttp.FormData()
-            data.add_field("amount", "5.00")
-            data.add_field("message", "Great stream! Keep up the awesome work!")
-            
-            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/superchat", data=data, headers=headers) as response:
-                response_text = await response.text()
-                if response.status == 200:
-                    try:
-                        result = await response.json()
-                        if "message" in result and ("superchat_id" in result or "super_chat_id" in result):
-                            superchat_id = result.get("superchat_id") or result.get("super_chat_id")
-                            self.log_test("POST /api/streams/{stream_id}/superchat", True, f"Superchat sent with ID: {superchat_id}")
-                            return True
+            if response.status_code == 200:
+                discounts = response.json()
+                
+                if len(discounts) >= len(self.created_discounts):
+                    self.log(f"✅ Retrieved {len(discounts)} discount codes")
+                    
+                    # Verify our created codes are in the list
+                    found_codes = [d["code"] for d in discounts]
+                    for code in self.created_discounts:
+                        if code in found_codes:
+                            self.log(f"✅ Found created code: {code}")
                         else:
-                            self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Missing superchat_id in response: {result}")
+                            self.log(f"❌ Missing created code: {code}", "ERROR")
                             return False
-                    except:
-                        # Response might not be JSON
-                        self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Non-JSON response: {response_text}")
-                        return False
+                    
+                    return True
                 else:
-                    self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Status {response.status}: {response_text}")
+                    self.log(f"❌ Expected at least {len(self.created_discounts)} codes, got {len(discounts)}", "ERROR")
                     return False
+            else:
+                self.log(f"❌ Failed to get discounts: {response.status_code} - {response.text}", "ERROR")
+                return False
+                
         except Exception as e:
-            self.log_test("POST /api/streams/{stream_id}/superchat", False, str(e))
+            self.log(f"❌ Get discounts error: {str(e)}", "ERROR")
             return False
-            
-    async def test_end_stream(self) -> bool:
-        """Test POST /api/streams/{stream_id}/end"""
-        if not self.test_stream_id:
-            self.log_test("POST /api/streams/{stream_id}/end", False, "No test stream ID available")
+    
+    def test_discount_validation(self):
+        """Test discount code validation"""
+        self.log("Testing discount code validation...")
+        
+        if not self.created_discounts:
+            self.log("❌ No discount codes to validate", "ERROR")
             return False
-            
-        try:
-            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
-            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/end", headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "message" in result:
-                        self.log_test("POST /api/streams/{stream_id}/end", True, "Stream ended successfully")
-                        return True
+        
+        success_count = 0
+        
+        # Test valid codes
+        for code in self.created_discounts:
+            try:
+                response = requests.get(
+                    f"{BACKEND_URL}/discounts/validate/{code}",
+                    headers=self.get_headers(),
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("valid") and result.get("code") == code:
+                        self.log(f"✅ Code validation successful: {code} ({result.get('percent')}%)")
+                        success_count += 1
                     else:
-                        self.log_test("POST /api/streams/{stream_id}/end", False, "Missing message in response")
-                        return False
+                        self.log(f"❌ Code validation returned invalid: {code}", "ERROR")
                 else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/{stream_id}/end", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/{stream_id}/end", False, str(e))
-            return False
-            
-    async def test_schedule_stream(self) -> bool:
-        """Test POST /api/streams/schedule"""
-        try:
-            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
-            # Schedule a stream for 1 hour from now
-            future_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-            
-            data = aiohttp.FormData()
-            data.add_field("title", "Scheduled Test Stream")
-            data.add_field("description", "This is a scheduled stream for testing")
-            data.add_field("scheduled_time", future_time)
-            data.add_field("enable_super_chat", "true")
-            data.add_field("enable_shopping", "false")
-            
-            async with self.session.post(f"{BACKEND_URL}/streams/schedule", data=data, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if "stream_id" in result and "scheduled_time" in result:
-                        self.log_test("POST /api/streams/schedule", True, f"Stream scheduled with ID: {result['stream_id']}")
-                        return True
-                    else:
-                        self.log_test("POST /api/streams/schedule", False, "Missing stream_id or scheduled_time")
-                        return False
-                else:
-                    text = await response.text()
-                    self.log_test("POST /api/streams/schedule", False, f"Status {response.status}: {text}")
-                    return False
-        except Exception as e:
-            self.log_test("POST /api/streams/schedule", False, str(e))
-            return False
-            
-    async def run_all_tests(self):
-        """Run all live streaming tests in the specified workflow order"""
-        print("🚀 Starting Live Streaming Backend Tests")
-        print("=" * 60)
+                    self.log(f"❌ Code validation failed: {code} - {response.status_code} - {response.text}", "ERROR")
+                    
+            except Exception as e:
+                self.log(f"❌ Code validation error for {code}: {str(e)}", "ERROR")
         
-        await self.setup_session()
+        # Test invalid code
+        try:
+            invalid_code = "INVALID123"
+            response = requests.get(
+                f"{BACKEND_URL}/discounts/validate/{invalid_code}",
+                headers=self.get_headers(),
+                timeout=10
+            )
+            
+            if response.status_code == 404:
+                self.log(f"✅ Invalid code correctly rejected: {invalid_code}")
+                success_count += 1
+            else:
+                self.log(f"❌ Invalid code should return 404, got {response.status_code}", "ERROR")
+                
+        except Exception as e:
+            self.log(f"❌ Invalid code test error: {str(e)}", "ERROR")
+        
+        return success_count == len(self.created_discounts) + 1
+    
+    def test_discount_deletion(self):
+        """Test discount code deletion"""
+        self.log("Testing discount code deletion...")
+        
+        if not self.created_discounts:
+            self.log("❌ No discount codes to delete", "ERROR")
+            return False
+        
+        # Delete the first code
+        code_to_delete = self.created_discounts[0]
         
         try:
-            # Step 1: Get a valid session token from the database
-            print("\n📝 Step 1: Getting valid session token...")
-            self.streamer_token = await self.get_valid_session_token()
-            self.viewer_token = self.streamer_token  # Use same token for both for testing
+            response = requests.delete(
+                f"{BACKEND_URL}/discounts/{code_to_delete}",
+                headers=self.get_headers(),
+                timeout=10
+            )
             
-            # Step 2: Test Agora config endpoint
-            print("\n🔧 Step 2: Testing Agora configuration...")
-            await self.test_agora_config()
-            
-            # Step 3: Test token generation endpoint
-            print("\n🎫 Step 3: Testing token generation...")
-            await self.test_token_generation()
-            
-            # Step 4: Test starting a stream
-            print("\n📺 Step 4: Testing stream start...")
-            await self.test_start_stream()
-            
-            # Step 5: Test getting live streams list
-            print("\n📋 Step 5: Testing live streams list...")
-            await self.test_get_live_streams()
-            
-            # Step 6: Test getting stream details
-            print("\n🔍 Step 6: Testing stream details...")
-            await self.test_get_stream_details()
-            
-            # Step 7: Test joining a stream
-            print("\n👥 Step 7: Testing stream join...")
-            await self.test_join_stream()
-            
-            # Step 8: Test leaving a stream
-            print("\n🚪 Step 8: Testing stream leave...")
-            await self.test_leave_stream()
-            
-            # Step 9: Test sending chat messages
-            print("\n💬 Step 9: Testing chat messages...")
-            await self.test_send_chat()
-            
-            # Step 10: Test sending likes
-            print("\n❤️ Step 10: Testing likes...")
-            await self.test_send_like()
-            
-            # Step 11: Test sending gifts
-            print("\n🎁 Step 11: Testing gifts...")
-            await self.test_send_gift()
-            
-            # Step 12: Test sending superchat
-            print("\n💰 Step 12: Testing superchat...")
-            await self.test_send_superchat()
-            
-            # Step 13: Test ending a stream
-            print("\n🛑 Step 13: Testing stream end...")
-            await self.test_end_stream()
-            
-            # Step 14: Test scheduling a future stream
-            print("\n⏰ Step 14: Testing stream scheduling...")
-            await self.test_schedule_stream()
-            
-        finally:
-            await self.cleanup_session()
-            
-        # Print summary
-        print("\n" + "=" * 60)
-        print("📊 TEST SUMMARY")
-        print("=" * 60)
+            if response.status_code == 200:
+                self.log(f"✅ Discount code deleted: {code_to_delete}")
+                
+                # Try to validate the deleted code (should fail)
+                validate_response = requests.get(
+                    f"{BACKEND_URL}/discounts/validate/{code_to_delete}",
+                    headers=self.get_headers(),
+                    timeout=10
+                )
+                
+                if validate_response.status_code == 404:
+                    self.log(f"✅ Deleted code correctly invalid: {code_to_delete}")
+                    return True
+                else:
+                    self.log(f"❌ Deleted code still validates: {code_to_delete}", "ERROR")
+                    return False
+            else:
+                self.log(f"❌ Failed to delete code: {response.status_code} - {response.text}", "ERROR")
+                return False
+                
+        except Exception as e:
+            self.log(f"❌ Code deletion error: {str(e)}", "ERROR")
+            return False
+    
+    def run_all_tests(self):
+        """Run all marketplace and discount code tests"""
+        self.log("🚀 Starting Marketplace and Discount Code Backend Tests")
+        self.log("=" * 60)
         
-        passed = sum(1 for result in self.test_results if result["success"])
-        total = len(self.test_results)
+        tests = [
+            ("User Authentication", self.create_test_user_and_auth),
+            ("Enhanced Product Creation", self.test_enhanced_product_creation),
+            ("Product Retrieval with Types", self.test_get_products_with_types),
+            ("Discount Code Creation", self.test_discount_code_creation),
+            ("User Discount Retrieval", self.test_get_user_discounts),
+            ("Discount Code Validation", self.test_discount_validation),
+            ("Discount Code Deletion", self.test_discount_deletion),
+        ]
         
-        for result in self.test_results:
-            status = "✅" if result["success"] else "❌"
-            print(f"{status} {result['test']}")
-            
-        print(f"\n🎯 Results: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
+        passed = 0
+        total = len(tests)
+        
+        for test_name, test_func in tests:
+            self.log(f"\n📋 Running: {test_name}")
+            try:
+                if test_func():
+                    passed += 1
+                    self.log(f"✅ {test_name}: PASSED")
+                else:
+                    self.log(f"❌ {test_name}: FAILED")
+            except Exception as e:
+                self.log(f"❌ {test_name}: ERROR - {str(e)}")
+        
+        self.log("\n" + "=" * 60)
+        self.log(f"🏁 Test Results: {passed}/{total} tests passed")
         
         if passed == total:
-            print("🎉 ALL TESTS PASSED! Live streaming backend is working correctly.")
+            self.log("🎉 ALL MARKETPLACE AND DISCOUNT TESTS PASSED!")
+            return True
         else:
-            print(f"⚠️  {total - passed} tests failed. See details above.")
-            
-        return passed == total
+            self.log(f"⚠️  {total - passed} tests failed")
+            return False
 
-async def main():
-    """Main test runner"""
-    tester = LiveStreamingTester()
-    success = await tester.run_all_tests()
-    return success
+def main():
+    """Main test execution"""
+    tester = BackendTester()
+    success = tester.run_all_tests()
+    
+    if success:
+        print("\n✅ MARKETPLACE AND DISCOUNT CODE BACKEND TESTING COMPLETE - ALL TESTS PASSED")
+        sys.exit(0)
+    else:
+        print("\n❌ MARKETPLACE AND DISCOUNT CODE BACKEND TESTING COMPLETE - SOME TESTS FAILED")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
