@@ -3788,6 +3788,345 @@ async def send_super_chat(
     
     return {"message": "Super chat sent", "super_chat_id": super_chat_id}
 
+@api_router.get("/streams/{stream_id}/join-info")
+async def get_stream_join_info(stream_id: str, current_user: User = Depends(require_auth)):
+    """Get stream join information with Agora token for audience"""
+    stream = await db.streams.find_one({"stream_id": stream_id}, {"_id": 0})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    if stream.get("status") != "live":
+        raise HTTPException(status_code=400, detail="Stream is not live")
+    
+    # Generate viewer UID and token
+    viewer_uid = abs(hash(current_user.user_id)) % (2**31)
+    agora_token = generate_agora_token(stream["channel_name"], viewer_uid, 'subscriber', 3600)
+    
+    # Get host user data
+    user = await db.users.find_one({"user_id": stream["user_id"]}, {"_id": 0})
+    
+    return {
+        "stream_id": stream_id,
+        "channel_name": stream["channel_name"],
+        "token": agora_token,
+        "uid": viewer_uid,
+        "app_id": AGORA_APP_ID or None,
+        "host": user,
+        "title": stream.get("title"),
+        "viewers_count": stream.get("viewers_count", 0),
+        "enable_super_chat": stream.get("enable_super_chat", False),
+        "enable_shopping": stream.get("enable_shopping", False)
+    }
+
+@api_router.post("/streams/schedule")
+async def schedule_stream(
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    scheduled_time: str = Form(...),
+    enable_super_chat: bool = Form(False),
+    enable_shopping: bool = Form(False),
+    current_user: User = Depends(require_auth)
+):
+    """Schedule a future live stream"""
+    # Parse scheduled time
+    try:
+        scheduled_dt = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+    except:
+        raise HTTPException(status_code=400, detail="Invalid datetime format")
+    
+    if scheduled_dt <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+    
+    stream_id = f"stream_{uuid.uuid4().hex[:12]}"
+    channel_name = stream_id
+    
+    scheduled_stream = {
+        "stream_id": stream_id,
+        "user_id": current_user.user_id,
+        "title": sanitize_string(title, 200, "title"),
+        "description": sanitize_string(description, 1000, "description") if description else None,
+        "enable_super_chat": enable_super_chat,
+        "enable_shopping": enable_shopping,
+        "status": "scheduled",
+        "scheduled_time": scheduled_dt,
+        "channel_name": channel_name,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.scheduled_streams.insert_one(scheduled_stream)
+    
+    # Notify followers
+    followers = await db.follows.find(
+        {"following_id": current_user.user_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    for follower in followers:
+        await create_notification(
+            follower["follower_id"],
+            "scheduled_stream",
+            f"{current_user.name} scheduled a live stream: {title}",
+            stream_id
+        )
+    
+    return {
+        "stream_id": stream_id,
+        "scheduled_time": scheduled_dt.isoformat(),
+        "message": "Stream scheduled successfully"
+    }
+
+@api_router.post("/streams/{stream_id}/join")
+async def join_stream(stream_id: str, current_user: User = Depends(require_auth)):
+    """Join a live stream as a viewer"""
+    stream = await db.streams.find_one({"stream_id": stream_id})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    if stream.get("status") != "live":
+        raise HTTPException(status_code=400, detail="Stream is not live")
+    
+    # Add viewer to stream room (tracked separately)
+    await db.stream_viewers.update_one(
+        {"stream_id": stream_id, "user_id": current_user.user_id},
+        {
+            "$set": {
+                "stream_id": stream_id,
+                "user_id": current_user.user_id,
+                "joined_at": datetime.now(timezone.utc)
+            }
+        },
+        upsert=True
+    )
+    
+    # Update viewer count
+    viewer_count = await db.stream_viewers.count_documents({"stream_id": stream_id})
+    await db.streams.update_one(
+        {"stream_id": stream_id},
+        {"$set": {"viewers_count": viewer_count}}
+    )
+    
+    # Emit viewer count update via socket
+    await sio.emit('stream:viewers', {
+        "stream_id": stream_id,
+        "viewers_count": viewer_count
+    }, room=f"stream_{stream_id}")
+    
+    return {
+        "message": "Joined stream",
+        "viewers_count": viewer_count
+    }
+
+@api_router.post("/streams/{stream_id}/leave")
+async def leave_stream(stream_id: str, current_user: User = Depends(require_auth)):
+    """Leave a live stream"""
+    # Remove viewer from tracking
+    await db.stream_viewers.delete_one({
+        "stream_id": stream_id,
+        "user_id": current_user.user_id
+    })
+    
+    # Update viewer count
+    viewer_count = await db.stream_viewers.count_documents({"stream_id": stream_id})
+    await db.streams.update_one(
+        {"stream_id": stream_id},
+        {"$set": {"viewers_count": viewer_count}}
+    )
+    
+    # Emit viewer count update via socket
+    await sio.emit('stream:viewers', {
+        "stream_id": stream_id,
+        "viewers_count": viewer_count
+    }, room=f"stream_{stream_id}")
+    
+    return {
+        "message": "Left stream",
+        "viewers_count": viewer_count
+    }
+
+@api_router.post("/streams/{stream_id}/chat")
+async def send_stream_chat(
+    stream_id: str,
+    text: str = Form(...),
+    current_user: User = Depends(require_auth)
+):
+    """Send a chat message in a stream"""
+    stream = await db.streams.find_one({"stream_id": stream_id})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    if stream.get("status") != "live":
+        raise HTTPException(status_code=400, detail="Stream is not live")
+    
+    message_id = f"chat_{uuid.uuid4().hex[:12]}"
+    message_data = {
+        "message_id": message_id,
+        "stream_id": stream_id,
+        "user_id": current_user.user_id,
+        "user_name": current_user.name,
+        "user_picture": current_user.picture,
+        "text": sanitize_string(text, 500, "text"),
+        "type": "chat",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.stream_chats.insert_one(message_data)
+    
+    # Emit to stream room
+    await sio.emit('stream:chat', {
+        "message_id": message_id,
+        "user": {
+            "user_id": current_user.user_id,
+            "name": current_user.name,
+            "picture": current_user.picture
+        },
+        "text": message_data["text"],
+        "type": "chat",
+        "created_at": message_data["created_at"].isoformat()
+    }, room=f"stream_{stream_id}")
+    
+    return {"message": "Chat sent", "message_id": message_id}
+
+@api_router.post("/streams/{stream_id}/like")
+async def like_stream(stream_id: str, current_user: User = Depends(require_auth)):
+    """Send a like/heart in a stream"""
+    stream = await db.streams.find_one({"stream_id": stream_id})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    # Increment likes count
+    result = await db.streams.update_one(
+        {"stream_id": stream_id},
+        {"$inc": {"likes_count": 1}}
+    )
+    
+    updated_stream = await db.streams.find_one({"stream_id": stream_id})
+    likes_count = updated_stream.get("likes_count", 0)
+    
+    # Emit to stream room
+    await sio.emit('stream:likes', {
+        "stream_id": stream_id,
+        "likes_count": likes_count,
+        "user_id": current_user.user_id
+    }, room=f"stream_{stream_id}")
+    
+    return {"message": "Like sent", "likes_count": likes_count}
+
+@api_router.post("/streams/{stream_id}/gift")
+async def send_stream_gift(
+    stream_id: str,
+    gift_id: str = Form(...),
+    current_user: User = Depends(require_auth)
+):
+    """Send a virtual gift in a stream"""
+    stream = await db.streams.find_one({"stream_id": stream_id})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    # Gift definitions (can be moved to DB)
+    gifts = {
+        "heart": {"name": "Heart", "value": 1, "emoji": "❤️"},
+        "star": {"name": "Star", "value": 5, "emoji": "⭐"},
+        "fire": {"name": "Fire", "value": 10, "emoji": "🔥"},
+        "diamond": {"name": "Diamond", "value": 50, "emoji": "💎"},
+        "rocket": {"name": "Rocket", "value": 100, "emoji": "🚀"},
+        "crown": {"name": "Crown", "value": 500, "emoji": "👑"}
+    }
+    
+    gift = gifts.get(gift_id)
+    if not gift:
+        raise HTTPException(status_code=400, detail="Invalid gift")
+    
+    gift_record_id = f"gift_{uuid.uuid4().hex[:12]}"
+    gift_record = {
+        "gift_record_id": gift_record_id,
+        "stream_id": stream_id,
+        "user_id": current_user.user_id,
+        "gift_id": gift_id,
+        "gift_name": gift["name"],
+        "gift_value": gift["value"],
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.stream_gifts.insert_one(gift_record)
+    
+    # Emit to stream room
+    await sio.emit('stream:gift', {
+        "stream_id": stream_id,
+        "user": {
+            "user_id": current_user.user_id,
+            "name": current_user.name,
+            "picture": current_user.picture
+        },
+        "gift": gift,
+        "created_at": gift_record["created_at"].isoformat()
+    }, room=f"stream_{stream_id}")
+    
+    # Notify streamer
+    if stream["user_id"] != current_user.user_id:
+        await create_notification(
+            stream["user_id"],
+            "gift",
+            f"{current_user.name} sent you a {gift['emoji']} {gift['name']}!",
+            gift_record_id
+        )
+    
+    return {"message": "Gift sent", "gift": gift}
+
+@api_router.post("/streams/{stream_id}/superchat")
+async def send_stream_superchat(
+    stream_id: str,
+    amount: float = Form(...),
+    message: str = Form(...),
+    current_user: User = Depends(require_auth)
+):
+    """Send a super chat in a stream (alias for /super-chat)"""
+    stream = await db.streams.find_one({"stream_id": stream_id})
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    if not stream.get("enable_super_chat"):
+        raise HTTPException(status_code=400, detail="Super chat not enabled for this stream")
+    
+    # Validate amount
+    if amount <= 0 or amount > 500:
+        raise HTTPException(status_code=400, detail="Invalid amount (must be between $0.01 and $500)")
+    
+    super_chat_id = f"superchat_{uuid.uuid4().hex[:12]}"
+    
+    superchat_record = {
+        "super_chat_id": super_chat_id,
+        "stream_id": stream_id,
+        "user_id": current_user.user_id,
+        "amount": amount,
+        "message": sanitize_string(message, 200, "message"),
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.super_chats.insert_one(superchat_record)
+    
+    # Emit to stream room
+    await sio.emit('stream:superchat', {
+        "stream_id": stream_id,
+        "user": {
+            "user_id": current_user.user_id,
+            "name": current_user.name,
+            "picture": current_user.picture
+        },
+        "amount": amount,
+        "message": superchat_record["message"],
+        "created_at": superchat_record["created_at"].isoformat()
+    }, room=f"stream_{stream_id}")
+    
+    # Notify streamer
+    await create_notification(
+        stream["user_id"],
+        "super_chat",
+        f"{current_user.name} sent ${amount}: {message}",
+        super_chat_id
+    )
+    
+    return {"message": "Super chat sent", "super_chat_id": super_chat_id}
+
 # ============ POLLS ENDPOINTS ============
 
 @api_router.post("/posts/{post_id}/vote")
