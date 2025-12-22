@@ -345,8 +345,16 @@ export const api = {
   getPollResults: (postId: string) => apiRequest(`/posts/${postId}/poll-results`),
 
   // Live Streaming
-  startStream: (formData: FormData) => apiFormRequest('/streams/start', formData),
+  startStream: (data: any) => apiRequest('/streams/start', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
   endStream: (streamId: string) => apiRequest(`/streams/${streamId}/end`, { method: 'POST' }),
+  getStreamJoinInfo: (streamId: string) => apiRequest(`/streams/${streamId}/join-info`),
+  scheduleStream: (data: any) => apiRequest('/streams/schedule', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
   getLiveStreams: () => apiRequest('/streams/live'),
   getStream: (streamId: string) => apiRequest(`/streams/${streamId}`),
   getAgoraConfig: () => apiRequest('/streams/agora-config'),
