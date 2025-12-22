@@ -1,360 +1,534 @@
 #!/usr/bin/env python3
 """
-Backend API Testing Suite for Grover Social Media Platform
-FOCUS: Testing the newly added GET /api/stories/{story_id}/viewers endpoint
+Backend Testing Suite for Grover Live Streaming API
+Tests all live streaming endpoints as specified in the review request.
 """
 
 import asyncio
-import httpx
+import aiohttp
 import json
-import base64
 import uuid
-import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
-from io import BytesIO
-from PIL import Image
 
 # Configuration
-BASE_URL = "https://creator-hub-323.preview.emergentagent.com/api"
+BACKEND_URL = "https://creator-hub-323.preview.emergentagent.com/api"
+TEST_USER_EMAIL = "streamer@grover.test"
+TEST_USER_NAME = "Live Streamer"
+TEST_VIEWER_EMAIL = "viewer@grover.test"
+TEST_VIEWER_NAME = "Stream Viewer"
 
-class TestResults:
+class LiveStreamingTester:
     def __init__(self):
-        self.passed = 0
-        self.failed = 0
-        self.results = []
-    
-    def add_result(self, test_name, passed, message="", details=None):
-        status = "✅ PASS" if passed else "❌ FAIL"
-        result = f"{status}: {test_name}"
-        if message:
-            result += f" - {message}"
+        self.session = None
+        self.streamer_token = None
+        self.viewer_token = None
+        self.test_stream_id = None
+        self.test_results = []
+        
+    async def setup_session(self):
+        """Initialize HTTP session"""
+        self.session = aiohttp.ClientSession()
+        
+    async def cleanup_session(self):
+        """Cleanup HTTP session"""
+        if self.session:
+            await self.session.close()
+            
+    def log_test(self, test_name: str, success: bool, details: str = ""):
+        """Log test result"""
+        status = "✅ PASS" if success else "❌ FAIL"
+        self.test_results.append({
+            "test": test_name,
+            "success": success,
+            "details": details
+        })
+        print(f"{status}: {test_name}")
         if details:
-            result += f"\n   Details: {details}"
+            print(f"   Details: {details}")
+            
+    async def create_test_user(self, email: str, name: str) -> Optional[str]:
+        """Create a test user and return auth token"""
+        try:
+            # Simulate session creation (using a mock session_id)
+            session_id = f"test_session_{uuid.uuid4().hex[:16]}"
+            
+            # Try to get session - this will fail but we'll handle it
+            async with self.session.get(
+                f"{BACKEND_URL}/auth/session",
+                params={"session_id": session_id}
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("session_token")
+                else:
+                    # For testing, we'll create a mock token
+                    # In real scenario, this would go through proper OAuth flow
+                    mock_token = f"mock_token_{uuid.uuid4().hex[:16]}"
+                    self.log_test(f"Create test user {name}", False, 
+                                f"Cannot create real user without OAuth flow. Using mock token for testing.")
+                    return mock_token
+                    
+        except Exception as e:
+            self.log_test(f"Create test user {name}", False, str(e))
+            return None
+            
+    async def test_agora_config(self) -> bool:
+        """Test GET /api/streams/agora-config"""
+        try:
+            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
+            async with self.session.get(f"{BACKEND_URL}/streams/agora-config", headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if "app_id" in data:
+                        self.log_test("GET /api/streams/agora-config", True, f"App ID: {data['app_id']}")
+                        return True
+                    else:
+                        self.log_test("GET /api/streams/agora-config", False, "Missing app_id in response")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("GET /api/streams/agora-config", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("GET /api/streams/agora-config", False, str(e))
+            return False
+            
+    async def test_token_generation(self) -> bool:
+        """Test POST /api/streams/token"""
+        try:
+            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
+            data = aiohttp.FormData()
+            data.add_field("channel_name", "test_channel_123")
+            data.add_field("role", "1")  # Publisher role
+            
+            async with self.session.post(f"{BACKEND_URL}/streams/token", data=data, headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "token" in result and "channel_name" in result:
+                        self.log_test("POST /api/streams/token", True, f"Token generated for channel: {result['channel_name']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/token", False, "Missing token or channel_name in response")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/token", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/token", False, str(e))
+            return False
+            
+    async def test_start_stream(self) -> bool:
+        """Test POST /api/streams/start"""
+        try:
+            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
+            data = aiohttp.FormData()
+            data.add_field("title", "Test Live Stream")
+            data.add_field("description", "This is a test live stream for backend testing")
+            data.add_field("enable_super_chat", "true")
+            data.add_field("enable_shopping", "false")
+            data.add_field("camera_facing", "front")
+            
+            async with self.session.post(f"{BACKEND_URL}/streams/start", data=data, headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "stream_id" in result:
+                        self.test_stream_id = result["stream_id"]
+                        self.log_test("POST /api/streams/start", True, f"Stream started with ID: {self.test_stream_id}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/start", False, "Missing stream_id in response")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/start", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/start", False, str(e))
+            return False
+            
+    async def test_get_live_streams(self) -> bool:
+        """Test GET /api/streams/live"""
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            async with self.session.get(f"{BACKEND_URL}/streams/live", headers=headers) as response:
+                if response.status == 200:
+                    streams = await response.json()
+                    if isinstance(streams, list):
+                        self.log_test("GET /api/streams/live", True, f"Found {len(streams)} live streams")
+                        return True
+                    else:
+                        self.log_test("GET /api/streams/live", False, "Response is not a list")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("GET /api/streams/live", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("GET /api/streams/live", False, str(e))
+            return False
+            
+    async def test_get_stream_details(self) -> bool:
+        """Test GET /api/streams/{stream_id}"""
+        if not self.test_stream_id:
+            self.log_test("GET /api/streams/{stream_id}", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            async with self.session.get(f"{BACKEND_URL}/streams/{self.test_stream_id}", headers=headers) as response:
+                if response.status == 200:
+                    stream = await response.json()
+                    if "stream_id" in stream and "title" in stream:
+                        self.log_test("GET /api/streams/{stream_id}", True, f"Stream details: {stream['title']}")
+                        return True
+                    else:
+                        self.log_test("GET /api/streams/{stream_id}", False, "Missing stream_id or title in response")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("GET /api/streams/{stream_id}", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("GET /api/streams/{stream_id}", False, str(e))
+            return False
+            
+    async def test_get_join_info(self) -> bool:
+        """Test GET /api/streams/{stream_id}/join-info"""
+        if not self.test_stream_id:
+            self.log_test("GET /api/streams/{stream_id}/join-info", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            async with self.session.get(f"{BACKEND_URL}/streams/{self.test_stream_id}/join-info", headers=headers) as response:
+                if response.status == 200:
+                    join_info = await response.json()
+                    if "viewer_token" in join_info and "channel_name" in join_info:
+                        self.log_test("GET /api/streams/{stream_id}/join-info", True, f"Join info with channel: {join_info['channel_name']}")
+                        return True
+                    else:
+                        self.log_test("GET /api/streams/{stream_id}/join-info", False, "Missing viewer_token or channel_name")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("GET /api/streams/{stream_id}/join-info", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("GET /api/streams/{stream_id}/join-info", False, str(e))
+            return False
+            
+    async def test_join_stream(self) -> bool:
+        """Test POST /api/streams/{stream_id}/join"""
+        if not self.test_stream_id:
+            self.log_test("POST /api/streams/{stream_id}/join", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/join", headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "message" in result and "viewers_count" in result:
+                        self.log_test("POST /api/streams/{stream_id}/join", True, f"Joined stream, viewers: {result['viewers_count']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/{stream_id}/join", False, "Missing message or viewers_count")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/{stream_id}/join", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/{stream_id}/join", False, str(e))
+            return False
+            
+    async def test_leave_stream(self) -> bool:
+        """Test POST /api/streams/{stream_id}/leave"""
+        if not self.test_stream_id:
+            self.log_test("POST /api/streams/{stream_id}/leave", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/leave", headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "message" in result and "viewers_count" in result:
+                        self.log_test("POST /api/streams/{stream_id}/leave", True, f"Left stream, viewers: {result['viewers_count']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/{stream_id}/leave", False, "Missing message or viewers_count")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/{stream_id}/leave", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/{stream_id}/leave", False, str(e))
+            return False
+            
+    async def test_send_chat(self) -> bool:
+        """Test POST /api/streams/{stream_id}/chat"""
+        if not self.test_stream_id:
+            self.log_test("POST /api/streams/{stream_id}/chat", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            data = aiohttp.FormData()
+            data.add_field("text", "Hello from the test suite! This is a test chat message.")
+            
+            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/chat", data=data, headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "message" in result and "message_id" in result:
+                        self.log_test("POST /api/streams/{stream_id}/chat", True, f"Chat sent with ID: {result['message_id']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/{stream_id}/chat", False, "Missing message or message_id")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/{stream_id}/chat", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/{stream_id}/chat", False, str(e))
+            return False
+            
+    async def test_send_like(self) -> bool:
+        """Test POST /api/streams/{stream_id}/like"""
+        if not self.test_stream_id:
+            self.log_test("POST /api/streams/{stream_id}/like", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/like", headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "message" in result and "likes_count" in result:
+                        self.log_test("POST /api/streams/{stream_id}/like", True, f"Like sent, total likes: {result['likes_count']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/{stream_id}/like", False, "Missing message or likes_count")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/{stream_id}/like", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/{stream_id}/like", False, str(e))
+            return False
+            
+    async def test_send_gift(self) -> bool:
+        """Test POST /api/streams/{stream_id}/gift"""
+        if not self.test_stream_id:
+            self.log_test("POST /api/streams/{stream_id}/gift", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            data = aiohttp.FormData()
+            data.add_field("gift_id", "heart")  # Test with heart gift
+            
+            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/gift", data=data, headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "message" in result and "gift" in result:
+                        self.log_test("POST /api/streams/{stream_id}/gift", True, f"Gift sent: {result['gift']['name']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/{stream_id}/gift", False, "Missing message or gift data")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/{stream_id}/gift", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/{stream_id}/gift", False, str(e))
+            return False
+            
+    async def test_send_superchat(self) -> bool:
+        """Test POST /api/streams/{stream_id}/superchat"""
+        if not self.test_stream_id:
+            self.log_test("POST /api/streams/{stream_id}/superchat", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.viewer_token}"} if self.viewer_token else {}
+            data = aiohttp.FormData()
+            data.add_field("amount", "5.00")
+            data.add_field("message", "Great stream! Keep up the awesome work!")
+            
+            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/superchat", data=data, headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "message" in result and "superchat_id" in result:
+                        self.log_test("POST /api/streams/{stream_id}/superchat", True, f"Superchat sent with ID: {result['superchat_id']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/{stream_id}/superchat", False, "Missing message or superchat_id")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/{stream_id}/superchat", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/{stream_id}/superchat", False, str(e))
+            return False
+            
+    async def test_end_stream(self) -> bool:
+        """Test POST /api/streams/{stream_id}/end"""
+        if not self.test_stream_id:
+            self.log_test("POST /api/streams/{stream_id}/end", False, "No test stream ID available")
+            return False
+            
+        try:
+            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
+            async with self.session.post(f"{BACKEND_URL}/streams/{self.test_stream_id}/end", headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "message" in result:
+                        self.log_test("POST /api/streams/{stream_id}/end", True, "Stream ended successfully")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/{stream_id}/end", False, "Missing message in response")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/{stream_id}/end", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/{stream_id}/end", False, str(e))
+            return False
+            
+    async def test_schedule_stream(self) -> bool:
+        """Test POST /api/streams/schedule"""
+        try:
+            headers = {"Authorization": f"Bearer {self.streamer_token}"} if self.streamer_token else {}
+            # Schedule a stream for 1 hour from now
+            future_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+            
+            data = aiohttp.FormData()
+            data.add_field("title", "Scheduled Test Stream")
+            data.add_field("description", "This is a scheduled stream for testing")
+            data.add_field("scheduled_time", future_time)
+            data.add_field("enable_super_chat", "true")
+            data.add_field("enable_shopping", "false")
+            
+            async with self.session.post(f"{BACKEND_URL}/streams/schedule", data=data, headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if "stream_id" in result and "scheduled_time" in result:
+                        self.log_test("POST /api/streams/schedule", True, f"Stream scheduled with ID: {result['stream_id']}")
+                        return True
+                    else:
+                        self.log_test("POST /api/streams/schedule", False, "Missing stream_id or scheduled_time")
+                        return False
+                else:
+                    text = await response.text()
+                    self.log_test("POST /api/streams/schedule", False, f"Status {response.status}: {text}")
+                    return False
+        except Exception as e:
+            self.log_test("POST /api/streams/schedule", False, str(e))
+            return False
+            
+    async def run_all_tests(self):
+        """Run all live streaming tests in the specified workflow order"""
+        print("🚀 Starting Live Streaming Backend Tests")
+        print("=" * 60)
         
-        self.results.append(result)
-        if passed:
-            self.passed += 1
-        else:
-            self.failed += 1
-        print(result)
-    
-    def summary(self):
-        total = self.passed + self.failed
-        print(f"\n{'='*60}")
-        print(f"STORIES VIEWERS ENDPOINT TEST SUMMARY")
-        print(f"{'='*60}")
-        print(f"Total Tests: {total}")
-        print(f"Passed: {self.passed}")
-        print(f"Failed: {self.failed}")
-        print(f"Success Rate: {(self.passed/total*100):.1f}%" if total > 0 else "No tests run")
-        print(f"{'='*60}")
-        return self.failed == 0
-
-def create_test_image():
-    """Create a simple test image"""
-    img = Image.new('RGB', (100, 100), color='red')
-    img_bytes = BytesIO()
-    img.save(img_bytes, format='JPEG')
-    img_bytes.seek(0)
-    return img_bytes.getvalue()
-
-async def test_stories_viewers_endpoint():
-    """Test the GET /api/stories/{story_id}/viewers endpoint"""
-    results = TestResults()
-    
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        
-        # Test data - use existing user for owner, create new user for viewer
-        owner = {
-            "user_id": "user_7e16d95525b7",
-            "token": "zhR2T4ZXwavcIx9KiHXW_T2qeHaIqkVt-6Q3ZstMWSc",
-            "name": "jarell chaffin",
-            "role": "owner"
-        }
-        
-        viewer = None
-        story_id = None
+        await self.setup_session()
         
         try:
-            print("🧪 Testing Stories Viewers Endpoint")
-            print("=" * 50)
+            # Step 1: Create test users (will use mock tokens for testing)
+            print("\n📝 Step 1: Setting up test users...")
+            self.streamer_token = await self.create_test_user(TEST_USER_EMAIL, TEST_USER_NAME)
+            self.viewer_token = await self.create_test_user(TEST_VIEWER_EMAIL, TEST_VIEWER_NAME)
             
-            # Step 1: Verify authentication works for owner
-            print("\n📝 Step 1: Verifying owner authentication...")
+            # Step 2: Test Agora config endpoint
+            print("\n🔧 Step 2: Testing Agora configuration...")
+            await self.test_agora_config()
             
-            response = await client.get(
-                f"{BASE_URL}/auth/me",
-                headers={"Authorization": f"Bearer {owner['token']}"}
-            )
+            # Step 3: Test token generation endpoint
+            print("\n🎫 Step 3: Testing token generation...")
+            await self.test_token_generation()
             
-            if response.status_code == 200:
-                auth_data = response.json()
-                results.add_result("Owner authentication verification", True, f"User: {auth_data.get('name', 'Unknown')}")
-            else:
-                results.add_result("Owner authentication verification", False, f"Status: {response.status_code}")
-                return results.summary()
+            # Step 4: Test starting a stream
+            print("\n📺 Step 4: Testing stream start...")
+            await self.test_start_stream()
             
-            # Step 1b: Create a second user for viewing
-            print("\n👤 Step 1b: Creating viewer user...")
+            # Step 5: Test getting live streams list
+            print("\n📋 Step 5: Testing live streams list...")
+            await self.test_get_live_streams()
             
-            # Create a unique session ID for the viewer
-            viewer_session_id = f"viewer_test_{int(datetime.now().timestamp())}"
+            # Step 6: Test getting stream details
+            print("\n🔍 Step 6: Testing stream details...")
+            await self.test_get_stream_details()
             
-            # Insert a test user directly into the database
-            import subprocess
-            create_user_cmd = f"""
-            mongosh test_database --eval "
-            const userId = 'user_viewer_test_{int(datetime.now().timestamp())}';
-            const sessionToken = 'viewer_token_{int(datetime.now().timestamp())}';
+            # Step 7: Test joining a stream
+            print("\n👥 Step 7: Testing stream join...")
+            await self.test_join_stream()
             
-            // Create user
-            db.users.insertOne({{
-                user_id: userId,
-                email: 'viewer@test.com',
-                name: 'Test Viewer',
-                picture: 'https://example.com/avatar.jpg',
-                bio: '',
-                is_premium: false,
-                is_private: false,
-                created_at: new Date()
-            }});
+            # Step 8: Test leaving a stream
+            print("\n🚪 Step 8: Testing stream leave...")
+            await self.test_leave_stream()
             
-            // Create session
-            db.user_sessions.insertOne({{
-                user_id: userId,
-                session_token: sessionToken,
-                expires_at: new Date(Date.now() + 7*24*60*60*1000),
-                created_at: new Date()
-            }});
+            # Step 9: Test sending chat messages
+            print("\n💬 Step 9: Testing chat messages...")
+            await self.test_send_chat()
             
-            print('Created user: ' + userId + ' with token: ' + sessionToken);
-            " --quiet
-            """
+            # Step 10: Test sending likes
+            print("\n❤️ Step 10: Testing likes...")
+            await self.test_send_like()
             
-            result = subprocess.run(create_user_cmd, shell=True, capture_output=True, text=True)
+            # Step 11: Test sending gifts
+            print("\n🎁 Step 11: Testing gifts...")
+            await self.test_send_gift()
             
-            if result.returncode == 0:
-                # Extract user_id and token from output
-                output_lines = result.stdout.strip().split('\n')
-                for line in output_lines:
-                    if 'Created user:' in line:
-                        parts = line.split()
-                        if len(parts) >= 6:
-                            viewer_user_id = parts[2]
-                            viewer_token = parts[5]
-                            viewer = {
-                                "user_id": viewer_user_id,
-                                "token": viewer_token,
-                                "name": "Test Viewer",
-                                "role": "viewer"
-                            }
-                            results.add_result("Create viewer user", True, f"User ID: {viewer_user_id}")
-                            break
+            # Step 12: Test sending superchat
+            print("\n💰 Step 12: Testing superchat...")
+            await self.test_send_superchat()
             
-            if not viewer:
-                results.add_result("Create viewer user", False, "Failed to create viewer user")
-                return results.summary()
+            # Step 13: Test ending a stream
+            print("\n🛑 Step 13: Testing stream end...")
+            await self.test_end_stream()
             
-            # Step 2: Create a story as the owner
-            print("\n📸 Step 2: Creating a story...")
+            # Step 14: Test scheduling a future stream
+            print("\n⏰ Step 14: Testing stream scheduling...")
+            await self.test_schedule_stream()
             
-            test_image = create_test_image()
-            
-            files = {
-                'media': ('test_story.jpg', test_image, 'image/jpeg')
-            }
-            data = {
-                'caption': 'Test story for viewers endpoint testing'
-            }
-            
-            response = await client.post(
-                f"{BASE_URL}/stories",
-                headers={"Authorization": f"Bearer {owner['token']}"},
-                files=files,
-                data=data
-            )
-            
-            if response.status_code == 200:
-                story_response = response.json()
-                story_id = story_response["story_id"]
-                results.add_result("Create story", True, f"Story ID: {story_id}")
-            else:
-                results.add_result("Create story", False, f"Status: {response.status_code}, Response: {response.text}")
-                return results.summary()
-            
-            # Step 3: View the story with the viewer user
-            print("\n👀 Step 3: Viewing story with different user...")
-            
-            response = await client.post(
-                f"{BASE_URL}/stories/{story_id}/view",
-                headers={"Authorization": f"Bearer {viewer['token']}"}
-            )
-            
-            if response.status_code == 200:
-                view_response = response.json()
-                results.add_result("View story as viewer", True, f"Views count: {view_response.get('views_count', 'N/A')}")
-            else:
-                results.add_result("View story as viewer", False, f"Status: {response.status_code}, Response: {response.text}")
-            
-            # Step 4: Get viewers list as story owner
-            print("\n📊 Step 4: Getting viewers list as story owner...")
-            
-            response = await client.get(
-                f"{BASE_URL}/stories/{story_id}/viewers",
-                headers={"Authorization": f"Bearer {owner['token']}"}
-            )
-            
-            if response.status_code == 200:
-                viewers_response = response.json()
-                
-                # Validate response structure
-                if "viewers" in viewers_response and "total_count" in viewers_response:
-                    results.add_result("Get viewers - Response structure", True, "Contains viewers and total_count")
-                    
-                    viewers_list = viewers_response["viewers"]
-                    total_count = viewers_response["total_count"]
-                    
-                    # Debug: Print the actual response
-                    print(f"   DEBUG: Viewers response: {viewers_response}")
-                    
-                    # Check if viewer is in the list
-                    viewer_found = False
-                    for viewer_data in viewers_list:
-                        if "user" in viewer_data and "viewed_at" in viewer_data:
-                            user_info = viewer_data["user"]
-                            if user_info.get("user_id") == viewer["user_id"]:
-                                viewer_found = True
-                                # Validate user info structure
-                                required_fields = ["user_id", "name", "picture"]
-                                has_all_fields = all(field in user_info for field in required_fields)
-                                results.add_result("Viewer user info structure", has_all_fields, 
-                                                 f"Fields: {list(user_info.keys())}")
-                                
-                                # Validate viewed_at timestamp
-                                viewed_at = viewer_data["viewed_at"]
-                                if isinstance(viewed_at, str) and viewed_at:
-                                    results.add_result("Viewed_at timestamp", True, f"Timestamp: {viewed_at}")
-                                else:
-                                    results.add_result("Viewed_at timestamp", False, f"Invalid timestamp: {viewed_at}")
-                                break
-                    
-                    if viewer_found:
-                        results.add_result("Viewer in viewers list", True, f"Found viewer {viewer['user_id']}")
-                    else:
-                        results.add_result("Viewer in viewers list", False, f"Viewer {viewer['user_id']} not found in list")
-                    
-                    results.add_result("Total count accuracy", total_count >= len(viewers_list), 
-                                     f"Total: {total_count}, List length: {len(viewers_list)}")
-                    
-                else:
-                    results.add_result("Get viewers - Response structure", False, 
-                                     f"Missing required fields. Response: {viewers_response}")
-            else:
-                results.add_result("Get viewers as owner", False, 
-                                 f"Status: {response.status_code}, Response: {response.text}")
-            
-            # Step 5: Test authorization - non-owner should get 403
-            print("\n🔒 Step 5: Testing authorization (non-owner access)...")
-            
-            response = await client.get(
-                f"{BASE_URL}/stories/{story_id}/viewers",
-                headers={"Authorization": f"Bearer {viewer['token']}"}
-            )
-            
-            if response.status_code == 403:
-                results.add_result("Non-owner 403 error", True, "Correctly denied access")
-            else:
-                results.add_result("Non-owner 403 error", False, 
-                                 f"Expected 403, got {response.status_code}")
-            
-            # Step 6: Test pagination parameters
-            print("\n📄 Step 6: Testing pagination parameters...")
-            
-            response = await client.get(
-                f"{BASE_URL}/stories/{story_id}/viewers",
-                headers={"Authorization": f"Bearer {owner['token']}"},
-                params={"limit": 10, "skip": 0}
-            )
-            
-            if response.status_code == 200:
-                results.add_result("Pagination parameters", True, "Limit and skip parameters accepted")
-            else:
-                results.add_result("Pagination parameters", False, 
-                                 f"Status: {response.status_code}")
-            
-            # Step 7: Test with invalid story ID
-            print("\n❌ Step 7: Testing with invalid story ID...")
-            
-            response = await client.get(
-                f"{BASE_URL}/stories/invalid_story_id/viewers",
-                headers={"Authorization": f"Bearer {owner['token']}"}
-            )
-            
-            if response.status_code == 404:
-                results.add_result("Invalid story ID 404", True, "Correctly returned 404")
-            else:
-                results.add_result("Invalid story ID 404", False, 
-                                 f"Expected 404, got {response.status_code}")
-            
-            # Step 8: Test without authentication
-            print("\n🚫 Step 8: Testing without authentication...")
-            
-            response = await client.get(f"{BASE_URL}/stories/{story_id}/viewers")
-            
-            if response.status_code == 401:
-                results.add_result("No auth 401 error", True, "Correctly required authentication")
-            else:
-                results.add_result("No auth 401 error", False, 
-                                 f"Expected 401, got {response.status_code}")
-            
-        except Exception as e:
-            results.add_result("Test execution", False, f"Exception: {str(e)}")
-        
         finally:
-            # Cleanup: Delete the test story if created
-            if story_id:
-                try:
-                    print("\n🧹 Cleanup: Deleting test story...")
-                    await client.delete(
-                        f"{BASE_URL}/stories/{story_id}",
-                        headers={"Authorization": f"Bearer {owner['token']}"}
-                    )
-                    print("✅ Test story deleted")
-                except Exception as e:
-                    print(f"⚠️ Cleanup failed: {e}")
+            await self.cleanup_session()
             
-            # Cleanup: Delete the test viewer user if created
-            if viewer:
-                try:
-                    print("🧹 Cleanup: Deleting test viewer user...")
-                    import subprocess
-                    cleanup_cmd = f"""
-                    mongosh test_database --eval "
-                    db.users.deleteOne({{user_id: '{viewer['user_id']}'}});
-                    db.user_sessions.deleteOne({{user_id: '{viewer['user_id']}'}});
-                    " --quiet
-                    """
-                    subprocess.run(cleanup_cmd, shell=True, capture_output=True)
-                    print("✅ Test viewer user deleted")
-                except Exception as e:
-                    print(f"⚠️ Viewer cleanup failed: {e}")
-    
-    return results.summary()
+        # Print summary
+        print("\n" + "=" * 60)
+        print("📊 TEST SUMMARY")
+        print("=" * 60)
+        
+        passed = sum(1 for result in self.test_results if result["success"])
+        total = len(self.test_results)
+        
+        for result in self.test_results:
+            status = "✅" if result["success"] else "❌"
+            print(f"{status} {result['test']}")
+            
+        print(f"\n🎯 Results: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
+        
+        if passed == total:
+            print("🎉 ALL TESTS PASSED! Live streaming backend is working correctly.")
+        else:
+            print(f"⚠️  {total - passed} tests failed. See details above.")
+            
+        return passed == total
 
 async def main():
-    """Main test function"""
-    print("🚀 Starting Stories Viewers Endpoint Tests")
-    print(f"Backend URL: {BASE_URL}")
-    
-    success = await test_stories_viewers_endpoint()
-    
-    if success:
-        print("\n🎉 All tests passed!")
-        exit(0)
-    else:
-        print("\n💥 Some tests failed!")
-        exit(1)
+    """Main test runner"""
+    tester = LiveStreamingTester()
+    success = await tester.run_all_tests()
+    return success
 
 if __name__ == "__main__":
     asyncio.run(main())
