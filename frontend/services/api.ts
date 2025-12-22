@@ -465,4 +465,10 @@ export const api = {
   getDiscountCodes: () => apiRequest('/discounts'),
   validateDiscountCode: (code: string) => apiRequest(`/discounts/validate/${code}`),
   deleteDiscountCode: (code: string) => apiRequest(`/discounts/${code}`, { method: 'DELETE' }),
+
+  // Mentions
+  getMentions: () => apiRequest('/mentions'),
+
+  // Unlike Post (toggle like off)
+  unlikePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'DELETE' }),
 };
