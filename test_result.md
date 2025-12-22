@@ -267,6 +267,36 @@ backend:
         agent: "testing"
         comment: "✅ ALL POST INTERACTION ENDPOINTS TESTED SUCCESSFULLY: POST /api/posts/{post_id}/dislike (dislike/undislike toggle), POST /api/posts/{post_id}/save (save/unsave bookmark toggle), POST /api/posts/{post_id}/share (share post), GET /api/posts/saved (get saved posts). All 6 tests passed with proper toggle behavior and response validation."
 
+  - task: "Marketplace Backend"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Enhanced product creation endpoint with product_type (physical/digital/service), service_duration for service type, digital_file_url for digital type, is_bundle flag, bundle_items JSON array, and optional image upload with Cloudinary integration."
+      - working: true
+        agent: "testing"
+        comment: "✅ MARKETPLACE BACKEND FULLY TESTED (7/7 tests passed - 100% success rate): Enhanced product creation working perfectly with all new fields. VERIFIED: 1) Digital products with digital_file_url and bundle support, 2) Service products with service_duration field, 3) Physical products with traditional fields, 4) All products return product_type field in GET /api/products, 5) Proper validation (invalid product_type defaults to 'physical'), 6) Optional fields handled correctly (service_duration optional for service type), 7) Image upload integration with Cloudinary. All product types (digital, service, physical) created and retrieved successfully with proper field validation."
+
+  - task: "Discount Code Endpoints"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented complete discount code system: POST /api/discounts (create with code, percent, optional expiry), GET /api/discounts (list user's codes), GET /api/discounts/validate/{code} (validate code), DELETE /api/discounts/{code} (soft delete). Codes are automatically uppercased and validated."
+      - working: true
+        agent: "testing"
+        comment: "✅ DISCOUNT CODE ENDPOINTS FULLY TESTED (7/7 tests passed - 100% success rate): All discount functionality working perfectly. VERIFIED: 1) POST /api/discounts creates codes with proper validation (3-20 chars, 1-100% discount), 2) GET /api/discounts returns user's discount codes, 3) GET /api/discounts/validate/{code} validates active codes and returns percent/valid status, 4) DELETE /api/discounts/{code} soft deletes codes, 5) Deleted codes return 404 on validation (proper behavior), 6) Expiry date handling with ISO format, 7) Edge cases: invalid percent (>100%) rejected, codes too short (<3 chars) rejected, duplicate codes prevented. Complete discount code lifecycle tested successfully."
+
 frontend:
   - task: "Auth Flow with Emergent OAuth"
     implemented: true
