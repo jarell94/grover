@@ -225,43 +225,42 @@ export default function HomeScreen() {
     ]);
   };
 
-  const handleLike = async (postId: string) => {
-    // Optimistic update
-    setPosts(prev =>
-      prev.map(p =>
-        p.post_id === postId
-          ? { ...p, liked: !p.liked, likes_count: p.likes_count + (p.liked ? -1 : 1) }
-          : p
-      )
-    );
+  const handleLike = useCallback(async (postId: string) => {
+    // Optimistic update - handle like/dislike interactions
+    updatePost(postId, (p) => {
+      const nextLiked = !p.liked;
+      const wasDisliked = !!p.disliked;
+
+      return {
+        ...p,
+        liked: nextLiked,
+        // If was disliked and now liking, remove dislike
+        dislikes_count: wasDisliked && nextLiked ? Math.max(0, (p.dislikes_count || 0) - 1) : p.dislikes_count,
+        disliked: wasDisliked && nextLiked ? false : p.disliked,
+        likes_count: p.likes_count + (nextLiked ? 1 : -1),
+      };
+    });
 
     try {
       const result = await api.likePost(postId);
       // Reconcile with server truth
-      setPosts(prev =>
-        prev.map(p =>
-          p.post_id === postId
-            ? {
-                ...p,
-                liked: !!result.liked,
-                likes_count:
-                  typeof result.likes_count === "number"
-                    ? result.likes_count
-                    : p.likes_count,
-              }
-            : p
-        )
-      );
+      updatePost(postId, (p) => ({
+        ...p,
+        liked: !!result?.liked,
+        disliked: typeof result?.disliked === 'boolean' ? result.disliked : p.disliked,
+        likes_count: typeof result?.likes_count === 'number' ? result.likes_count : p.likes_count,
+        dislikes_count: typeof result?.dislikes_count === 'number' ? result.dislikes_count : p.dislikes_count,
+      }));
     } catch (error) {
       console.error('Like error:', error);
       // Rollback on failure
-      setPosts(prev =>
-        prev.map(p =>
-          p.post_id === postId
-            ? { ...p, liked: !p.liked, likes_count: p.likes_count + (p.liked ? -1 : 1) }
-            : p
-        )
-      );
+      updatePost(postId, (p) => ({
+        ...p,
+        liked: !p.liked,
+        likes_count: p.likes_count + (p.liked ? 1 : -1),
+      }));
+    }
+  }, [updatePost]);
     }
   };
 
