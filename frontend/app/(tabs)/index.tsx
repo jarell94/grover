@@ -540,40 +540,27 @@ export default function HomeScreen() {
 
       if (selectedMedia?.uri) {
         const uri = selectedMedia.uri;
-        const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
-        
-        // Infer MIME type from file extension
-        let mimeType = 'application/octet-stream';
-        let fileName = 'media';
-        
-        if (['jpg', 'jpeg'].includes(fileExt)) {
-          mimeType = 'image/jpeg';
-          fileName = 'image.jpg';
-        } else if (fileExt === 'png') {
-          mimeType = 'image/png';
-          fileName = 'image.png';
-        } else if (fileExt === 'gif') {
-          mimeType = 'image/gif';
-          fileName = 'image.gif';
-        } else if (['mp4', 'mov', 'm4v'].includes(fileExt)) {
-          mimeType = 'video/mp4';
-          fileName = 'video.mp4';
-        } else if (['mp3', 'm4a', 'aac'].includes(fileExt)) {
-          mimeType = 'audio/mpeg';
-          fileName = `audio.${fileExt}`;
-        } else if (fileExt === 'wav') {
-          mimeType = 'audio/wav';
-          fileName = 'audio.wav';
-        } else if (selectedMedia.mimeType) {
-          mimeType = selectedMedia.mimeType;
-          fileName = selectedMedia.name || `media.${fileExt}`;
+        const providedMime = selectedMedia.mimeType || selectedMedia.type;
+
+        let mimeType = providedMime || 'application/octet-stream';
+        let fileName = selectedMedia.name;
+
+        // If no filename, guess from mime type
+        if (!fileName) {
+          const extFromMime =
+            mimeType.includes('jpeg') ? 'jpg' :
+            mimeType.includes('png') ? 'png' :
+            mimeType.includes('gif') ? 'gif' :
+            mimeType.includes('mp4') ? 'mp4' :
+            mimeType.includes('quicktime') ? 'mov' :
+            mimeType.includes('mpeg') ? 'mp3' :
+            mimeType.includes('wav') ? 'wav' :
+            mimeType.includes('webm') ? 'webm' : 'bin';
+
+          fileName = `media.${extFromMime}`;
         }
 
-        formData.append('media', {
-          uri,
-          type: mimeType,
-          name: fileName,
-        } as any);
+        formData.append('media', { uri, type: mimeType, name: fileName } as any);
       }
 
       await api.createPost(formData);
