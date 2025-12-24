@@ -13,7 +13,7 @@ const guessDevHost = () => {
 };
 
 // Get backend URL from environment
-const getBackendUrl = () => {
+const getBackendUrl = (): string => {
   // Web: same origin
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return window.location.origin;
@@ -37,9 +37,10 @@ const getBackendUrl = () => {
     return window.location.origin;
   }
 
-  // For native in production, this should be set in .env
-  console.warn('Missing EXPO_PUBLIC_BACKEND_URL. Set it in .env for production builds.');
-  return '';
+  // Production native: fail loudly so you notice immediately
+  throw new Error(
+    'Missing EXPO_PUBLIC_BACKEND_URL. Set it in .env and in your build env (EAS/Render/etc).'
+  );
 };
 
 // Make this dynamic to ensure window is available
@@ -50,12 +51,8 @@ const initializeUrls = () => {
   if (!BACKEND_URL) {
     BACKEND_URL = getBackendUrl();
     
-    if (!BACKEND_URL) {
-      throw new Error('BACKEND_URL is empty. Check EXPO_PUBLIC_BACKEND_URL.');
-    }
-    
-    // Remove trailing slash and append /api
-    API_URL = `${BACKEND_URL.replace(/\/$/, '')}/api`;
+    // Normalize: remove trailing slash and append /api
+    API_URL = `${BACKEND_URL.replace(/\/+$/, '')}/api`;
     console.log('API Configuration:', { BACKEND_URL, API_URL });
   }
 };
