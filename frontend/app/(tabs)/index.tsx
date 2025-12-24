@@ -101,25 +101,30 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const loadFeed = async (isRefresh = false, pageToLoad?: number) => {
+  const loadFeed = async (isRefresh = false) => {
     try {
-      const nextPage = isRefresh ? 0 : (pageToLoad ?? page);
-      const skip = nextPage * 20;
+      if (isRefresh) {
+        skipRef.current = 0;
+      }
 
       const [feedData, storiesData] = await Promise.all([
-        api.getFeed(20, skip),
+        api.getFeed(pageSize, skipRef.current),
         isRefresh ? api.getStories().catch(() => []) : Promise.resolve(stories),
       ]);
 
-      if (isRefresh) {
-        setPosts(feedData);
-        setPage(1);
-      } else {
-        setPosts(prev => [...prev, ...feedData]);
-        setPage(nextPage + 1);
-      }
+      const newPosts = feedData as Post[];
+      
+      // Update skip for next load
+      skipRef.current = isRefresh ? newPosts.length : skipRef.current + newPosts.length;
+      setHasMore(newPosts.length === pageSize);
+      
+      // Merge and deduplicate posts using Map
+      setPosts(prev => {
+        const merged = isRefresh ? newPosts : [...prev, ...newPosts];
+        const map = new Map(merged.map(p => [p.post_id, p]));
+        return Array.from(map.values());
+      });
 
-      setHasMore(feedData.length === 20);
       if (isRefresh) setStories(storiesData);
     } catch (error) {
       console.error('Feed load error:', error);
