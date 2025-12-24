@@ -49,7 +49,13 @@ let API_URL: string;
 const initializeUrls = () => {
   if (!BACKEND_URL) {
     BACKEND_URL = getBackendUrl();
-    API_URL = `${BACKEND_URL}/api`;
+    
+    if (!BACKEND_URL) {
+      throw new Error('BACKEND_URL is empty. Check EXPO_PUBLIC_BACKEND_URL.');
+    }
+    
+    // Remove trailing slash and append /api
+    API_URL = `${BACKEND_URL.replace(/\/$/, '')}/api`;
     console.log('API Configuration:', { BACKEND_URL, API_URL });
   }
 };
