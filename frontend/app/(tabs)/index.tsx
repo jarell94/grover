@@ -100,7 +100,12 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const loadFeed = async (isRefresh = false) => {
+  const loadFeed = useCallback(async (isRefresh = false) => {
+    // Set appropriate loading state
+    if (isRefresh) setRefreshing(true);
+    else if (skipRef.current === 0) setLoading(true);
+    else setLoadingMore(true);
+
     try {
       if (isRefresh) {
         skipRef.current = 0;
@@ -132,7 +137,7 @@ export default function HomeScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  };
+  }, [stories]);
 
   const handleRefresh = () => {
     setRefreshing(true);
