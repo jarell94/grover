@@ -60,7 +60,6 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(0);
   const [stories, setStories] = useState<any[]>([]);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [newPostContent, setNewPostContent] = useState('');
