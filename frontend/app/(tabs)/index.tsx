@@ -143,7 +143,7 @@ export default function HomeScreen() {
   const loadMore = () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    loadFeed(false, page); // explicit page snapshot
+    loadFeed(false);
   };
 
   const loadComments = async (postId: string) => {
