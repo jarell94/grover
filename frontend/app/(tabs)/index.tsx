@@ -84,6 +84,15 @@ export default function HomeScreen() {
   const [visiblePosts, setVisiblePosts] = useState<Set<string>>(new Set());
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [pollDuration, setPollDuration] = useState(24);
+  
+  // Use refs for pagination to avoid stale closure issues
+  const skipRef = useRef(0);
+  const pageSize = 20;
+
+  // Helper to update a single post
+  const updatePost = useCallback((postId: string, updater: (p: Post) => Post) => {
+    setPosts(prev => prev.map(p => p.post_id === postId ? updater(p) : p));
+  }, []);
 
   // Refresh feed when screen comes into focus
   useFocusEffect(
