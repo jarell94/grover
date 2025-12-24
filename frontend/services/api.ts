@@ -1,36 +1,44 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+// Get dev host from Expo Constants
+const guessDevHost = () => {
+  // Works in Expo Go / dev builds
+  const host =
+    Constants.expoConfig?.hostUri?.split(':')?.[0] ||
+    Constants.manifest2?.extra?.expoClient?.hostUri?.split(':')?.[0] ||
+    (Constants as any).manifest?.debuggerHost?.split(':')?.[0];
+
+  return host || null;
+};
+
 // Get backend URL from environment
 const getBackendUrl = () => {
-  // For web, use the current origin (same domain)
+  // Web: same origin
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return window.location.origin;
   }
-  
-  // Try to get from process.env (works in web build)
-  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_BACKEND_URL) {
-    const url = process.env.EXPO_PUBLIC_BACKEND_URL;
-    // Skip if it contains REPLACEME placeholder
-    if (!url.includes('REPLACEME')) {
-      return url;
-    }
+
+  // Env (web + native when properly configured)
+  const envUrl =
+    (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_BACKEND_URL) ||
+    Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL;
+
+  if (envUrl && !envUrl.includes('REPLACEME')) return envUrl;
+
+  // Dev fallback for native (build URL from Metro host)
+  if (__DEV__ && Platform.OS !== 'web') {
+    const host = guessDevHost();
+    if (host) return `http://${host}:3000`;
   }
-  
-  // Try Constants (works in native)
-  if (Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL) {
-    const url = Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_URL;
-    if (!url.includes('REPLACEME')) {
-      return url;
-    }
-  }
-  
+
   // Final fallback for web
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return window.location.origin;
   }
-  
-  // For native, this should be set in .env
+
+  // For native in production, this should be set in .env
+  console.warn('Missing EXPO_PUBLIC_BACKEND_URL. Set it in .env for production builds.');
   return '';
 };
 
