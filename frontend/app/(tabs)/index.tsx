@@ -261,8 +261,6 @@ export default function HomeScreen() {
       }));
     }
   }, [updatePost]);
-    }
-  };
 
   const handleDislike = async (postId: string) => {
     // Optimistic update
