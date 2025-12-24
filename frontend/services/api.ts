@@ -14,30 +14,26 @@ const guessDevHost = () => {
 
 // Get backend URL from environment
 const getBackendUrl = (): string => {
-  // Web: same origin
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-
-  // Env (web + native when properly configured)
+  // 1. Check env variable first (works for all platforms - web, iOS, Android)
+  // This allows deploying frontend to Vercel/Netlify and backend to Render/Railway
   const envUrl =
     (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_BACKEND_URL) ||
     Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL;
 
   if (envUrl && !envUrl.includes('REPLACEME')) return envUrl;
 
-  // Dev fallback for native (build URL from Metro host)
+  // 2. Web fallback: same origin (frontend & backend on same domain)
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+
+  // 3. Native dev fallback: build URL from Metro host
   if (__DEV__ && Platform.OS !== 'web') {
     const host = guessDevHost();
     if (host) return `http://${host}:3000`;
   }
 
-  // Final fallback for web
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-
-  // Production native: fail loudly so you notice immediately
+  // 4. Production native: fail loudly so you notice immediately
   throw new Error(
     'Missing EXPO_PUBLIC_BACKEND_URL. Set it in .env and in your build env (EAS/Render/etc).'
   );
