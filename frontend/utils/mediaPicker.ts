@@ -118,6 +118,28 @@ function toResult(asset: ImagePicker.ImagePickerAsset, includeBase64: boolean): 
 }
 
 /**
+ * Ensure the URI is uploadable (converts iOS ph:// URIs to file://)
+ * iOS Photos library returns ph:// URIs which can't be directly uploaded
+ */
+async function ensureUploadableUri(asset: MediaPickerResult): Promise<MediaPickerResult> {
+  // Most cases are already fine (file://, content:// on Android, http(s):// on web)
+  if (!asset.uri?.startsWith("ph://")) return asset;
+
+  // Copy iOS Photos asset into app cache as a real file:// path
+  const ext =
+    asset.fileName?.split(".").pop()?.toLowerCase() ||
+    (asset.mimeType?.includes("png") ? "png" :
+     asset.mimeType?.includes("mp4") ? "mp4" :
+     asset.mimeType?.includes("mov") ? "mov" :
+     asset.mimeType?.includes("heic") ? "heic" : "jpg");
+
+  const dest = `${FileSystem.cacheDirectory}${asset.kind}_${Date.now()}.${ext}`;
+  await FileSystem.copyAsync({ from: asset.uri, to: dest });
+
+  return { ...asset, uri: dest };
+}
+
+/**
  * Pick media (image/video) with proper web/mobile handling
  * - Returns ONE asset if allowsMultipleSelection is false
  * - Returns MANY assets if allowsMultipleSelection is true
