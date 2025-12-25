@@ -183,10 +183,27 @@ async function processAsset(asset: ImagePicker.ImagePickerAsset, includeBase64: 
 }
 
 /**
+ * Convert a MediaPickerResult to a FormData-compatible file object
+ * Handles ph:// URIs and HEIC conversion automatically
+ */
+export async function asFormDataFile(asset: MediaPickerResult) {
+  let a = await ensureUploadableUri(asset);
+  a = await ensureSupportedImage(a);
+
+  return {
+    uri: a.uri,
+    name: a.fileName || `upload_${Date.now()}`,
+    type: a.mimeType || "application/octet-stream",
+  } as any;
+}
+
+/**
  * Pick media (image/video) with proper web/mobile handling
  * - Returns ONE asset if allowsMultipleSelection is false
  * - Returns MANY assets if allowsMultipleSelection is true
  */
+export async function pickMedia(options: MediaPickerOptions & { allowsMultipleSelection: true }): Promise<MediaPickerMultiResult | null>;
+export async function pickMedia(options?: MediaPickerOptions & { allowsMultipleSelection?: false }): Promise<MediaPickerResult | null>;
 export async function pickMedia(
   options: MediaPickerOptions = {}
 ): Promise<MediaPickerResult | MediaPickerMultiResult | null> {
@@ -216,9 +233,15 @@ export async function pickMedia(
     // Base64 on web is often not what you want; also huge for videos.
     const includeBase64 = Platform.OS !== "web" && base64;
 
+    // allowsEditing: disabled on web, disabled with multi-select, only for images
+    const shouldAllowEditing = Platform.OS !== "web" && 
+      allowsEditing && 
+      !allowsMultipleSelection && 
+      pickerMediaTypes === ImagePicker.MediaTypeOptions.Images;
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: pickerMediaTypes,
-      allowsEditing: Platform.OS !== "web" && allowsEditing && !allowsMultipleSelection, // editing + multi-select tends to be messy
+      allowsEditing: shouldAllowEditing,
       quality,
       base64: includeBase64,
       allowsMultipleSelection,
