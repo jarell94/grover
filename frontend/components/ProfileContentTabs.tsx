@@ -61,6 +61,25 @@ function isUriLike(u?: string) {
   );
 }
 
+/**
+ * Generate a Cloudinary video thumbnail URL from a video URL
+ * Inserts transformation params after /upload/
+ * Example: .../video/upload/v123/abc.mp4 → .../video/upload/w_400,h_400,c_fill,so_0/f_jpg/v123/abc.jpg
+ */
+function getCloudinaryVideoThumb(videoUrl: string, width = 400, height = 400): string | null {
+  if (!videoUrl || !videoUrl.includes("cloudinary.com")) return null;
+  
+  // Match: .../video/upload/... or .../image/upload/...
+  const uploadMatch = videoUrl.match(/(.*\/(?:video|image)\/upload\/)(v\d+\/)?(.+)/);
+  if (!uploadMatch) return null;
+  
+  const [, base, version = "", publicIdWithExt] = uploadMatch;
+  // Remove video extension and add jpg
+  const publicId = publicIdWithExt.replace(/\.(mp4|mov|webm|avi|mkv)$/i, "");
+  
+  return `${base}w_${width},h_${height},c_fill,so_0/f_jpg/${version}${publicId}.jpg`;
+}
+
 export default function ProfileContentTabs({ userId, api, stickyHeader }: Props) {
   const tabs = useMemo(
     () => [
@@ -78,11 +97,13 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(0);
 
   // Media viewer state
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
+
+  // Pagination using ref to avoid stale closures
+  const skipRef = useRef(0);
 
   // guards against stale async responses (tab switches / refresh)
   const requestSeq = useRef(0);
