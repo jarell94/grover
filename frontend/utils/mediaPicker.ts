@@ -237,6 +237,25 @@ export async function asFormDataFile(asset: MediaPickerResult) {
 }
 
 /**
+ * Append media to FormData with proper web/native handling
+ */
+export async function appendToFormData(
+  formData: FormData,
+  field: string,
+  asset: MediaPickerResult
+) {
+  if (Platform.OS === "web") {
+    const res = await fetch(asset.uri);
+    const blob = await res.blob();
+    formData.append(field, blob as any, asset.fileName || `upload_${Date.now()}`);
+    return;
+  }
+
+  const file = await asFormDataFile(asset);
+  formData.append(field, file);
+}
+
+/**
  * Pick media (image/video) with proper web/mobile handling
  * - Returns ONE asset if allowsMultipleSelection is false
  * - Returns MANY assets if allowsMultipleSelection is true
