@@ -1,18 +1,16 @@
-import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import {
   View,
   StyleSheet,
   TouchableWithoutFeedback,
   Animated,
-  Dimensions,
   ActivityIndicator,
   Text,
+  LayoutChangeEvent,
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface FeedVideoPlayerProps {
   uri: string;
@@ -23,11 +21,24 @@ interface FeedVideoPlayerProps {
   showControls?: boolean;
   autoPlay?: boolean;
   loop?: boolean;
-  preloadUri?: string; // Next video URI to preload
+  preloadUri?: string;
+  posterUri?: string; // <- optional Cloudinary thumbnail
 }
 
-// Preload cache for videos
 const preloadCache = new Map<string, boolean>();
+
+function isUriLike(u?: string) {
+  if (!u) return false;
+  return (
+    u.startsWith('http://') ||
+    u.startsWith('https://') ||
+    u.startsWith('file://') ||
+    u.startsWith('content://') ||
+    u.startsWith('ph://') ||
+    u.startsWith('blob:') ||
+    u.startsWith('data:')
+  );
+}
 
 const FeedVideoPlayer = memo(({
   uri,
@@ -39,65 +50,86 @@ const FeedVideoPlayer = memo(({
   autoPlay = true,
   loop = true,
   preloadUri,
+  posterUri,
 }: FeedVideoPlayerProps) => {
   const videoRef = useRef<Video>(null);
   const preloadVideoRef = useRef<Video>(null);
-  
+
   const [status, setStatus] = useState<AVPlaybackStatus | null>(null);
   const [showPlayPause, setShowPlayPause] = useState(false);
-  
+
+  // measured width for tap zones
+  const [tileWidth, setTileWidth] = useState(0);
+
   // Double-tap detection
   const lastTap = useRef<{ time: number; x: number } | null>(null);
-  const doubleTapTimeout = useRef<NodeJS.Timeout | null>(null);
-  
+  const doubleTapTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Like animation
   const likeScale = useRef(new Animated.Value(0)).current;
   const likeOpacity = useRef(new Animated.Value(0)).current;
-  
+
   // Seek indicator
   const [seekIndicator, setSeekIndicator] = useState<{ side: 'left' | 'right'; visible: boolean }>({
     side: 'left',
     visible: false,
   });
-  const seekTimeout = useRef<NodeJS.Timeout | null>(null);
+  const seekTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playPauseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLoaded = status?.isLoaded;
-  const isPlaying = isLoaded && status.isPlaying;
-  const isBuffering = isLoaded && status.isBuffering;
-  const position = isLoaded ? status.positionMillis : 0;
-  const duration = isLoaded ? status.durationMillis || 0 : 0;
+  const isPlaying = !!(isLoaded && (status as any).isPlaying);
+  const isBuffering = !!(isLoaded && (status as any).isBuffering);
+  const position = isLoaded ? (status as any).positionMillis ?? 0 : 0;
+  const duration = isLoaded ? (status as any).durationMillis ?? 0 : 0;
 
-  // Handle visibility changes
+  const resolvedUri = useMemo(() => {
+    // With Cloudinary, this should always be a real URL.
+    // Still allow file/content/ph/data for local previews.
+    return isUriLike(uri) ? uri : '';
+  }, [uri]);
+
+  // visibility autoplay
   useEffect(() => {
-    if (isVisible && autoPlay) {
-      videoRef.current?.playAsync();
-    } else {
-      videoRef.current?.pauseAsync();
-    }
+    const v = videoRef.current;
+    if (!v) return;
+
+    (async () => {
+      try {
+        if (isVisible && autoPlay) await v.playAsync();
+        else await v.pauseAsync();
+      } catch {}
+    })();
   }, [isVisible, autoPlay]);
 
-  // Preload next video
+  // timers cleanup
+  useEffect(() => {
+    return () => {
+      if (doubleTapTimeout.current) clearTimeout(doubleTapTimeout.current);
+      if (seekTimeout.current) clearTimeout(seekTimeout.current);
+      if (playPauseTimeout.current) clearTimeout(playPauseTimeout.current);
+    };
+  }, []);
+
+  // Preload next video (light guard)
   useEffect(() => {
     if (preloadUri && !preloadCache.has(preloadUri)) {
       preloadCache.set(preloadUri, true);
-      // The hidden video component will preload
     }
   }, [preloadUri]);
 
-  // Clean up preload cache periodically
+  // Clean preload cache occasionally
   useEffect(() => {
-    return () => {
-      if (preloadCache.size > 10) {
-        const keys = Array.from(preloadCache.keys());
-        keys.slice(0, 5).forEach(key => preloadCache.delete(key));
-      }
-    };
-  }, []);
+    if (preloadCache.size > 12) {
+      const keys = Array.from(preloadCache.keys());
+      keys.slice(0, 6).forEach((k) => preloadCache.delete(k));
+    }
+  }, [preloadUri]);
 
   const showLikeAnimation = useCallback(() => {
     likeScale.setValue(0);
     likeOpacity.setValue(1);
-    
+
     Animated.sequence([
       Animated.spring(likeScale, {
         toValue: 1,
@@ -113,80 +145,96 @@ const FeedVideoPlayer = memo(({
     ]).start();
   }, [likeScale, likeOpacity]);
 
-  const togglePlayPause = useCallback(async () => {
-    if (isPlaying) {
-      await videoRef.current?.pauseAsync();
-    } else {
-      await videoRef.current?.playAsync();
-    }
-    
-    // Show play/pause indicator briefly
+  const flashPlayPause = useCallback(() => {
     setShowPlayPause(true);
-    setTimeout(() => setShowPlayPause(false), 800);
-  }, [isPlaying]);
+    if (playPauseTimeout.current) clearTimeout(playPauseTimeout.current);
+    playPauseTimeout.current = setTimeout(() => setShowPlayPause(false), 800);
+  }, []);
+
+  const togglePlayPause = useCallback(async () => {
+    try {
+      const v = videoRef.current;
+      if (!v) return;
+
+      if (isPlaying) await v.pauseAsync();
+      else await v.playAsync();
+
+      flashPlayPause();
+    } catch (e) {
+      console.error('togglePlayPause error', e);
+    }
+  }, [isPlaying, flashPlayPause]);
 
   const seekBy = useCallback(async (seconds: number) => {
-    if (!isLoaded || duration <= 0) return;
-    
-    const newPosition = Math.max(0, Math.min(duration, position + seconds * 1000));
-    await videoRef.current?.setPositionAsync(newPosition);
-    
-    // Show seek indicator
-    setSeekIndicator({ side: seconds > 0 ? 'right' : 'left', visible: true });
-    
-    if (seekTimeout.current) clearTimeout(seekTimeout.current);
-    seekTimeout.current = setTimeout(() => {
-      setSeekIndicator(prev => ({ ...prev, visible: false }));
-    }, 600);
+    try {
+      const v = videoRef.current;
+      if (!v || !isLoaded || duration <= 0) return;
+
+      const next = Math.max(0, Math.min(duration, position + seconds * 1000));
+      await v.setPositionAsync(next);
+
+      setSeekIndicator({ side: seconds > 0 ? 'right' : 'left', visible: true });
+
+      if (seekTimeout.current) clearTimeout(seekTimeout.current);
+      seekTimeout.current = setTimeout(() => {
+        setSeekIndicator((prev) => ({ ...prev, visible: false }));
+      }, 600);
+    } catch (e) {
+      console.error('seekBy error', e);
+    }
   }, [isLoaded, duration, position]);
 
-  const handlePress = useCallback((locationX: number, screenWidth: number) => {
+  const handlePress = useCallback((locationX: number) => {
     const now = Date.now();
-    const tapZone = screenWidth / 3;
-    
-    // Check for double-tap
+    const w = tileWidth || 1;
+    const tapZone = w / 3;
+
     if (lastTap.current && now - lastTap.current.time < 300) {
-      // Double tap detected
+      // double tap
       if (doubleTapTimeout.current) {
         clearTimeout(doubleTapTimeout.current);
         doubleTapTimeout.current = null;
       }
-      
-      // Check which zone was tapped
-      if (locationX < tapZone) {
-        // Left third - seek backward
-        seekBy(-10);
-      } else if (locationX > tapZone * 2) {
-        // Right third - seek forward
-        seekBy(10);
-      } else {
-        // Center - double-tap like
+
+      if (locationX < tapZone) seekBy(-10);
+      else if (locationX > tapZone * 2) seekBy(10);
+      else {
         showLikeAnimation();
         onDoubleTapLike?.();
       }
-      
-      lastTap.current = null;
-    } else {
-      // Single tap - wait to see if it's a double tap
-      lastTap.current = { time: now, x: locationX };
-      
-      doubleTapTimeout.current = setTimeout(() => {
-        // Single tap confirmed - toggle play/pause
-        togglePlayPause();
-        lastTap.current = null;
-      }, 300);
-    }
-  }, [seekBy, showLikeAnimation, onDoubleTapLike, togglePlayPause]);
 
-  const resolvedUri = uri.startsWith('http') 
-    ? uri 
-    : `data:video/mp4;base64,${uri}`;
+      lastTap.current = null;
+      return;
+    }
+
+    // single tap candidate
+    lastTap.current = { time: now, x: locationX };
+
+    if (doubleTapTimeout.current) clearTimeout(doubleTapTimeout.current);
+    doubleTapTimeout.current = setTimeout(() => {
+      togglePlayPause();
+      lastTap.current = null;
+    }, 300);
+  }, [tileWidth, seekBy, showLikeAnimation, onDoubleTapLike, togglePlayPause]);
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    setTileWidth(e.nativeEvent.layout.width);
+  };
+
+  if (!resolvedUri) {
+    return (
+      <View style={[styles.container, style]}>
+        <View style={styles.invalid}>
+          <Ionicons name="alert-circle-outline" size={28} color={Colors.textSecondary} />
+          <Text style={styles.invalidText}>Invalid video URL</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
-    <TouchableWithoutFeedback
-      onPress={(e) => handlePress(e.nativeEvent.locationX, e.nativeEvent.target ? SCREEN_WIDTH : SCREEN_WIDTH)}
-    >
-      <View style={[styles.container, style]}>
+    <TouchableWithoutFeedback onPress={(e) => handlePress(e.nativeEvent.locationX)}>
+      <View style={[styles.container, style]} onLayout={onLayout}>
         <Video
           ref={videoRef}
           source={{ uri: resolvedUri }}
@@ -196,76 +244,63 @@ const FeedVideoPlayer = memo(({
           isLooping={loop}
           isMuted={isMuted}
           onPlaybackStatusUpdate={setStatus}
+          usePoster={!!posterUri}
+          posterSource={posterUri ? { uri: posterUri } : undefined}
         />
 
-        {/* Buffering indicator */}
         {isBuffering && (
           <View style={styles.bufferingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
           </View>
         )}
 
-        {/* Play/Pause indicator */}
         {showPlayPause && (
           <View style={styles.playPauseIndicator}>
             <View style={styles.playPauseBg}>
-              <Ionicons 
-                name={isPlaying ? 'pause' : 'play'} 
-                size={32} 
-                color="#fff" 
-              />
+              <Ionicons name={isPlaying ? 'pause' : 'play'} size={32} color="#fff" />
             </View>
           </View>
         )}
 
-        {/* Double-tap like heart animation */}
         <Animated.View
           style={[
             styles.likeAnimation,
-            {
-              transform: [{ scale: likeScale }],
-              opacity: likeOpacity,
-            },
+            { transform: [{ scale: likeScale }], opacity: likeOpacity },
           ]}
           pointerEvents="none"
         >
           <Ionicons name="heart" size={100} color="#fff" />
         </Animated.View>
 
-        {/* Seek indicator */}
         {seekIndicator.visible && (
-          <View style={[
-            styles.seekIndicator,
-            seekIndicator.side === 'left' ? styles.seekLeft : styles.seekRight,
-          ]}>
-            <Ionicons 
-              name={seekIndicator.side === 'left' ? 'play-back' : 'play-forward'} 
-              size={24} 
-              color="#fff" 
+          <View
+            style={[
+              styles.seekIndicator,
+              seekIndicator.side === 'left' ? styles.seekLeft : styles.seekRight,
+            ]}
+          >
+            <Ionicons
+              name={seekIndicator.side === 'left' ? 'play-back' : 'play-forward'}
+              size={24}
+              color="#fff"
             />
             <Text style={styles.seekText}>10s</Text>
           </View>
         )}
 
-        {/* Progress bar */}
         {showControls && isLoaded && duration > 0 && (
           <View style={styles.progressContainer}>
             <View style={styles.progressBg}>
-              <View 
-                style={[
-                  styles.progressFill, 
-                  { width: `${(position / duration) * 100}%` }
-                ]} 
-              />
+              <View style={[styles.progressFill, { width: `${(position / duration) * 100}%` }]} />
             </View>
           </View>
         )}
 
-        {/* Hidden preload video */}
-        {preloadUri && (
+        {/* Hidden preload video - consider removing for perf; if kept, only for http(s) */}
+        {preloadUri && isUriLike(preloadUri) && (
           <Video
             ref={preloadVideoRef}
-            source={{ uri: preloadUri.startsWith('http') ? preloadUri : `data:video/mp4;base64,${preloadUri}` }}
+            source={{ uri: preloadUri }}
             style={styles.hiddenVideo}
             shouldPlay={false}
             isMuted={true}
@@ -286,10 +321,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
   },
-  video: {
-    width: '100%',
-    height: '100%',
-  },
+  video: { width: '100%', height: '100%' },
   bufferingOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -325,18 +357,9 @@ const styles = StyleSheet.create({
     padding: 12,
     alignItems: 'center',
   },
-  seekLeft: {
-    left: 20,
-  },
-  seekRight: {
-    right: 20,
-  },
-  seekText: {
-    color: '#fff',
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '600',
-  },
+  seekLeft: { left: 20 },
+  seekRight: { right: 20 },
+  seekText: { color: '#fff', fontSize: 12, marginTop: 4, fontWeight: '600' },
   progressContainer: {
     position: 'absolute',
     bottom: 0,
@@ -350,16 +373,11 @@ const styles = StyleSheet.create({
     borderRadius: 1.5,
     overflow: 'hidden',
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-  },
-  hiddenVideo: {
-    width: 1,
-    height: 1,
-    position: 'absolute',
-    opacity: 0,
-  },
+  progressFill: { height: '100%', backgroundColor: Colors.primary },
+  hiddenVideo: { width: 1, height: 1, position: 'absolute', opacity: 0 },
+
+  invalid: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  invalidText: { color: Colors.textSecondary, fontSize: 12 },
 });
 
 export default FeedVideoPlayer;
