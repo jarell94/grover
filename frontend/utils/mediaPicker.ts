@@ -141,6 +141,48 @@ async function ensureUploadableUri(asset: MediaPickerResult): Promise<MediaPicke
 }
 
 /**
+ * Convert HEIC/HEIF images to JPEG for backend compatibility
+ * Many backends don't support HEIC format which is common on iOS
+ */
+async function ensureSupportedImage(asset: MediaPickerResult): Promise<MediaPickerResult> {
+  if (asset.kind !== "image") return asset;
+
+  const mt = (asset.mimeType || "").toLowerCase();
+  const name = (asset.fileName || "").toLowerCase();
+
+  const isHeic = mt.includes("heic") || mt.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
+  if (!isHeic) return asset;
+
+  try {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      asset.uri,
+      [],
+      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+    );
+
+    return {
+      ...asset,
+      uri: manipulated.uri,
+      mimeType: "image/jpeg",
+      fileName: (asset.fileName || `image_${Date.now()}.heic`).replace(/\.(heic|heif)$/i, ".jpg"),
+    };
+  } catch (error) {
+    console.warn("HEIC conversion failed, using original:", error);
+    return asset;
+  }
+}
+
+/**
+ * Full asset processing pipeline: normalize -> uploadable URI -> supported format
+ */
+async function processAsset(asset: ImagePicker.ImagePickerAsset, includeBase64: boolean): Promise<MediaPickerResult> {
+  const result = toResult(asset, includeBase64);
+  const uploadable = await ensureUploadableUri(result);
+  const supported = await ensureSupportedImage(uploadable);
+  return supported;
+}
+
+/**
  * Pick media (image/video) with proper web/mobile handling
  * - Returns ONE asset if allowsMultipleSelection is false
  * - Returns MANY assets if allowsMultipleSelection is true
