@@ -184,9 +184,19 @@ export async function pickMedia(
 
     if (result.canceled || !result.assets?.length) return null;
 
-    const assets = result.assets.map((a) => toResult(a, includeBase64));
+    // Convert assets and ensure uploadable URIs (handles iOS ph:// URIs)
+    if (allowsMultipleSelection) {
+      const assets = await Promise.all(
+        result.assets.map(async (a) => {
+          const r = toResult(a, includeBase64);
+          return ensureUploadableUri(r);
+        })
+      );
+      return { assets };
+    }
 
-    return allowsMultipleSelection ? { assets } : assets[0];
+    const singleAsset = toResult(result.assets[0], includeBase64);
+    return await ensureUploadableUri(singleAsset);
   } catch (error) {
     console.error("Media picker error:", error);
     Alert.alert("Upload Error", "Failed to pick media. Please try again.", [{ text: "OK" }]);
