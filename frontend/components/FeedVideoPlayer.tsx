@@ -114,12 +114,23 @@ const FeedVideoPlayer = memo(({
     })();
   }, [isVisible, autoPlay]);
 
-  // timers cleanup
+  // timers cleanup and video unload on unmount
   useEffect(() => {
     return () => {
+      const v = videoRef.current;
+      const pv = preloadVideoRef.current;
+
+      // Clear timers
       if (doubleTapTimeout.current) clearTimeout(doubleTapTimeout.current);
       if (seekTimeout.current) clearTimeout(seekTimeout.current);
       if (playPauseTimeout.current) clearTimeout(playPauseTimeout.current);
+
+      // Clear global reference if this is the current player
+      if (globalCurrentVideo === v) globalCurrentVideo = null;
+
+      // Unload videos to free resources
+      v?.unloadAsync?.().catch(() => {});
+      pv?.unloadAsync?.().catch(() => {});
     };
   }, []);
 
