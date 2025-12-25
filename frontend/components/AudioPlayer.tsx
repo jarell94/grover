@@ -1,64 +1,79 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Pressable } from 'react-native';
 import { Audio, AVPlaybackStatus } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
 
 interface AudioPlayerProps {
-  uri: string;      // can be https://... OR data:audio/...;base64,...
+  uri: string;      // https://... OR file://... OR data:audio/...;base64,...
   title?: string;
 }
 
 /**
- * Optional: global "only one audio at a time"
- * If you want this behavior across your app, keep this.
+ * Global single-audio policy:
+ * keep a reference to whichever sound is currently playing.
  */
-let currentlyPlayingStopper: null | (() => Promise<void>) = null;
+let globalCurrentSound: Audio.Sound | null = null;
 
-// For seek bar width
-const progressWidthRef = { current: 0 };
+function isDataAudioUri(u: string) {
+  return typeof u === 'string' && u.startsWith('data:audio/');
+}
+
+async function dataUriToFile(dataUri: string) {
+  // data:audio/mpeg;base64,AAA...
+  const match = dataUri.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+  if (!match) return null;
+
+  const mime = match[1];
+  const base64 = match[2];
+
+  const ext =
+    mime.includes('mpeg') ? 'mp3' :
+    mime.includes('wav') ? 'wav' :
+    mime.includes('mp4') || mime.includes('aac') ? 'm4a' :
+    'mp3';
+
+  const path = `${FileSystem.cacheDirectory}audio_${Date.now()}.${ext}`;
+  await FileSystem.writeAsStringAsync(path, base64, { encoding: FileSystem.EncodingType.Base64 });
+  return path;
+}
 
 export default function AudioPlayer({ uri, title }: AudioPlayerProps) {
   const soundRef = useRef<Audio.Sound | null>(null);
   const loadingRef = useRef(false);
+  const progressWidthRef = useRef(0);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [duration, setDuration] = useState(0);
   const [position, setPosition] = useState(0);
 
+  // If the uri is a data: uri, convert to file on native
   const safeUri = useMemo(() => uri, [uri]);
 
   useEffect(() => {
-    // Configure audio mode once per component mount
+    // Ideally do this once at app start, but this is OK.
     Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
-      playsInSilentModeIOS: true, // important so audio works even if silent switch is on
+      playsInSilentModeIOS: true,
       staysActiveInBackground: false,
-      interruptionModeIOS: 1, // DO_NOT_MIX
-      interruptionModeAndroid: 1, // DO_NOT_MIX
+      interruptionModeIOS: 1,
+      interruptionModeAndroid: 1,
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
     }).catch(() => {});
   }, []);
 
   useEffect(() => {
-    // If uri changes, unload previous sound
+    // When uri changes or unmount, unload
     return () => {
       unload().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeUri]);
 
-  useEffect(() => {
-    // Cleanup on unmount
-    return () => {
-      unload().catch(() => {});
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+  const onPlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
 
     setIsPlaying(status.isPlaying);
@@ -69,81 +84,74 @@ export default function AudioPlayer({ uri, title }: AudioPlayerProps) {
       setIsPlaying(false);
       setPosition(0);
     }
-  };
+  }, []);
 
-  const unload = async () => {
+  const unload = useCallback(async () => {
     const s = soundRef.current;
     soundRef.current = null;
+
+    // If this was the global current sound, clear it
+    if (globalCurrentSound === s) globalCurrentSound = null;
 
     if (s) {
       try {
         await s.unloadAsync();
       } catch {}
     }
-  };
+  }, []);
 
-  const ensureLoaded = async () => {
+  const ensureLoaded = useCallback(async () => {
     if (soundRef.current) return;
+    if (loadingRef.current) return;
 
-    if (loadingRef.current) return; // prevent double-load
     loadingRef.current = true;
     setIsLoading(true);
 
     try {
-      // Stop any other audio in the app (optional)
-      if (currentlyPlayingStopper) {
-        await currentlyPlayingStopper();
-        currentlyPlayingStopper = null;
+      // If we got a data: uri, convert it to a temp file for native reliability
+      let sourceUri = safeUri;
+      if (isDataAudioUri(sourceUri)) {
+        const fileUri = await dataUriToFile(sourceUri);
+        if (fileUri) sourceUri = fileUri;
       }
 
       const { sound } = await Audio.Sound.createAsync(
-        { uri: safeUri },
+        { uri: sourceUri },
         { shouldPlay: false, progressUpdateIntervalMillis: 250 },
         onPlaybackStatusUpdate
       );
 
       soundRef.current = sound;
-
-      // Register stopper for global "single audio"
-      currentlyPlayingStopper = async () => {
-        try {
-          await sound.pauseAsync();
-        } catch {}
-      };
     } finally {
       loadingRef.current = false;
       setIsLoading(false);
     }
-  };
+  }, [safeUri, onPlaybackStatusUpdate]);
 
-  const togglePlayPause = async () => {
+  const togglePlayPause = useCallback(async () => {
     try {
       await ensureLoaded();
       const s = soundRef.current;
       if (!s) return;
 
-      // If starting play, stop other audio first (optional)
-      if (!isPlaying && currentlyPlayingStopper) {
-        await currentlyPlayingStopper();
-        currentlyPlayingStopper = null;
-      }
-
       if (isPlaying) {
         await s.pauseAsync();
-      } else {
-        // Register this as the current audio stopper
-        currentlyPlayingStopper = async () => {
-          try {
-            await s.pauseAsync();
-          } catch {}
-        };
-
-        await s.playAsync();
+        return;
       }
+
+      // Pause any other sound in the app (single-audio policy)
+      if (globalCurrentSound && globalCurrentSound !== s) {
+        try {
+          await globalCurrentSound.pauseAsync();
+        } catch {}
+      }
+
+      globalCurrentSound = s;
+      await s.playAsync();
     } catch (e) {
       console.error('Audio toggle error:', e);
     }
-  };
+  }, [ensureLoaded, isPlaying]);
 
   const formatTime = (millis: number) => {
     const totalSeconds = Math.floor((millis || 0) / 1000);
@@ -152,7 +160,7 @@ export default function AudioPlayer({ uri, title }: AudioPlayerProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const seekToPercent = async (percent: number) => {
+  const seekToPercent = useCallback(async (percent: number) => {
     try {
       await ensureLoaded();
       const s = soundRef.current;
@@ -163,7 +171,7 @@ export default function AudioPlayer({ uri, title }: AudioPlayerProps) {
     } catch (e) {
       console.error('Seek error:', e);
     }
-  };
+  }, [ensureLoaded, duration]);
 
   return (
     <View style={styles.container}>
@@ -175,11 +183,9 @@ export default function AudioPlayer({ uri, title }: AudioPlayerProps) {
         {title ? <Text style={styles.title} numberOfLines={1}>{title}</Text> : null}
 
         <View style={styles.progressContainer}>
-          {/* Tap-to-seek bar */}
           <Pressable
             style={styles.progressBar}
             onLayout={(ev) => {
-              // store width in ref for seek calculation
               progressWidthRef.current = ev.nativeEvent.layout.width;
             }}
             onPressIn={(e) => {
