@@ -539,28 +539,7 @@ export default function HomeScreen() {
       }
 
       if (selectedMedia?.uri) {
-        const uri = selectedMedia.uri;
-        const providedMime = selectedMedia.mimeType || selectedMedia.type;
-
-        let mimeType = providedMime || 'application/octet-stream';
-        let fileName = selectedMedia.name;
-
-        // If no filename, guess from mime type
-        if (!fileName) {
-          const extFromMime =
-            mimeType.includes('jpeg') ? 'jpg' :
-            mimeType.includes('png') ? 'png' :
-            mimeType.includes('gif') ? 'gif' :
-            mimeType.includes('mp4') ? 'mp4' :
-            mimeType.includes('quicktime') ? 'mov' :
-            mimeType.includes('mpeg') ? 'mp3' :
-            mimeType.includes('wav') ? 'wav' :
-            mimeType.includes('webm') ? 'webm' : 'bin';
-
-          fileName = `media.${extFromMime}`;
-        }
-
-        formData.append('media', { uri, type: mimeType, name: fileName } as any);
+        formData.append('media', await asFormDataFile(selectedMedia));
       }
 
       await api.createPost(formData);
