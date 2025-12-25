@@ -118,7 +118,6 @@ const FeedVideoPlayer = memo(({
   useEffect(() => {
     return () => {
       const v = videoRef.current;
-      const pv = preloadVideoRef.current;
 
       // Clear timers
       if (doubleTapTimeout.current) clearTimeout(doubleTapTimeout.current);
@@ -128,11 +127,18 @@ const FeedVideoPlayer = memo(({
       // Clear global reference if this is the current player
       if (globalCurrentVideo === v) globalCurrentVideo = null;
 
-      // Unload videos to free resources
+      // Unload main video to free resources
       v?.unloadAsync?.().catch(() => {});
-      pv?.unloadAsync?.().catch(() => {});
     };
   }, []);
+
+  // Cleanup preload video when preloadUri changes or unmounts
+  useEffect(() => {
+    const pv = preloadVideoRef.current;
+    return () => {
+      pv?.unloadAsync?.().catch(() => {});
+    };
+  }, [preloadUri]);
 
   // Preload next video (light guard)
   useEffect(() => {
