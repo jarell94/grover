@@ -27,6 +27,9 @@ interface FeedVideoPlayerProps {
 
 const preloadCache = new Map<string, boolean>();
 
+// Global singleton to ensure only one video plays at a time
+let globalCurrentVideo: Video | null = null;
+
 function isUriLike(u?: string) {
   if (!u) return false;
   return (
