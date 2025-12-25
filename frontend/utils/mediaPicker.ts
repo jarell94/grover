@@ -131,23 +131,36 @@ function toResult(asset: ImagePicker.ImagePickerAsset, includeBase64: boolean): 
 /**
  * Ensure the URI is uploadable (converts iOS ph:// URIs to file://)
  * iOS Photos library returns ph:// URIs which can't be directly uploaded
+ * Uses expo-media-library for better iOS compatibility
  */
 async function ensureUploadableUri(asset: MediaPickerResult): Promise<MediaPickerResult> {
-  // Most cases are already fine (file://, content:// on Android, http(s):// on web)
-  if (!asset.uri?.startsWith("ph://")) return asset;
+  if (!asset.uri) return asset;
 
-  // Copy iOS Photos asset into app cache as a real file:// path
-  const ext =
-    asset.fileName?.split(".").pop()?.toLowerCase() ||
-    (asset.mimeType?.includes("png") ? "png" :
-     asset.mimeType?.includes("mp4") ? "mp4" :
-     asset.mimeType?.includes("mov") ? "mov" :
-     asset.mimeType?.includes("heic") ? "heic" : "jpg");
+  // Android content:// and file:// are ok, web is ok
+  if (!asset.uri.startsWith("ph://")) return asset;
 
-  const dest = `${FileSystem.cacheDirectory}${asset.kind}_${Date.now()}.${ext}`;
-  await FileSystem.copyAsync({ from: asset.uri, to: dest });
+  try {
+    // ph://<assetId>
+    const assetId = asset.uri.replace("ph://", "");
+    const mlAsset = await MediaLibrary.getAssetInfoAsync(assetId);
 
-  return { ...asset, uri: dest };
+    // On iOS this often returns localUri like file://...
+    if (mlAsset.localUri) {
+      return { ...asset, uri: mlAsset.localUri };
+    }
+
+    // Fallback: download/copy into cache if needed
+    const ext =
+      asset.fileName?.split(".").pop()?.toLowerCase() ||
+      (asset.mimeType?.includes("png") ? "png" : "jpg");
+
+    const dest = `${FileSystem.cacheDirectory}${asset.kind}_${Date.now()}.${ext}`;
+    await FileSystem.copyAsync({ from: mlAsset.uri, to: dest });
+    return { ...asset, uri: dest };
+  } catch (e) {
+    console.warn("ph:// conversion failed:", e);
+    return asset; // fail soft
+  }
 }
 
 /**
