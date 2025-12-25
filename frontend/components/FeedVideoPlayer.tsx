@@ -92,15 +92,24 @@ const FeedVideoPlayer = memo(({
     return isUriLike(uri) ? uri : '';
   }, [uri]);
 
-  // visibility autoplay
+  // visibility autoplay with global singleton
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
 
     (async () => {
       try {
-        if (isVisible && autoPlay) await v.playAsync();
-        else await v.pauseAsync();
+        if (isVisible && autoPlay) {
+          // Pause any other playing video first
+          if (globalCurrentVideo && globalCurrentVideo !== v) {
+            try { await globalCurrentVideo.pauseAsync(); } catch {}
+          }
+          globalCurrentVideo = v;
+          await v.playAsync();
+        } else {
+          await v.pauseAsync();
+          if (globalCurrentVideo === v) globalCurrentVideo = null;
+        }
       } catch {}
     })();
   }, [isVisible, autoPlay]);
