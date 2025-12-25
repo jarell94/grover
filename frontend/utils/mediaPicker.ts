@@ -1,9 +1,14 @@
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as MediaLibrary from "expo-media-library";
 import { Alert, Platform } from "react-native";
 
 export type MediaKind = "image" | "video" | "audio" | "unknown";
+
+// File size limits
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // 15MB
+const MAX_VIDEO_BYTES = 250 * 1024 * 1024; // 250MB
 
 export interface MediaPickerResult {
   uri: string;
