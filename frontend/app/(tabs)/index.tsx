@@ -113,7 +113,7 @@ export default function HomeScreen() {
 
       const [feedData, storiesData] = await Promise.all([
         api.getFeed(pageSize, skipRef.current),
-        isRefresh ? api.getStories().catch(() => []) : Promise.resolve(stories),
+        isRefresh ? api.getStories().catch(() => []) : Promise.resolve(null),
       ]);
 
       const newPosts = feedData as Post[];
@@ -129,7 +129,7 @@ export default function HomeScreen() {
         return Array.from(map.values());
       });
 
-      if (isRefresh) setStories(storiesData);
+      if (isRefresh && storiesData) setStories(storiesData);
     } catch (error) {
       console.error('Feed load error:', error);
     } finally {
@@ -137,7 +137,7 @@ export default function HomeScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [stories]);
+  }, []);
 
   const handleRefresh = () => {
     setRefreshing(true);
