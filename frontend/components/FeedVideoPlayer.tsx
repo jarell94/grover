@@ -214,6 +214,9 @@ const FeedVideoPlayer = memo(({
   }, [isLoaded, duration, position]);
 
   const handlePress = useCallback((locationX: number) => {
+    // Don't process taps while buffering
+    if (isBuffering) return;
+    
     const now = Date.now();
     const w = tileWidth || 1;
     const tapZone = w / 3;
