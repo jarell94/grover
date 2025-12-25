@@ -48,6 +48,19 @@ function dedupeById(list: Post[]) {
   return Array.from(map.values());
 }
 
+function isUriLike(u?: string) {
+  if (!u) return false;
+  return (
+    u.startsWith("http://") ||
+    u.startsWith("https://") ||
+    u.startsWith("file://") ||
+    u.startsWith("content://") ||
+    u.startsWith("ph://") ||
+    u.startsWith("blob:") ||
+    u.startsWith("data:")
+  );
+}
+
 export default function ProfileContentTabs({ userId, api, stickyHeader }: Props) {
   const tabs = useMemo(
     () => [
