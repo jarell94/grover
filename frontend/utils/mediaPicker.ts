@@ -278,8 +278,7 @@ export async function takePhoto(
 
     if (result.canceled || !result.assets?.length) return null;
 
-    const asset = toResult(result.assets[0], includeBase64);
-    return await ensureUploadableUri(asset);
+    return await processAsset(result.assets[0], includeBase64);
   } catch (error) {
     console.error("Camera error:", error);
     Alert.alert("Camera Error", "Failed to take photo. Please try again.", [{ text: "OK" }]);
