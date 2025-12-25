@@ -226,17 +226,13 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
     const isVideo = item.media_type === "video";
     const isAudio = item.media_type === "audio";
 
-    const uri =
-      item.media_url && item.media_url.startsWith("http")
-        ? item.media_url
-        : item.media_url
-        ? `data:image/jpeg;base64,${item.media_url}`
-        : undefined;
+    // Only use URI if it's a valid URI format
+    const uri = isUriLike(item.media_url) ? item.media_url : undefined;
 
     // For photos/videos/audio tabs, open media viewer; for posts, open post detail
     const handlePress = () => {
       if ((active === "photos" || active === "videos" || active === "audio") && item.media_url) {
-        openMediaViewer(index);
+        openMediaViewerByPostId(item.post_id);
       } else {
         openPost(item);
       }
