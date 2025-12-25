@@ -196,13 +196,29 @@ async function ensureSupportedImage(asset: MediaPickerResult): Promise<MediaPick
 }
 
 /**
- * Full asset processing pipeline: normalize -> uploadable URI -> supported format
+ * Validate file size limits
+ */
+function assertSizeOk(a: MediaPickerResult): MediaPickerResult {
+  if (!a.fileSize) return a;
+  const max =
+    a.kind === "image" ? MAX_IMAGE_BYTES :
+    a.kind === "video" ? MAX_VIDEO_BYTES :
+    50 * 1024 * 1024;
+
+  if (a.fileSize > max) {
+    throw new Error("File too large. Please choose a smaller file.");
+  }
+  return a;
+}
+
+/**
+ * Full asset processing pipeline: normalize -> uploadable URI -> supported format -> size check
  */
 async function processAsset(asset: ImagePicker.ImagePickerAsset, includeBase64: boolean): Promise<MediaPickerResult> {
   const result = toResult(asset, includeBase64);
   const uploadable = await ensureUploadableUri(result);
   const supported = await ensureSupportedImage(uploadable);
-  return supported;
+  return assertSizeOk(supported);
 }
 
 /**
