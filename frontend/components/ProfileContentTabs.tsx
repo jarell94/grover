@@ -87,6 +87,13 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
   // guards against stale async responses (tab switches / refresh)
   const requestSeq = useRef(0);
 
+  // Reset viewer state when tab changes
+  useEffect(() => {
+    setViewerVisible(false);
+    setViewerIndex(0);
+    requestSeq.current += 1; // invalidate any in-flight response immediately
+  }, [active]);
+
   const fetchPage = useCallback(
     async (tab: TabKey, pageToLoad: number, isRefresh = false) => {
       const myReq = ++requestSeq.current; // newest request id
