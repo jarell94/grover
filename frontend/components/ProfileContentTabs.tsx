@@ -178,7 +178,7 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchPage(active, 0, true);
+      await fetchPage(active, true);
     } finally {
       setRefreshing(false);
     }
@@ -187,8 +187,8 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
   const onEndReached = useCallback(() => {
     if (loading || refreshing || loadingMore || !hasMore) return;
     setLoadingMore(true);
-    fetchPage(active, page, false).finally(() => setLoadingMore(false));
-  }, [active, fetchPage, hasMore, loading, loadingMore, page, refreshing]);
+    fetchPage(active, false).finally(() => setLoadingMore(false));
+  }, [active, fetchPage, hasMore, loading, loadingMore, refreshing]);
 
   const openPost = (post: Post) => {
     router.push({ pathname: "/post/[id]", params: { id: post.post_id } });
