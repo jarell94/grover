@@ -116,9 +116,14 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
   }, [active]);
 
   const fetchPage = useCallback(
-    async (tab: TabKey, pageToLoad: number, isRefresh = false) => {
+    async (tab: TabKey, isRefresh = false) => {
       const myReq = ++requestSeq.current; // newest request id
-      const skip = pageToLoad * PAGE_SIZE;
+      
+      if (isRefresh) {
+        skipRef.current = 0;
+      }
+      
+      const skip = skipRef.current;
 
       let data: Post[] = [];
       if (tab === "posts") {
@@ -137,13 +142,14 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
       const more = safe.length === PAGE_SIZE;
 
       setHasMore(more);
+      
+      // Update skip for next fetch
+      skipRef.current += safe.length;
 
       if (isRefresh) {
         setItems(dedupeById(safe));
-        setPage(1);
       } else {
         setItems((prev) => dedupeById([...prev, ...safe]));
-        setPage(pageToLoad + 1);
       }
     },
     [api, userId]
@@ -152,10 +158,10 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
   const loadInitial = useCallback(async () => {
     setLoading(true);
     setHasMore(true);
-    setPage(0);
+    skipRef.current = 0;
     setItems([]);
     try {
-      await fetchPage(active, 0, true);
+      await fetchPage(active, true);
     } catch (e) {
       console.error("Profile tab load error:", e);
       setItems([]);
