@@ -247,7 +247,7 @@ const FeedVideoPlayer = memo(({
       togglePlayPause();
       lastTap.current = null;
     }, 300);
-  }, [tileWidth, seekBy, showLikeAnimation, onDoubleTapLike, togglePlayPause]);
+  }, [tileWidth, seekBy, showLikeAnimation, onDoubleTapLike, togglePlayPause, isBuffering]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     setTileWidth(e.nativeEvent.layout.width);
