@@ -7,6 +7,7 @@ interface Props {
   children: ReactNode;
   fallback?: ReactNode;
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
+  resetKey?: string | number;
 }
 
 interface State {
@@ -25,11 +26,16 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error to monitoring service in production
     if (__DEV__) {
       console.error('ErrorBoundary caught:', error, errorInfo);
     }
     this.props.onError?.(error, errorInfo);
+  }
+
+  componentDidUpdate(prevProps: Props) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false, error: null });
+    }
   }
 
   handleRetry = () => {
@@ -38,13 +44,15 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
+      if (this.props.fallback) return this.props.fallback;
 
       return (
         <View style={styles.container}>
-          <Ionicons name="alert-circle-outline" size={64} color={Colors.error} />
+          <Ionicons
+            name="alert-circle-outline"
+            size={64}
+            color={(Colors as any).error ?? Colors.primary}
+          />
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.message}>
             {__DEV__ ? this.state.error?.message : 'Please try again'}
