@@ -173,12 +173,21 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
     setViewerVisible(true);
   };
 
-  // Convert items to MediaViewer format
+  // Open media viewer by post ID (useful for direct navigation)
+  const openMediaViewerByPostId = (postId: string) => {
+    const idx = mediaItems.findIndex((m) => m.id === postId);
+    if (idx >= 0) {
+      setViewerIndex(idx);
+      setViewerVisible(true);
+    }
+  };
+
+  // Convert items to MediaViewer format - only include items with valid URIs
   const mediaItems = useMemo(() => {
     if (active !== "photos" && active !== "videos" && active !== "audio") return [];
     
     return items
-      .filter((item) => item.media_url)
+      .filter((item) => item.media_url && isUriLike(item.media_url))
       .map((item) => ({
         id: item.post_id,
         uri: item.media_url!,
