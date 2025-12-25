@@ -310,18 +310,6 @@ export async function takePhoto(
 }
 
 /**
- * Build a FormData file part correctly for React Native fetch/axios.
- * This is the #1 reason uploads break.
- */
-export function asFormDataFile(asset: MediaPickerResult) {
-  return {
-    uri: asset.uri,
-    name: asset.fileName || `upload_${Date.now()}`,
-    type: asset.mimeType || "application/octet-stream",
-  } as any;
-}
-
-/**
  * Show media picker options (Camera or Gallery)
  */
 export async function showMediaOptions(
