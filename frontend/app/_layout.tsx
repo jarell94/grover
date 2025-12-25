@@ -1,13 +1,15 @@
 import React from 'react';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { AuthProvider } from '../contexts/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 export default function RootLayout() {
+  const pathname = usePathname();
+  
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ErrorBoundary>
+      <ErrorBoundary resetKey={pathname}>
         <AuthProvider>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
