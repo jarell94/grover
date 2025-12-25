@@ -95,10 +95,15 @@ function fallbackMime(kind: MediaKind, fileName?: string) {
 function ensureFileName(asset: ImagePicker.ImagePickerAsset, kind: MediaKind) {
   if (asset.fileName) return asset.fileName;
 
+  const mt = ((asset as any).mimeType || "").toLowerCase();
   const ext =
-    kind === "image" ? "jpg" :
-    kind === "video" ? "mp4" :
-    kind === "audio" ? "mp3" : "bin";
+    kind === "image"
+      ? (mt.includes("png") ? "png" : mt.includes("webp") ? "webp" : "jpg")
+      : kind === "video"
+      ? "mp4"
+      : kind === "audio"
+      ? "mp3"
+      : "bin";
 
   return `${kind}_${Date.now()}.${ext}`;
 }
