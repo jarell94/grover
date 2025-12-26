@@ -193,6 +193,9 @@ export default function LiveStreamScreen() {
         api.joinStream(streamId).catch(() => {});
       }
 
+      // Join Socket.io room for real-time chat
+      setupSocketChat();
+
       await initAgora();
     } catch (error: any) {
       console.error('Initialize stream error:', error);
@@ -204,14 +207,64 @@ export default function LiveStreamScreen() {
     }
   }, [initAgora, isHost, streamId]);
 
+  // Socket.io real-time chat setup
+  const setupSocketChat = useCallback(() => {
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // Join stream chat room
+    socket.emit('join_stream_chat', { stream_id: streamId });
+
+    // Listen for incoming messages
+    socket.on('stream_chat_message', (data: any) => {
+      const newMsg = {
+        id: data.message_id || Date.now().toString(),
+        user: data.user_name || data.username || 'Anonymous',
+        text: data.text || data.message,
+        timestamp: new Date(data.timestamp || Date.now()),
+        isSuperChat: data.is_super_chat || false,
+        amount: data.amount,
+      };
+      setMessages((prev) => [...prev, newMsg]);
+      setTimeout(() => messagesEndRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+
+    // Listen for viewer count updates
+    socket.on('stream_viewer_count', (data: any) => {
+      if (data.stream_id === streamId) {
+        setViewers(data.count || 0);
+      }
+    });
+
+    // Listen for stream ended event
+    socket.on('stream_ended', (data: any) => {
+      if (data.stream_id === streamId && !isHost) {
+        Alert.alert('Stream Ended', 'The host has ended the stream.');
+        cleanupAgora();
+        router.back();
+      }
+    });
+  }, [streamId, isHost, cleanupAgora]);
+
+  const cleanupSocketChat = useCallback(() => {
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    socket.emit('leave_stream_chat', { stream_id: streamId });
+    socket.off('stream_chat_message');
+    socket.off('stream_viewer_count');
+    socket.off('stream_ended');
+  }, [streamId]);
+
   useEffect(() => {
     initializeStream();
     return () => {
-      // Important: leave analytics + agora
+      // Important: leave analytics + agora + socket
       if (!isHost) api.leaveStream(streamId).catch(() => {});
+      cleanupSocketChat();
       cleanupAgora();
     };
-  }, [cleanupAgora, initializeStream, isHost, streamId]);
+  }, [cleanupAgora, cleanupSocketChat, initializeStream, isHost, streamId]);
 
   const handleEndStream = () => {
     Alert.alert('End Stream', 'Are you sure you want to end your live stream?', [
