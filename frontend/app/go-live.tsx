@@ -14,8 +14,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Audio } from 'expo-av';
+import * as Camera from 'expo-camera';
 
 import { api } from '../services/api';
+import { AGORA_AVAILABLE } from '../utils/agora';
 
 const Colors = {
   primary: '#8B5CF6',
@@ -30,13 +33,46 @@ const Colors = {
   success: '#10B981',
 };
 
+async function ensureLivePermissions() {
+  // Camera
+  const cam = await Camera.Camera.requestCameraPermissionsAsync();
+  if (cam.status !== 'granted') throw new Error('Camera permission is required to go live.');
+
+  // Mic
+  const mic = await Camera.Camera.requestMicrophonePermissionsAsync();
+  if (mic.status !== 'granted') throw new Error('Microphone permission is required to go live.');
+
+  // Audio mode so mic works properly
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: true,
+    playsInSilentModeIOS: true,
+    staysActiveInBackground: false,
+    interruptionModeIOS: 1,
+    interruptionModeAndroid: 1,
+    shouldDuckAndroid: true,
+    playThroughEarpieceAndroid: false,
+  });
+}
+
 export default function GoLiveScreen() {
+  const cameraRef = useRef<Camera.Camera | null>(null);
   const [streamTitle, setStreamTitle] = useState('');
   const [streamDescription, setStreamDescription] = useState('');
   const [enableSuperChat, setEnableSuperChat] = useState(false);
   const [enableShop, setEnableShop] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [facing, setFacing] = useState<'front' | 'back'>('front');
+  const [hasPerms, setHasPerms] = useState<boolean | null>(null);
+
+  // Check permissions on mount
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    (async () => {
+      const cam = await Camera.Camera.getCameraPermissionsAsync();
+      const mic = await Camera.Camera.getMicrophonePermissionsAsync();
+      setHasPerms(cam.status === 'granted' && mic.status === 'granted');
+    })();
+  }, []);
 
   const toggleFacing = () => setFacing((p) => (p === 'front' ? 'back' : 'front'));
 
@@ -48,8 +84,19 @@ export default function GoLiveScreen() {
       return;
     }
 
+    // Web fallback: Agora not available
+    if (Platform.OS === 'web' || !AGORA_AVAILABLE) {
+      Alert.alert(
+        'Live Streaming Not Available',
+        'Live streaming is available on iOS/Android. Please use the mobile app to go live.'
+      );
+      return;
+    }
+
     setIsLoading(true);
     try {
+      await ensureLivePermissions();
+
       const payload = {
         title: streamTitle.trim(),
         description: streamDescription.trim() || undefined,
@@ -78,11 +125,41 @@ export default function GoLiveScreen() {
   };
 
   const renderPreview = () => {
+    // Web or no perms yet -> show gradient placeholder
+    if (Platform.OS === 'web' || hasPerms !== true) {
+      return (
+        <LinearGradient colors={[Colors.primary, Colors.secondary]} style={styles.previewGradient}>
+          <Ionicons name="videocam" size={64} color="rgba(255, 255, 255, 0.3)" />
+          <Text style={styles.previewText}>Camera Preview</Text>
+          <Text style={styles.previewSubtext}>
+            {hasPerms === false
+              ? 'Grant camera + mic permissions to preview'
+              : 'Will activate when you go live'}
+          </Text>
+
+          <View style={styles.previewOverlayTop}>
+            <View style={styles.livePill}>
+              <Ionicons name="radio" size={14} color="#fff" />
+              <Text style={styles.livePillText}>PREVIEW</Text>
+            </View>
+
+            <TouchableOpacity style={styles.iconCircle} onPress={toggleFacing}>
+              <Ionicons name="camera-reverse" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+      );
+    }
+
+    // Native with permissions -> show live camera
     return (
-      <LinearGradient colors={[Colors.primary, Colors.secondary]} style={styles.previewGradient}>
-        <Ionicons name="videocam" size={64} color="rgba(255, 255, 255, 0.3)" />
-        <Text style={styles.previewText}>Camera Preview</Text>
-        <Text style={styles.previewSubtext}>Will activate when you go live</Text>
+      <View style={{ flex: 1 }}>
+        <Camera.Camera
+          ref={(r) => (cameraRef.current = r)}
+          style={{ flex: 1 }}
+          type={facing === 'front' ? Camera.CameraType.front : Camera.CameraType.back}
+          ratio="16:9"
+        />
 
         <View style={styles.previewOverlayTop}>
           <View style={styles.livePill}>
@@ -94,7 +171,7 @@ export default function GoLiveScreen() {
             <Ionicons name="camera-reverse" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
-      </LinearGradient>
+      </View>
     );
   };
 
