@@ -7,7 +7,7 @@ import FeedVideoPlayer from './FeedVideoPlayer';
 import { Colors } from '../constants/Colors';
 
 interface MediaDisplayProps {
-  mediaUrl?: string; // Cloudinary secure_url (preferred)
+  mediaUrl?: string; // Cloudinary secure_url
   mediaType?: 'image' | 'video' | 'audio' | string;
   title?: string;
   style?: any;
@@ -15,45 +15,19 @@ interface MediaDisplayProps {
   onDoubleTapLike?: () => void;
   preloadUri?: string;
   useFeedPlayer?: boolean;
-
-  /**
-   * Optional legacy: only set true if your backend sometimes returns raw base64 (not recommended with Cloudinary)
-   */
-  allowLegacyBase64?: boolean;
 }
 
-function isProbablyUrl(u: string) {
+/**
+ * Check if string is a valid URL (Cloudinary or local file)
+ */
+function isValidMediaUrl(url: string): boolean {
   return (
-    u.startsWith('http://') ||
-    u.startsWith('https://') ||
-    u.startsWith('file://') ||
-    u.startsWith('content://') ||
-    u.startsWith('ph://') ||
-    u.startsWith('blob:') ||
-    u.startsWith('data:')
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('file://') ||
+    url.startsWith('content://') ||
+    url.startsWith('blob:')
   );
-}
-
-function resolveUri(mediaUrl: string, mediaType: string, allowLegacyBase64 = false) {
-  // If it already looks like a URI, return as-is
-  if (isProbablyUrl(mediaUrl)) return mediaUrl;
-
-  // If you truly have legacy base64 coming from backend, wrap it only when explicitly allowed
-  if (allowLegacyBase64) {
-    switch (mediaType) {
-      case 'image':
-        return `data:image/jpeg;base64,${mediaUrl}`;
-      case 'video':
-        return `data:video/mp4;base64,${mediaUrl}`;
-      case 'audio':
-        return `data:audio/mpeg;base64,${mediaUrl}`;
-      default:
-        return mediaUrl;
-    }
-  }
-
-  // Otherwise treat it as invalid (Cloudinary should always be a URL)
-  return '';
 }
 
 export default function MediaDisplay({
@@ -65,16 +39,14 @@ export default function MediaDisplay({
   onDoubleTapLike,
   preloadUri,
   useFeedPlayer = true,
-  allowLegacyBase64 = false,
 }: MediaDisplayProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   if (!mediaUrl || !mediaType) return null;
 
-  const uri = resolveUri(mediaUrl, mediaType, allowLegacyBase64);
-
-  if (!uri) {
+  // Cloudinary always returns https URLs - reject anything else
+  if (!isValidMediaUrl(mediaUrl)) {
     return (
       <View style={[styles.image, styles.errorContainer, style]}>
         <Ionicons name="alert-circle-outline" size={32} color={Colors.textSecondary} />
@@ -101,7 +73,7 @@ export default function MediaDisplay({
           </View>
         )}
         <Image
-          source={{ uri }}
+          source={{ uri: mediaUrl }}
           style={[styles.image, style]}
           resizeMode="cover"
           onLoadStart={() => setLoading(true)}
@@ -116,11 +88,10 @@ export default function MediaDisplay({
   }
 
   if (mediaType === 'video') {
-    // IMPORTANT: always pass resolved uri, not raw mediaUrl
     if (useFeedPlayer) {
       return (
         <FeedVideoPlayer
-          uri={uri}
+          uri={mediaUrl}
           style={style}
           isVisible={isVisible}
           onDoubleTapLike={onDoubleTapLike}
@@ -131,11 +102,11 @@ export default function MediaDisplay({
         />
       );
     }
-    return <VideoPlayer uri={uri} style={style} />;
+    return <VideoPlayer uri={mediaUrl} style={style} />;
   }
 
   if (mediaType === 'audio') {
-    return <AudioPlayer uri={uri} title={title} />;
+    return <AudioPlayer uri={mediaUrl} title={title} />;
   }
 
   return null;
