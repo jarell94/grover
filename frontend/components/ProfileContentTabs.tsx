@@ -49,36 +49,18 @@ function dedupeById(list: Post[]) {
   return Array.from(map.values());
 }
 
-function isUriLike(u?: string) {
-  if (!u) return false;
-  return (
-    u.startsWith("http://") ||
-    u.startsWith("https://") ||
-    u.startsWith("file://") ||
-    u.startsWith("content://") ||
-    u.startsWith("ph://") ||
-    u.startsWith("blob:") ||
-    u.startsWith("data:")
-  );
-}
-
 /**
  * Generate a Cloudinary video thumbnail URL from a video URL
- * Inserts transformation params after /upload/
- * Example: .../video/upload/v123/abc.mp4 → .../video/upload/w_400,h_400,c_fill,so_0/f_jpg/v123/abc.jpg
  */
-function getCloudinaryVideoThumb(videoUrl: string, width = 400, height = 400): string | null {
-  if (!videoUrl || !videoUrl.includes("cloudinary.com")) return null;
-  
-  // Match: .../video/upload/... or .../image/upload/...
-  const uploadMatch = videoUrl.match(/(.*\/(?:video|image)\/upload\/)(v\d+\/)?(.+)/);
-  if (!uploadMatch) return null;
-  
-  const [, base, version = "", publicIdWithExt] = uploadMatch;
-  // Remove video extension and add jpg
-  const publicId = publicIdWithExt.replace(/\.(mp4|mov|webm|avi|mkv)$/i, "");
-  
-  return `${base}w_${width},h_${height},c_fill,so_0/f_jpg/${version}${publicId}.jpg`;
+function cloudinaryVideoPoster(url?: string): string {
+  if (!url) return "";
+  const u = normalizeRemoteUrl(url);
+
+  // If this is a Cloudinary "video/upload", transform into a jpg thumbnail
+  if (u.includes("/video/upload/")) {
+    return u.replace("/video/upload/", "/video/upload/so_0/f_jpg/q_auto/w_400/");
+  }
+  return u; // fallback
 }
 
 export default function ProfileContentTabs({ userId, api, stickyHeader }: Props) {
