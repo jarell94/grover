@@ -12,6 +12,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../services/api';
+import { AGORA_AVAILABLE } from '../../lib/agora';
 
 const Colors = {
   background: '#0F172A',
@@ -23,6 +24,9 @@ const Colors = {
   danger: '#EF4444',
   success: '#10B981',
 };
+
+// Agora streaming only works on native
+const IS_WEB = !AGORA_AVAILABLE;
 
 export default function LiveStreamScreen() {
   const params = useLocalSearchParams();
