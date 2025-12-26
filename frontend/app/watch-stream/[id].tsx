@@ -20,7 +20,7 @@ import { api } from '../../services/api';
 import socketService from '../../services/socket';
 
 // Import Agora utilities (platform-specific)
-import { AGORA_AVAILABLE, createAgoraRtcEngine, RtcSurfaceView } from '../../lib/agora';
+import { AGORA_AVAILABLE, createAgoraRtcEngine, RtcSurfaceView } from '../../utils/agora';
 
 const Colors = {
   background: '#0F172A',
