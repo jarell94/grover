@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Colors } from "../constants/Colors";
 import MediaViewer from "./MediaViewer";
+import { normalizeRemoteUrl } from "../utils/normalizeRemoteUrl";
 
 type TabKey = "posts" | "photos" | "videos" | "audio";
 
