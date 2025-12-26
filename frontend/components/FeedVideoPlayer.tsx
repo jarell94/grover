@@ -88,9 +88,8 @@ const FeedVideoPlayer = memo(({
   const duration = isLoaded ? (status as any).durationMillis ?? 0 : 0;
 
   const resolvedUri = useMemo(() => {
-    // With Cloudinary, this should always be a real URL.
-    // Still allow file/content/ph/data for local previews.
-    return isUriLike(uri) ? uri : '';
+    // With Cloudinary, this should always be a real URL
+    return isValidVideoUrl(uri) ? uri : '';
   }, [uri]);
 
   // visibility autoplay with global singleton
