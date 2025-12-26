@@ -321,11 +321,23 @@ export default function LiveStreamScreen() {
   };
 
   // =========================
-  // Chat (UI only here)
+  // Chat (Socket.io real-time)
   // =========================
   const sendMessage = () => {
     if (!messageText.trim()) return;
 
+    const socket = socketService.getSocket();
+    if (socket) {
+      // Emit via Socket.io - server will broadcast to all in room
+      socket.emit('stream_chat_message', {
+        stream_id: streamId,
+        text: messageText.trim(),
+        user_name: user?.name || 'Anonymous',
+        user_id: user?.user_id,
+      });
+    }
+
+    // Optimistic update (show immediately)
     const newMessage = {
       id: Date.now().toString(),
       user: user?.name || 'Anonymous',
@@ -350,6 +362,19 @@ export default function LiveStreamScreen() {
     try {
       await api.sendSuperChat(streamId, amount, superChatMessage);
 
+      // Emit super chat via Socket.io for real-time display
+      const socket = socketService.getSocket();
+      if (socket) {
+        socket.emit('stream_super_chat', {
+          stream_id: streamId,
+          text: superChatMessage || '❤️',
+          amount,
+          user_name: user?.name || 'Anonymous',
+          user_id: user?.user_id,
+        });
+      }
+
+      // Optimistic update
       const newMessage = {
         id: Date.now().toString(),
         user: user?.name || 'Anonymous',
