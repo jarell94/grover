@@ -17,6 +17,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { AGORA_AVAILABLE } from '../../lib/agora';
 
 const { width, height } = Dimensions.get('window');
 
@@ -34,7 +35,7 @@ const Colors = {
 
 // Note: Agora video streaming only works on native iOS/Android devices.
 // On web, we show a mock video preview. Full streaming requires Expo Go or a native build.
-const IS_WEB = Platform.OS === 'web';
+const IS_WEB = !AGORA_AVAILABLE;
 
 export default function LiveStreamScreen() {
   const params = useLocalSearchParams<{
