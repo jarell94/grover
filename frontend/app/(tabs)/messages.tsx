@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,16 +16,28 @@ import { Colors } from '../../constants/Colors';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
-const timeAgo = (iso: string) => {
+/**
+ * Safe time ago formatter with proper Date validation
+ */
+const timeAgo = (iso?: string) => {
   if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  
+  const diff = Date.now() - t;
   const mins = Math.floor(diff / 60000);
+  
   if (mins < 1) return "now";
   if (mins < 60) return `${mins}m`;
+  
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
+  
   const days = Math.floor(hrs / 24);
-  return `${days}d`;
+  if (days < 7) return `${days}d`;
+  
+  const weeks = Math.floor(days / 7);
+  return `${weeks}w`;
 };
 
 interface Conversation {
@@ -44,45 +56,95 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadConversations();
-    }, [])
-  );
+  /**
+   * Load conversations with mode (initial vs refresh)
+   */
+  const loadConversations = async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (mode === 'initial') setLoading(true);
+    if (mode === 'refresh') setRefreshing(true);
 
-  const loadConversations = async () => {
     try {
       const data = await api.getConversations();
-      setConversations(data);
+      setConversations(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Load conversations error:', error);
+      if (__DEV__) console.error('Load conversations error:', error);
     } finally {
-      setLoading(false);
+      if (mode === 'initial') setLoading(false);
+      if (mode === 'refresh') setRefreshing(false);
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadConversations();
-    setRefreshing(false);
+  // Load on focus with mounted flag
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+
+      const run = async () => {
+        try {
+          if (mounted) setLoading(true);
+          const data = await api.getConversations();
+          if (mounted) setConversations(Array.isArray(data) ? data : []);
+        } catch (error) {
+          if (__DEV__) console.error('Load conversations error:', error);
+        } finally {
+          if (mounted) {
+            setLoading(false);
+            setRefreshing(false);
+          }
+        }
+      };
+
+      run();
+
+      return () => {
+        mounted = false;
+      };
+    }, [])
+  );
+
+  const onRefresh = () => loadConversations('refresh');
+
+  // Sort conversations by most recent message
+  const sorted = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      const ta = Date.parse(a.last_message_at || '') || 0;
+      const tb = Date.parse(b.last_message_at || '') || 0;
+      return tb - ta;
+    });
+  }, [conversations]);
+
+  /**
+   * Open conversation with optimistic unread reset
+   */
+  const openConversation = (item: Conversation) => {
+    // Optimistically reset unread count
+    setConversations(prev =>
+      prev.map(c =>
+        c.conversation_id === item.conversation_id
+          ? { ...c, unread_count: 0 }
+          : c
+      )
+    );
+
+    const other = item.other_user || {};
+    router.push({
+      pathname: '/chat/[conversationId]',
+      params: {
+        conversationId: item.conversation_id,
+        otherUserId: other.user_id,
+        otherUserName: other.name,
+      },
+    });
   };
 
-  const renderConversation = ({ item }: { item: Conversation }) => {
+  const renderConversation = useCallback(({ item }: { item: Conversation }) => {
     const other = item.other_user || {};
     
     return (
       <TouchableOpacity
         style={styles.conversationCard}
-        onPress={() =>
-          router.push({
-            pathname: '/chat/[conversationId]',
-            params: {
-              conversationId: item.conversation_id,
-              otherUserId: other.user_id,
-              otherUserName: other.name,
-            },
-          })
-        }
+        activeOpacity={0.8}
+        onPress={() => openConversation(item)}
       >
         <Image
           source={{ uri: other.picture || 'https://via.placeholder.com/50' }}
@@ -103,17 +165,23 @@ export default function MessagesScreen() {
               )}
             </View>
           </View>
-          <Text style={styles.lastMessage} numberOfLines={1}>
+          <Text 
+            style={[
+              styles.lastMessage,
+              item.unread_count > 0 && styles.lastMessageUnread
+            ]} 
+            numberOfLines={1}
+          >
             {item.last_message || 'No messages yet'}
           </Text>
         </View>
       </TouchableOpacity>
     );
-  };
+  }, []);
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
@@ -123,10 +191,13 @@ export default function MessagesScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <Text style={styles.headerTitle}>Messages</Text>
+        {sorted.length > 0 && (
+          <Text style={styles.headerSubtitle}>{sorted.length} conversation{sorted.length !== 1 ? 's' : ''}</Text>
+        )}
       </View>
 
       <FlatList
-        data={conversations}
+        data={sorted}
         renderItem={renderConversation}
         keyExtractor={(item) => item.conversation_id}
         contentContainerStyle={styles.list}
@@ -144,6 +215,11 @@ export default function MessagesScreen() {
             <Text style={styles.emptySubtext}>Start chatting with creators</Text>
           </View>
         }
+        removeClippedSubviews
+        initialNumToRender={12}
+        windowSize={7}
+        maxToRenderPerBatch={12}
+        keyboardShouldPersistTaps="handled"
       />
     </View>
   );
@@ -153,6 +229,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     padding: 16,
@@ -165,8 +245,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.text,
   },
+  headerSubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 4,
+  },
   list: {
     padding: 16,
+    paddingBottom: 24,
   },
   conversationCard: {
     flexDirection: 'row',
@@ -219,6 +305,10 @@ const styles = StyleSheet.create({
   lastMessage: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  lastMessageUnread: {
+    color: Colors.text,
+    fontWeight: '500',
   },
   emptyContainer: {
     alignItems: 'center',
