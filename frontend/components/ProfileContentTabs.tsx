@@ -236,11 +236,8 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
     const isVideo = item.media_type === "video";
     const isAudio = item.media_type === "audio";
 
-    // Only use URI if it's a valid URI format
-    const uri = isUriLike(item.media_url) ? item.media_url : undefined;
-    
-    // For videos, generate a thumbnail from Cloudinary URL
-    const thumbUri = isVideo && uri ? getCloudinaryVideoThumb(uri) : uri;
+    // Normalize the media URL
+    const mediaUrl = item.media_url ? normalizeRemoteUrl(item.media_url) : undefined;
 
     // For photos/videos/audio tabs, open media viewer; for posts, open post detail
     const handlePress = () => {
@@ -253,8 +250,10 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
 
     return (
       <TouchableOpacity style={styles.tile} activeOpacity={0.9} onPress={handlePress}>
-        {(isImage || isVideo) && thumbUri ? (
-          <Image source={{ uri: thumbUri }} style={styles.tileImage} />
+        {isImage && mediaUrl ? (
+          <Image source={{ uri: mediaUrl }} style={styles.tileImage} />
+        ) : isVideo && mediaUrl ? (
+          <Image source={{ uri: cloudinaryVideoPoster(mediaUrl) }} style={styles.tileImage} />
         ) : (
           <View style={styles.tileFallback}>
             <Ionicons
