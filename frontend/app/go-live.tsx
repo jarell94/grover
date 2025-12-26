@@ -114,10 +114,14 @@ export default function GoLiveScreen() {
       router.push(`/live-stream/${result.stream_id}`);
     } catch (error: any) {
       console.error('Start stream error:', error);
-      const msg =
-        typeof error?.message === 'string'
-          ? error.message
-          : 'Failed to start stream. Please try again.';
+      const msg = error?.message || 'Failed to start stream.';
+      
+      // Handle follower requirement error specially
+      if (msg.toLowerCase().includes('followers')) {
+        Alert.alert('Not Eligible Yet', msg);
+        return;
+      }
+      
       Alert.alert('Error', msg);
     } finally {
       setIsLoading(false);
