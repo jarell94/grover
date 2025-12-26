@@ -328,8 +328,8 @@ const FeedVideoPlayer = memo(({
           </View>
         )}
 
-        {/* Hidden preload video - consider removing for perf; if kept, only for http(s) */}
-        {preloadUri && isUriLike(preloadUri) && (
+        {/* Hidden preload video - only for valid URLs */}
+        {preloadUri && isValidVideoUrl(preloadUri) && (
           <Video
             ref={preloadVideoRef}
             source={{ uri: preloadUri }}
