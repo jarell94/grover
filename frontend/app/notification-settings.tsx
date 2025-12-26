@@ -23,6 +23,7 @@ const Colors = {
   text: '#F1F5F9',
   textSecondary: '#94A3B8',
   error: '#EF4444',
+  success: '#10B981',
 };
 
 type Settings = {
@@ -53,26 +54,48 @@ export default function NotificationSettings() {
   const [savingKeys, setSavingKeys] = useState<Record<string, boolean>>({});
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
-  // Debounce timers per key
+  // Refs for debouncing and mounted state
+  const settingsRef = useRef(settings);
+  const isMountedRef = useRef(true);
   const timersRef = useRef<Record<string, any>>({});
+  const statusTimerRef = useRef<any>(null);
+  const versionRef = useRef<Record<string, number>>({});
 
+  // Keep settingsRef in sync
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      Object.values(timersRef.current).forEach((t) => clearTimeout(t));
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    };
+  }, []);
+
+  // Load settings on mount
   useEffect(() => {
     loadSettings();
-    return () => {
-      // cleanup timers
-      Object.values(timersRef.current).forEach((t) => clearTimeout(t));
-    };
   }, []);
 
   const loadSettings = async () => {
     try {
       const data = await api.getNotificationSettings();
-      setSettings((prev) => ({ ...prev, ...data }));
+      if (isMountedRef.current) {
+        setSettings((prev) => ({ ...prev, ...data }));
+      }
     } catch (error) {
       console.error('Failed to load settings:', error);
-      setSaveStatus('error');
+      if (isMountedRef.current) {
+        setSaveStatus('error');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -93,34 +116,64 @@ export default function NotificationSettings() {
     setSavingKeys((prev) => ({ ...prev, [key]: value }));
   };
 
+  // Bump version for a key to track latest request
+  const bumpVersion = (key: string) => {
+    versionRef.current[key] = (versionRef.current[key] || 0) + 1;
+    return versionRef.current[key];
+  };
+
   const updateSettingDebounced = (key: keyof Settings, value: boolean) => {
-    // optimistic update immediately
-    const previousValue = settings[key];
+    // Capture previous value from ref (not stale state)
+    const previousValue = settingsRef.current[key];
+
+    // Optimistic update immediately
     setSettings((prev) => ({ ...prev, [key]: value }));
     setSaveStatus('saving');
-
-    // clear existing timer for this key
-    if (timersRef.current[key]) clearTimeout(timersRef.current[key]);
-
-    // show per-toggle saving spinner state
     setKeySaving(key, true);
 
-    // debounce network call
+    // Clear existing timer for this key
+    if (timersRef.current[key]) clearTimeout(timersRef.current[key]);
+
+    // Bump version to track this request
+    const v = bumpVersion(String(key));
+
+    // Debounce network call
     timersRef.current[key] = setTimeout(async () => {
       try {
         await api.updateNotificationSettings({ [key]: value });
+
+        // Check if still mounted and this is the latest request
+        if (!isMountedRef.current) return;
+        if (versionRef.current[String(key)] !== v) return;
+
         setSaveStatus('saved');
 
-        // after a moment, reset to idle
-        setTimeout(() => setSaveStatus('idle'), 1200);
+        // Clear previous status timer
+        if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+        statusTimerRef.current = setTimeout(() => {
+          if (isMountedRef.current) setSaveStatus('idle');
+        }, 1200);
       } catch (error) {
         console.error('Failed to update setting:', error);
-        // rollback
+
+        // Check if still mounted and this is the latest request
+        if (!isMountedRef.current) return;
+        if (versionRef.current[String(key)] !== v) return;
+
+        // Rollback to previous value
         setSettings((prev) => ({ ...prev, [key]: previousValue }));
         setSaveStatus('error');
-        setTimeout(() => setSaveStatus('idle'), 2000);
+
+        // Clear previous status timer
+        if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+        statusTimerRef.current = setTimeout(() => {
+          if (isMountedRef.current) setSaveStatus('idle');
+        }, 2000);
       } finally {
-        setKeySaving(key, false);
+        // Only update saving state if this is still the latest request
+        if (isMountedRef.current && versionRef.current[String(key)] === v) {
+          setKeySaving(key, false);
+        }
       }
     }, 450);
   };
@@ -156,7 +209,7 @@ export default function NotificationSettings() {
       'Could not save';
 
     const color =
-      saveStatus === 'saved' ? '#10B981' :
+      saveStatus === 'saved' ? Colors.success :
       saveStatus === 'error' ? Colors.error :
       Colors.textSecondary;
 
