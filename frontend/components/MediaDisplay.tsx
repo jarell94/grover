@@ -5,6 +5,7 @@ import VideoPlayer from './VideoPlayer';
 import AudioPlayer from './AudioPlayer';
 import FeedVideoPlayer from './FeedVideoPlayer';
 import { Colors } from '../constants/Colors';
+import { normalizeRemoteUrl } from '../utils/normalizeRemoteUrl';
 
 interface MediaDisplayProps {
   mediaUrl?: string; // Cloudinary secure_url
@@ -18,16 +19,35 @@ interface MediaDisplayProps {
 }
 
 /**
- * Check if string is a valid URL (Cloudinary or local file)
+ * Resolve media URI with normalization and legacy base64 fallback
  */
-function isValidMediaUrl(url: string): boolean {
-  return (
-    url.startsWith('http://') ||
-    url.startsWith('https://') ||
-    url.startsWith('file://') ||
-    url.startsWith('content://') ||
-    url.startsWith('blob:')
-  );
+function resolveUri(mediaUrl: string, mediaType: string): string {
+  const u = normalizeRemoteUrl(mediaUrl);
+
+  // If it's any valid URI-like thing, use it
+  if (
+    u.startsWith('http://') ||
+    u.startsWith('https://') ||
+    u.startsWith('file://') ||
+    u.startsWith('content://') ||
+    u.startsWith('ph://') ||
+    u.startsWith('blob:') ||
+    u.startsWith('data:')
+  ) {
+    return u;
+  }
+
+  // Legacy base64 fallback (if you still have old data stored)
+  switch (mediaType) {
+    case 'image':
+      return `data:image/jpeg;base64,${mediaUrl}`;
+    case 'video':
+      return `data:video/mp4;base64,${mediaUrl}`;
+    case 'audio':
+      return `data:audio/mpeg;base64,${mediaUrl}`;
+    default:
+      return mediaUrl;
+  }
 }
 
 export default function MediaDisplay({
@@ -45,17 +65,9 @@ export default function MediaDisplay({
 
   if (!mediaUrl || !mediaType) return null;
 
-  // Cloudinary always returns https URLs - reject anything else
-  if (!isValidMediaUrl(mediaUrl)) {
-    return (
-      <View style={[styles.image, styles.errorContainer, style]}>
-        <Ionicons name="alert-circle-outline" size={32} color={Colors.textSecondary} />
-        <Text style={styles.errorText}>Invalid media URL</Text>
-      </View>
-    );
-  }
-
   if (mediaType === 'image') {
+    const safe = resolveUri(mediaUrl, 'image');
+
     if (error) {
       return (
         <View style={[styles.image, styles.errorContainer, style]}>
@@ -73,7 +85,7 @@ export default function MediaDisplay({
           </View>
         )}
         <Image
-          source={{ uri: mediaUrl }}
+          source={{ uri: safe }}
           style={[styles.image, style]}
           resizeMode="cover"
           onLoadStart={() => setLoading(true)}
@@ -88,25 +100,29 @@ export default function MediaDisplay({
   }
 
   if (mediaType === 'video') {
+    const safe = resolveUri(mediaUrl, 'video');
+
     if (useFeedPlayer) {
       return (
         <FeedVideoPlayer
-          uri={mediaUrl}
+          uri={safe}
           style={style}
           isVisible={isVisible}
           onDoubleTapLike={onDoubleTapLike}
-          preloadUri={preloadUri}
-          showControls={true}
+          preloadUri={preloadUri ? normalizeRemoteUrl(preloadUri) : undefined}
+          showControls
           autoPlay={isVisible}
-          loop={true}
+          loop
         />
       );
     }
-    return <VideoPlayer uri={mediaUrl} style={style} />;
+
+    return <VideoPlayer uri={safe} style={style} />;
   }
 
   if (mediaType === 'audio') {
-    return <AudioPlayer uri={mediaUrl} title={title} />;
+    const safe = resolveUri(mediaUrl, 'audio');
+    return <AudioPlayer uri={safe} title={title} />;
   }
 
   return null;
