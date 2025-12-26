@@ -288,8 +288,11 @@ export async function pickMedia(
 
     const pickerMediaTypes = mapPickerMediaTypes(mediaTypes);
 
-    // Base64 on web is often not what you want; also huge for videos.
-    const includeBase64 = Platform.OS !== "web" && base64;
+    // Base64 on web is often not what you want; also huge for videos - only for images
+    const includeBase64 =
+      Platform.OS !== "web" &&
+      base64 &&
+      pickerMediaTypes === ImagePicker.MediaTypeOptions.Images;
 
     // allowsEditing: disabled on web, disabled with multi-select, only for images
     const shouldAllowEditing = Platform.OS !== "web" && 
