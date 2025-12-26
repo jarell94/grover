@@ -12,6 +12,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -39,6 +40,71 @@ interface Post {
   user?: any;
 }
 
+// Memoized post row component for better FlatList performance
+const PostRow = React.memo(function PostRow({
+  item,
+  isRemoving,
+  onRemove,
+}: {
+  item: Post;
+  isRemoving: boolean;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <TouchableOpacity 
+      style={styles.postCard} 
+      activeOpacity={0.9}
+      onPress={() => router.push(`/post/${item.post_id}`)}
+    >
+      {item.media_url && (
+        <View style={styles.mediaContainer}>
+          <MediaDisplay mediaUrl={item.media_url} mediaType={item.media_type} style={styles.media} />
+        </View>
+      )}
+
+      <View style={styles.postContent}>
+        <View style={styles.postHeader}>
+          <Image
+            source={{ uri: item.user?.picture || 'https://via.placeholder.com/40' }}
+            style={styles.avatar}
+          />
+          <View style={styles.postInfo}>
+            <Text style={styles.username}>{item.user?.name || 'Unknown'}</Text>
+            <Text style={styles.timestamp}>
+              {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => onRemove(item.post_id)}
+            disabled={isRemoving}
+          >
+            {isRemoving ? (
+              <ActivityIndicator size="small" color={Colors.secondary} />
+            ) : (
+              <Ionicons name="close-circle" size={24} color={Colors.secondary} />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {!!item.content && (
+          <Text style={styles.postText} numberOfLines={3}>
+            {item.content}
+          </Text>
+        )}
+
+        <View style={styles.postStats}>
+          <View style={styles.stat}>
+            <Ionicons name="heart" size={16} color={Colors.secondary} />
+            <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 export default function CollectionDetailScreen() {
   const params = useLocalSearchParams();
   const collectionId = params.id as string;
@@ -62,10 +128,9 @@ export default function CollectionDetailScreen() {
   const loadCollectionDetail = useCallback(async () => {
     try {
       const data = await api.getCollectionDetail(collectionId);
+
       setCollection(data);
       setPosts(Array.isArray(data?.posts) ? data.posts : []);
-
-      // Keep edit fields synced with the latest collection
       setEditName(String(data?.name ?? ''));
       setEditDescription(String(data?.description ?? ''));
     } catch (error) {
@@ -74,13 +139,22 @@ export default function CollectionDetailScreen() {
     }
   }, [collectionId]);
 
+  // Load with mounted flag
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
-      setLoading(true);
-      await loadCollectionDetail();
-      setLoading(false);
-      setRefreshing(false);
+      try {
+        setLoading(true);
+        await loadCollectionDetail();
+      } finally {
+        if (mounted) setLoading(false);
+      }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, [loadCollectionDetail]);
 
   const onRefresh = useCallback(async () => {
@@ -152,6 +226,10 @@ export default function CollectionDetailScreen() {
         description: payload.description,
       }));
 
+      // Sync edit fields with saved values
+      setEditName(payload.name);
+      setEditDescription(payload.description);
+
       setEditModalVisible(false);
       Alert.alert('Success', 'Collection updated!');
     } catch (error) {
@@ -162,65 +240,15 @@ export default function CollectionDetailScreen() {
     }
   }, [collectionId, editName, editDescription]);
 
+  // Memoized render function for FlatList
   const renderPost = useCallback(
-    ({ item }: { item: Post }) => {
-      const isRemoving = removingPostId === item.post_id;
-
-      return (
-        <TouchableOpacity
-          style={styles.postCard}
-          activeOpacity={0.9}
-          // Optional: open post detail
-          // onPress={() => router.push(`/post/${item.post_id}`)}
-        >
-          {item.media_url && (
-            <View style={styles.mediaContainer}>
-              <MediaDisplay mediaUrl={item.media_url} mediaType={item.media_type} style={styles.media} />
-            </View>
-          )}
-
-          <View style={styles.postContent}>
-            <View style={styles.postHeader}>
-              <Image
-                source={{ uri: item.user?.picture || 'https://via.placeholder.com/40' }}
-                style={styles.avatar}
-              />
-              <View style={styles.postInfo}>
-                <Text style={styles.username}>{item.user?.name || 'Unknown'}</Text>
-                <Text style={styles.timestamp}>
-                  {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.removeButton}
-                onPress={() => removePost(item.post_id)}
-                disabled={isRemoving}
-              >
-                {isRemoving ? (
-                  <ActivityIndicator size="small" color={Colors.secondary} />
-                ) : (
-                  <Ionicons name="close-circle" size={24} color={Colors.secondary} />
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {!!item.content && (
-              <Text style={styles.postText} numberOfLines={3}>
-                {item.content}
-              </Text>
-            )}
-
-            <View style={styles.postStats}>
-              <View style={styles.stat}>
-                <Ionicons name="heart" size={16} color={Colors.secondary} />
-                <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
-              </View>
-            </View>
-          </View>
-        </TouchableOpacity>
-      );
-    },
+    ({ item }: { item: Post }) => (
+      <PostRow
+        item={item}
+        isRemoving={removingPostId === item.post_id}
+        onRemove={removePost}
+      />
+    ),
     [removePost, removingPostId]
   );
 
@@ -289,8 +317,9 @@ export default function CollectionDetailScreen() {
         renderItem={renderPost}
         keyExtractor={(item) => item.post_id}
         contentContainerStyle={styles.listContainer}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="images-outline" size={80} color={Colors.textSecondary} />
@@ -298,6 +327,11 @@ export default function CollectionDetailScreen() {
             <Text style={styles.emptySubtitle}>Save posts to this collection from your feed</Text>
           </View>
         }
+        removeClippedSubviews
+        initialNumToRender={6}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        keyboardShouldPersistTaps="handled"
       />
 
       {/* Edit Collection Modal */}
@@ -307,49 +341,60 @@ export default function CollectionDetailScreen() {
         transparent
         onRequestClose={() => setEditModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-          >
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Edit Collection</Text>
-                <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={Colors.text} />
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.modalOverlay}
+          onPress={() => setEditModalVisible(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <KeyboardAvoidingView
+              style={{ justifyContent: 'flex-end' }}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+            >
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Edit Collection</Text>
+                  <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+                    <Ionicons name="close" size={24} color={Colors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Collection name"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={editName}
+                  onChangeText={setEditName}
+                  maxLength={50}
+                  returnKeyType="next"
+                />
+
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Description (optional)"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={editDescription}
+                  onChangeText={setEditDescription}
+                  multiline
+                  maxLength={200}
+                />
+
+                <TouchableOpacity
+                  style={[styles.updateButton, updating && styles.updateButtonDisabled]}
+                  onPress={updateCollection}
+                  disabled={updating}
+                >
+                  {updating ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.updateButtonText}>Update Collection</Text>
+                  )}
                 </TouchableOpacity>
               </View>
-
-              <TextInput
-                style={styles.input}
-                placeholder="Collection name"
-                placeholderTextColor={Colors.textSecondary}
-                value={editName}
-                onChangeText={setEditName}
-                maxLength={50}
-                returnKeyType="next"
-              />
-
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Description (optional)"
-                placeholderTextColor={Colors.textSecondary}
-                value={editDescription}
-                onChangeText={setEditDescription}
-                multiline
-                maxLength={200}
-              />
-
-              <TouchableOpacity
-                style={[styles.updateButton, updating && styles.updateButtonDisabled]}
-                onPress={updateCollection}
-                disabled={updating}
-              >
-                {updating ? <ActivityIndicator color="#fff" /> : <Text style={styles.updateButtonText}>Update Collection</Text>}
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
+            </KeyboardAvoidingView>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -384,7 +429,7 @@ const styles = StyleSheet.create({
   statLarge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statTextLarge: { fontSize: 16, fontWeight: '600', color: 'rgba(255,255,255,0.9)' },
 
-  listContainer: { padding: 16 },
+  listContainer: { padding: 16, paddingBottom: 24 },
 
   postCard: { backgroundColor: Colors.surface, borderRadius: 16, marginBottom: 16, overflow: 'hidden' },
   mediaContainer: { width: '100%', height: 200 },
