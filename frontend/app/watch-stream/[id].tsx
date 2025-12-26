@@ -20,7 +20,7 @@ import { api } from '../../services/api';
 import socketService from '../../services/socket';
 
 // Import Agora utilities (platform-specific)
-import { createAgoraEngine, AgoraView } from '../../utils/agora';
+import { AGORA_AVAILABLE, createAgoraRtcEngine, RtcSurfaceView } from '../../lib/agora';
 
 const Colors = {
   background: '#0F172A',
@@ -33,6 +33,9 @@ const Colors = {
   success: '#10B981',
   accent: '#FBBF24',
 };
+
+// Agora streaming only works on native
+const IS_WEB = !AGORA_AVAILABLE;
 
 const AGORA_APP_ID = process.env.EXPO_PUBLIC_AGORA_APP_ID || '';
 
