@@ -192,15 +192,15 @@ export default function ProfileContentTabs({ userId, api, stickyHeader }: Props)
     }
   };
 
-  // Convert items to MediaViewer format - only include items with valid URIs
+  // Convert items to MediaViewer format - normalize URLs
   const mediaItems = useMemo(() => {
     if (active !== "photos" && active !== "videos" && active !== "audio") return [];
     
     return items
-      .filter((item) => item.media_url && isUriLike(item.media_url))
+      .filter((item) => item.media_url)
       .map((item) => ({
         id: item.post_id,
-        uri: item.media_url!,
+        uri: normalizeRemoteUrl(item.media_url!),
         type: (active === "videos" ? "video" : active === "audio" ? "audio" : "image") as "image" | "video" | "audio",
         caption: item.content,
         title: item.content,
