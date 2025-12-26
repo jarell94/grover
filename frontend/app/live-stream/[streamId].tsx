@@ -17,7 +17,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { AGORA_AVAILABLE } from '../../lib/agora';
+import { AGORA_AVAILABLE } from '../../utils/agora';
 
 const { width, height } = Dimensions.get('window');
 
