@@ -1,38 +1,36 @@
-// Agora module mock for web platform
-// Web browsers don't support react-native-agora native modules
-// This file provides mock exports so the app can still render on web
-
+// Web stub (Expo web)
+// Agora is not available on web browsers
 import React from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 
-// Mock exports for web - these do nothing but prevent import errors
-export const createAgoraRtcEngine = () => {
-  console.warn('Agora RTC Engine is not available on web');
-  return null;
-};
-
-// Mock RtcSurfaceView component for web
-export const RtcSurfaceView: React.FC<any> = ({ style }) => {
-  return (
-    <View style={[styles.mockView, style]}>
-      <Text style={styles.mockText}>Video streaming requires native app</Text>
-    </View>
-  );
-};
-
-// Mock enums
-export const ChannelProfileType = {
-  ChannelProfileCommunication: 0,
-  ChannelProfileLiveBroadcasting: 1,
-};
-
-export const ClientRoleType = {
-  ClientRoleBroadcaster: 1,
-  ClientRoleAudience: 2,
-};
-
-// Flag to indicate Agora is not available on web
 export const AGORA_AVAILABLE = false;
+
+export const createAgoraRtcEngine = () => {
+  throw new Error('Agora is not available on web');
+};
+
+// Dummy components/types so imports compile
+export const RtcSurfaceView: React.FC<any> = ({ style }) => (
+  <View style={[styles.mockView, style]}>
+    <Text style={styles.mockText}>Live streaming requires native app</Text>
+  </View>
+);
+
+export enum ChannelProfileType {
+  ChannelProfileCommunication = 0,
+  ChannelProfileLiveBroadcasting = 1,
+}
+
+export enum ClientRoleType {
+  ClientRoleBroadcaster = 1,
+  ClientRoleAudience = 2,
+}
+
+export function requireAgora() {
+  if (!AGORA_AVAILABLE) {
+    throw new Error('Agora is not available on this platform');
+  }
+}
 
 const styles = StyleSheet.create({
   mockView: {

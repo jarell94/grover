@@ -1,8 +1,8 @@
-// Agora module for native platforms (iOS/Android)
-// This file is automatically selected by Metro bundler on native platforms
+// Native platforms (iOS/Android)
+// Re-export from react-native-agora for full functionality
 
-// Direct re-export from react-native-agora for native platforms
-// This allows full Agora functionality on iOS/Android
+export const AGORA_AVAILABLE = true;
+
 export {
   createAgoraRtcEngine,
   RtcSurfaceView,
@@ -10,5 +10,8 @@ export {
   ClientRoleType,
 } from 'react-native-agora';
 
-// Flag to indicate Agora is available on native
-export const AGORA_AVAILABLE = true;
+export function requireAgora() {
+  if (!AGORA_AVAILABLE) {
+    throw new Error('Agora is not available on this platform');
+  }
+}
