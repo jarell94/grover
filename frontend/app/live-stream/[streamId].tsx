@@ -17,6 +17,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import socketService from '../../services/socket';
 import {
   AGORA_AVAILABLE,
   createAgoraRtcEngine,
