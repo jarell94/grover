@@ -522,26 +522,15 @@ export default function HomeScreen() {
 
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('content', newPostContent.trim() || '');
-
-      if (taggedUsers.trim()) {
-        formData.append('tagged_users', taggedUsers.trim());
-      }
-
-      if (location.trim()) {
-        formData.append('location', location.trim());
-      }
-
-      if (showPollOption && pollQuestion.trim()) {
-        formData.append('poll_question', pollQuestion.trim());
-        formData.append('poll_options', JSON.stringify(pollOptions.filter(o => o.trim())));
-        formData.append('poll_duration_hours', pollDuration.toString());
-      }
-
-      if (selectedMedia?.uri) {
-        formData.append('media', await asFormDataFile(selectedMedia));
-      }
+      const formData = await buildPostFormData({
+        content: newPostContent,
+        media: selectedMedia,
+        taggedUsers: taggedUsers,
+        location: location,
+        pollQuestion: showPollOption ? pollQuestion : undefined,
+        pollOptions: showPollOption ? pollOptions : undefined,
+        pollDurationHours: showPollOption ? pollDuration : undefined,
+      });
 
       await api.createPost(formData);
       
