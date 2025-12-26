@@ -30,16 +30,17 @@ const preloadCache = new Map<string, boolean>();
 // Global singleton to ensure only one video plays at a time
 let globalCurrentVideo: Video | null = null;
 
-function isUriLike(u?: string) {
-  if (!u) return false;
+/**
+ * Check if string is a valid video URL (Cloudinary or local file)
+ */
+function isValidVideoUrl(url?: string): boolean {
+  if (!url) return false;
   return (
-    u.startsWith('http://') ||
-    u.startsWith('https://') ||
-    u.startsWith('file://') ||
-    u.startsWith('content://') ||
-    u.startsWith('ph://') ||
-    u.startsWith('blob:') ||
-    u.startsWith('data:')
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('file://') ||
+    url.startsWith('content://') ||
+    url.startsWith('blob:')
   );
 }
 
