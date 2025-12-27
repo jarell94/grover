@@ -12,9 +12,13 @@ paypalrestsdk.configure({
     "client_secret": os.getenv("PAYPAL_CLIENT_SECRET")
 })
 
-# PayPal redirect URLs from environment
-RETURN_URL = os.getenv("PAYPAL_RETURN_URL", "http://localhost:3000/payment/success")
-CANCEL_URL = os.getenv("PAYPAL_CANCEL_URL", "http://localhost:3000/payment/cancel")
+# PayPal redirect URLs - MUST be set in environment for production
+RETURN_URL = os.getenv("PAYPAL_RETURN_URL")
+CANCEL_URL = os.getenv("PAYPAL_CANCEL_URL")
+
+if not RETURN_URL or not CANCEL_URL:
+    import warnings
+    warnings.warn("PAYPAL_RETURN_URL and PAYPAL_CANCEL_URL should be set in environment variables for production")
 
 def create_payment(amount, currency="USD", description="Product Purchase"):
     """Create a PayPal payment"""
