@@ -856,56 +856,73 @@ async def get_explore(
     
     posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
-    # Add user data
+    if not posts:
+        return posts
+    
+    # BATCH OPTIMIZATION: Collect all IDs needed for batch queries
+    post_ids = [p["post_id"] for p in posts]
+    user_ids = list(set(p["user_id"] for p in posts))
+    original_post_ids = [p["original_post_id"] for p in posts if p.get("is_repost") and p.get("original_post_id")]
+    
+    # Batch fetch all users
+    users_list = await db.users.find({"user_id": {"$in": user_ids}}, {"_id": 0}).to_list(len(user_ids))
+    users_map = {u["user_id"]: u for u in users_list}
+    
+    # Batch fetch original posts for reposts
+    original_posts_map = {}
+    if original_post_ids:
+        original_posts = await db.posts.find({"post_id": {"$in": original_post_ids}}, {"_id": 0}).to_list(len(original_post_ids))
+        original_user_ids = list(set(op["user_id"] for op in original_posts))
+        original_users = await db.users.find({"user_id": {"$in": original_user_ids}}, {"_id": 0}).to_list(len(original_user_ids))
+        original_users_map = {u["user_id"]: u for u in original_users}
+        for op in original_posts:
+            op["user"] = original_users_map.get(op["user_id"])
+            original_posts_map[op["post_id"]] = op
+    
+    # Batch fetch user reactions
+    reactions_list = await db.reactions.find({
+        "user_id": current_user.user_id,
+        "post_id": {"$in": post_ids}
+    }).to_list(len(post_ids))
+    reactions_map = {r["post_id"]: r["reaction_type"] for r in reactions_list}
+    
+    # Batch fetch dislikes
+    dislikes_list = await db.dislikes.find({
+        "user_id": current_user.user_id,
+        "post_id": {"$in": post_ids}
+    }).to_list(len(post_ids))
+    dislikes_set = {d["post_id"] for d in dislikes_list}
+    
+    # Batch fetch saved posts
+    saved_list = await db.saved_posts.find({
+        "user_id": current_user.user_id,
+        "post_id": {"$in": post_ids}
+    }).to_list(len(post_ids))
+    saved_set = {s["post_id"] for s in saved_list}
+    
+    # Batch fetch reposts by current user
+    reposts_list = await db.posts.find({
+        "user_id": current_user.user_id,
+        "is_repost": True,
+        "original_post_id": {"$in": post_ids}
+    }, {"original_post_id": 1}).to_list(len(post_ids))
+    reposted_set = {r["original_post_id"] for r in reposts_list}
+    
+    # Populate posts with batched data
     for post in posts:
-        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
-        post["user"] = user
+        post_id = post["post_id"]
+        post["user"] = users_map.get(post["user_id"])
         
-        # If this is a repost, get original post data
+        # Original post for reposts
         if post.get("is_repost") and post.get("original_post_id"):
-            original_post = await db.posts.find_one(
-                {"post_id": post["original_post_id"]},
-                {"_id": 0}
-            )
-            if original_post:
-                original_user = await db.users.find_one(
-                    {"user_id": original_post["user_id"]},
-                    {"_id": 0}
-                )
-                original_post["user"] = original_user
-                post["original_post"] = original_post
+            post["original_post"] = original_posts_map.get(post["original_post_id"])
         
-        # Check if current user reacted
-        user_reaction = await db.reactions.find_one({
-            "user_id": current_user.user_id,
-            "post_id": post["post_id"]
-        })
-        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
-        
-        # Keep backward compatibility
-        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
-        
-        # Check if current user disliked
-        disliked = await db.dislikes.find_one({
-            "user_id": current_user.user_id,
-            "post_id": post["post_id"]
-        })
-        post["disliked"] = disliked is not None
-        
-        # Check if current user saved
-        saved = await db.saved_posts.find_one({
-            "user_id": current_user.user_id,
-            "post_id": post["post_id"]
-        })
-        post["saved"] = saved is not None
-        
-        # Check if current user reposted this
-        reposted = await db.posts.find_one({
-            "user_id": current_user.user_id,
-            "is_repost": True,
-            "original_post_id": post["post_id"]
-        })
-        post["reposted"] = reposted is not None
+        # User interactions
+        post["user_reaction"] = reactions_map.get(post_id)
+        post["liked"] = reactions_map.get(post_id) == "like"
+        post["disliked"] = post_id in dislikes_set
+        post["saved"] = post_id in saved_set
+        post["reposted"] = post_id in reposted_set
     
     return posts
 
