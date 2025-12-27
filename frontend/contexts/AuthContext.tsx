@@ -66,13 +66,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let redirectUrl = '';
       
       if (Platform.OS === 'web') {
-        if (typeof window !== 'undefined') {
+        // Use window.location.origin directly - no fallback to localhost
+        if (typeof window !== 'undefined' && window.location?.origin) {
           redirectUrl = window.location.origin + '/';
         } else {
-          redirectUrl = 'http://localhost:3000/';
+          // In SSR/non-browser context, use env variable
+          redirectUrl = process.env.EXPO_PUBLIC_WEB_URL || '';
         }
       } else {
         redirectUrl = Linking.createURL('/');
+      }
+
+      if (!redirectUrl) {
+        throw new Error('Unable to determine redirect URL');
       }
 
       console.log('Login - Mode:', mode, 'Redirect URL:', redirectUrl);
