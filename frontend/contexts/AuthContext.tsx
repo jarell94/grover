@@ -295,28 +295,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
     }
-  }, []);
+  }, [processRedirectUrl]);
 
-  // Handle deep link on mobile
+  // Handle deep link on mobile - this is critical for Expo Go auth
   useEffect(() => {
-    if (Platform.OS !== 'web') {
-      const handleUrl = async (event: { url: string }) => {
+    if (Platform.OS === 'web') return;
+    
+    const handleUrl = async (event: { url: string }) => {
+      console.log('Deep link received:', event.url);
+      if (event.url.includes('session_id')) {
         await processRedirectUrl(event.url);
-      };
+      }
+    };
 
-      const subscription = Linking.addEventListener('url', handleUrl);
+    // Listen for incoming deep links
+    const subscription = Linking.addEventListener('url', handleUrl);
 
-      Linking.getInitialURL().then((url) => {
-        if (url) {
+    // Check for initial URL (when app was opened via deep link)
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        console.log('Initial URL found:', url);
+        if (url.includes('session_id')) {
           handleUrl({ url });
         }
-      });
+      }
+    });
 
-      return () => {
-        subscription.remove();
-      };
-    }
-  }, []);
+    return () => {
+      subscription.remove();
+    };
+  }, [processRedirectUrl]);
 
   const logout = async () => {
     try {
