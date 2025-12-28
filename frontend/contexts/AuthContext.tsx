@@ -145,13 +145,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let redirectUrl = '';
       
       if (Platform.OS === 'web') {
-        // Use window.location.origin directly - no fallback to localhost
+        // Use window.location.origin directly - NO fallbacks for proper deployment
         if (typeof window !== 'undefined' && window.location?.origin) {
           redirectUrl = window.location.origin + '/';
-        } else {
-          // In SSR/non-browser context, use env variable
-          redirectUrl = process.env.EXPO_PUBLIC_WEB_URL || '';
         }
+        // Note: No fallback - this ensures auth works correctly across all environments
       } else {
         // Use makeRedirectUri for proper Expo Go handling
         // This handles tunnel URLs, development builds, and production correctly
@@ -162,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (!redirectUrl) {
+        console.error('Unable to determine redirect URL - window.location.origin may be unavailable');
         throw new Error('Unable to determine redirect URL');
       }
 
