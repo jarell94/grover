@@ -77,7 +77,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           redirectUrl = process.env.EXPO_PUBLIC_WEB_URL || '';
         }
       } else {
-        redirectUrl = Linking.createURL('/');
+        // For Expo Go, create a proper redirect URL
+        // Linking.createURL creates the correct exp:// or custom scheme URL
+        redirectUrl = Linking.createURL('/', { isTripleSlashed: false });
       }
 
       if (!redirectUrl) {
@@ -94,13 +96,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           window.location.href = authUrl;
         }
       } else {
-        const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
+        // Use WebBrowser.openAuthSessionAsync for mobile
+        const result = await WebBrowser.openAuthSessionAsync(
+          authUrl, 
+          redirectUrl,
+          {
+            // Prevent browser from remaining open after redirect
+            showInRecents: true,
+          }
+        );
         console.log('Login - WebBrowser result:', result);
         
         if (result.type === 'success' && result.url) {
           await processRedirectUrl(result.url);
         } else if (result.type === 'cancel') {
           console.log('Login cancelled by user');
+        } else if (result.type === 'dismiss') {
+          // Browser was dismissed without completing auth - check for pending redirect
+          console.log('Login browser dismissed, checking for pending URL...');
+          const pendingUrl = await Linking.getInitialURL();
+          if (pendingUrl && (pendingUrl.includes('session_id=') || pendingUrl.includes('#session_id='))) {
+            console.log('Found pending auth URL:', pendingUrl);
+            await processRedirectUrl(pendingUrl);
+          }
         }
       }
     } catch (error) {
