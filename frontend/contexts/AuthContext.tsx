@@ -250,7 +250,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const handleUrl = async (event: { url: string }) => {
       console.log('Deep link received:', event.url);
-      if (event.url.includes('session_id')) {
+      // Check for session_id in the URL (could be in query params or hash)
+      if (event.url.includes('session_id') || event.url.includes('auth-callback')) {
         await processRedirectUrl(event.url);
       }
     };
@@ -262,7 +263,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     Linking.getInitialURL().then((url) => {
       if (url) {
         console.log('Initial URL found:', url);
-        if (url.includes('session_id')) {
+        if (url.includes('session_id') || url.includes('auth-callback')) {
           handleUrl({ url });
         }
       }
