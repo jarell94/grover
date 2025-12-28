@@ -174,12 +174,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } else {
         // Use WebBrowser.openAuthSessionAsync for mobile
+        // After auth completes, the browser will redirect to the web preview URL
+        // which will have the session_id and auto-login
         const result = await WebBrowser.openAuthSessionAsync(
           authUrl, 
           redirectUrl,
           {
             showInRecents: true,
-            preferEphemeralSession: false, // Allow session cookies
+            preferEphemeralSession: false,
           }
         );
         console.log('Login - WebBrowser result:', JSON.stringify(result));
@@ -187,20 +189,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (result.type === 'success' && result.url) {
           console.log('Auth success - processing URL:', result.url);
           await processRedirectUrl(result.url);
-        } else if (result.type === 'cancel') {
-          console.log('Login cancelled by user');
-        } else if (result.type === 'dismiss') {
-          // Browser was dismissed - this can happen in Expo Go
-          // The URL might have been sent to the app via deep link
-          console.log('Browser dismissed, checking for pending auth...');
+        } else {
+          // For mobile, when browser closes (dismiss/cancel), the web page has the session
+          // We need to check if the web page processed the auth and get the session
+          console.log('Browser closed, checking if web processed auth...');
           
-          // Small delay to allow the deep link to be processed
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Wait a moment for any async processes
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
-          const pendingUrl = await Linking.getInitialURL();
-          console.log('Pending URL after dismiss:', pendingUrl);
-          if (pendingUrl && pendingUrl.includes('session_id')) {
-            await processRedirectUrl(pendingUrl);
+          // Try to fetch session from the web endpoint
+          try {
+            // Check if we now have a valid session by trying to get user data
+            const userData = await api.getMe();
+            if (userData && userData.user_id) {
+              console.log('Found authenticated session after browser close:', userData.email);
+              setUser(userData);
+              // Connect socket
+              try {
+                await socketService.connect(userData.user_id);
+              } catch (error) {
+                console.error('Socket connection failed:', error);
+              }
+            }
+          } catch (e) {
+            console.log('No session found after browser close, user may need to try again');
           }
         }
       }
