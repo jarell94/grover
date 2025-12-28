@@ -6,6 +6,9 @@ import { Platform } from 'react-native';
 import { api, setAuthToken } from '../services/api';
 import socketService from '../services/socket';
 
+// Ensure any incomplete auth sessions are dismissed
+WebBrowser.maybeCompleteAuthSession();
+
 interface User {
   user_id: string;
   email: string;
