@@ -34,12 +34,83 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const isProcessingAuth = useRef(false);
+  const appState = useRef(AppState.currentState);
 
-  useEffect(() => {
-    checkAuth();
+  // Process redirect URL to extract session and authenticate
+  const processRedirectUrl = useCallback(async (url: string) => {
+    // Prevent duplicate processing
+    if (isProcessingAuth.current) {
+      console.log('Already processing auth, skipping...');
+      return;
+    }
+    
+    try {
+      console.log('Processing redirect URL:', url);
+      isProcessingAuth.current = true;
+      
+      const parsed = Linking.parse(url);
+      console.log('Parsed URL:', JSON.stringify(parsed, null, 2));
+      
+      // Try multiple ways to extract session_id
+      let sessionId: string | null = parsed.queryParams?.session_id as string || null;
+      
+      // Check hash fragment
+      if (!sessionId && url.includes('#session_id=')) {
+        sessionId = url.split('#session_id=')[1]?.split('&')[0] || null;
+      }
+      
+      // Check URL hash params
+      if (!sessionId && url.includes('#')) {
+        const hashPart = url.split('#')[1];
+        if (hashPart) {
+          const hashParams = new URLSearchParams(hashPart);
+          sessionId = hashParams.get('session_id');
+        }
+      }
+      
+      // Check URL search params
+      if (!sessionId && url.includes('?')) {
+        try {
+          const urlObj = new URL(url);
+          sessionId = urlObj.searchParams.get('session_id');
+        } catch (e) {
+          // URL parsing failed, try regex
+          const match = url.match(/[?&]session_id=([^&#]+)/);
+          sessionId = match ? match[1] : null;
+        }
+      }
+
+      console.log('Extracted session_id:', sessionId ? sessionId.substring(0, 10) + '...' : 'null');
+
+      if (sessionId) {
+        console.log('Calling API to create session...');
+        const response = await api.createSession(sessionId);
+        const { session_token, ...userData } = response;
+        
+        await AsyncStorage.setItem('session_token', session_token);
+        setAuthToken(session_token);
+        setUser(userData);
+        
+        console.log('Login successful for user:', userData.email);
+        
+        // Connect socket
+        try {
+          await socketService.connect(userData.user_id);
+        } catch (error) {
+          console.error('Socket connection failed:', error);
+        }
+      } else {
+        console.warn('No session_id found in redirect URL');
+      }
+    } catch (error) {
+      console.error('Process redirect error:', error);
+    } finally {
+      isProcessingAuth.current = false;
+    }
   }, []);
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('session_token');
       if (token) {
@@ -60,7 +131,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const login = async (args?: LoginArgs) => {
     const mode = args?.mode || 'signin';
