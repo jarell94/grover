@@ -176,22 +176,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           authUrl, 
           redirectUrl,
           {
-            // Prevent browser from remaining open after redirect
             showInRecents: true,
+            preferEphemeralSession: false, // Allow session cookies
           }
         );
-        console.log('Login - WebBrowser result:', result);
+        console.log('Login - WebBrowser result:', JSON.stringify(result));
         
         if (result.type === 'success' && result.url) {
+          console.log('Auth success - processing URL:', result.url);
           await processRedirectUrl(result.url);
         } else if (result.type === 'cancel') {
           console.log('Login cancelled by user');
         } else if (result.type === 'dismiss') {
-          // Browser was dismissed without completing auth - check for pending redirect
-          console.log('Login browser dismissed, checking for pending URL...');
+          // Browser was dismissed - this can happen in Expo Go
+          // The URL might have been sent to the app via deep link
+          console.log('Browser dismissed, checking for pending auth...');
+          
+          // Small delay to allow the deep link to be processed
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
           const pendingUrl = await Linking.getInitialURL();
-          if (pendingUrl && (pendingUrl.includes('session_id=') || pendingUrl.includes('#session_id='))) {
-            console.log('Found pending auth URL:', pendingUrl);
+          console.log('Pending URL after dismiss:', pendingUrl);
+          if (pendingUrl && pendingUrl.includes('session_id')) {
             await processRedirectUrl(pendingUrl);
           }
         }
@@ -201,6 +207,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw error;
     }
   };
+
+  // Handle app state changes - check for auth when app comes to foreground
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    
+    const handleAppStateChange = async (nextAppState: string) => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('App came to foreground, checking for pending auth...');
+        // Check if we have a pending auth URL
+        const url = await Linking.getInitialURL();
+        if (url && url.includes('session_id') && !user) {
+          console.log('Found pending auth URL on foreground:', url);
+          await processRedirectUrl(url);
+        }
+      }
+      appState.current = nextAppState as any;
+    };
+    
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, [user, processRedirectUrl]);
 
   const processRedirectUrl = async (url: string) => {
     try {
