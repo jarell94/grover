@@ -12,11 +12,13 @@ paypalrestsdk.configure({
     "client_secret": os.getenv("PAYPAL_CLIENT_SECRET")
 })
 
-# PayPal redirect URLs - MUST be set in environment for production
+# PayPal redirect URLs - use environment variables for production
+# Note: These should be set via deployment environment variables pointing to your production domain
 RETURN_URL = os.getenv("PAYPAL_RETURN_URL")
 CANCEL_URL = os.getenv("PAYPAL_CANCEL_URL")
 
-if not RETURN_URL or not CANCEL_URL:
+# Only warn in development if PayPal credentials are present but URLs are missing
+if os.getenv("PAYPAL_CLIENT_ID") and (not RETURN_URL or not CANCEL_URL):
     import warnings
     warnings.warn("PAYPAL_RETURN_URL and PAYPAL_CANCEL_URL should be set in environment variables for production")
 
