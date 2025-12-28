@@ -129,9 +129,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const processRedirectUrl = async (url: string) => {
     try {
+      console.log('Processing redirect URL:', url);
       const parsed = Linking.parse(url);
-      const sessionId = parsed.queryParams?.session_id as string || 
-                        (url.includes('#session_id=') ? url.split('#session_id=')[1].split('&')[0] : null);
+      console.log('Parsed URL:', JSON.stringify(parsed, null, 2));
+      
+      // Try multiple ways to extract session_id
+      let sessionId = parsed.queryParams?.session_id as string;
+      
+      // Check hash fragment
+      if (!sessionId && url.includes('#session_id=')) {
+        sessionId = url.split('#session_id=')[1]?.split('&')[0] || null;
+      }
+      
+      // Check URL hash params
+      if (!sessionId && url.includes('#')) {
+        const hashParams = new URLSearchParams(url.split('#')[1]);
+        sessionId = hashParams.get('session_id') || null;
+      }
+      
+      // Check URL search params
+      if (!sessionId && url.includes('?')) {
+        const urlObj = new URL(url);
+        sessionId = urlObj.searchParams.get('session_id');
+      }
+
+      console.log('Extracted session_id:', sessionId ? sessionId.substring(0, 10) + '...' : 'null');
 
       if (sessionId) {
         const response = await api.createSession(sessionId);
@@ -141,12 +163,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthToken(session_token);
         setUser(userData);
         
+        console.log('Login successful for user:', userData.email);
+        
         // Connect socket
         try {
           await socketService.connect(userData.user_id);
         } catch (error) {
           console.error('Socket connection failed:', error);
         }
+      } else {
+        console.warn('No session_id found in redirect URL');
       }
     } catch (error) {
       console.error('Process redirect error:', error);
