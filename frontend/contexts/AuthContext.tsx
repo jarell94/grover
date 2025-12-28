@@ -151,13 +151,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         // Note: No fallback - this ensures auth works correctly across all environments
       } else {
-        // For Expo Go, use Linking.createURL which generates the correct exp:// URL
-        // This is the most reliable way for Expo Go to receive deep links
-        redirectUrl = Linking.createURL('/auth-callback');
+        // For Expo Go mobile apps, we need to use a web URL that Emergent Auth supports
+        // The web app will receive the session_id and we'll capture it via deep linking
+        // Using the backend URL as redirect since it's a known supported domain
+        const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://social-maker-4.preview.emergentagent.com';
+        redirectUrl = backendUrl + '/';
       }
 
       if (!redirectUrl) {
-        console.error('Unable to determine redirect URL - window.location.origin may be unavailable');
+        console.error('Unable to determine redirect URL');
         throw new Error('Unable to determine redirect URL');
       }
 
