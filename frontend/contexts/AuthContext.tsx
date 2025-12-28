@@ -151,12 +151,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         // Note: No fallback - this ensures auth works correctly across all environments
       } else {
-        // Use makeRedirectUri with native option for Expo Go compatibility
-        // In Expo Go, this generates an exp:// URL that can be properly intercepted
-        // In standalone builds, this uses the custom scheme
-        redirectUrl = makeRedirectUri({
-          native: 'frontend://',
-        });
+        // For Expo Go, use Linking.createURL which generates the correct exp:// URL
+        // This is the most reliable way for Expo Go to receive deep links
+        redirectUrl = Linking.createURL('/auth-callback');
       }
 
       if (!redirectUrl) {
