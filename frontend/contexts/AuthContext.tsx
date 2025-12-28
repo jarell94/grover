@@ -153,9 +153,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           redirectUrl = process.env.EXPO_PUBLIC_WEB_URL || '';
         }
       } else {
-        // For Expo Go, create a proper redirect URL
-        // Linking.createURL creates the correct exp:// or custom scheme URL
-        redirectUrl = Linking.createURL('/', { isTripleSlashed: false });
+        // Use makeRedirectUri for proper Expo Go handling
+        // This handles tunnel URLs, development builds, and production correctly
+        redirectUrl = makeRedirectUri({
+          scheme: 'frontend',
+          path: '/',
+        });
       }
 
       if (!redirectUrl) {
