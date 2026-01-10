@@ -151,14 +151,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         // Note: No fallback - this ensures auth works correctly across all environments
       } else {
-        // For Expo Go mobile apps, use the backend URL from environment
-        // NO fallbacks - this ensures auth works correctly in all deployment environments
-        const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
-        if (!backendUrl) {
-          console.error('EXPO_PUBLIC_BACKEND_URL is not set');
-          throw new Error('EXPO_PUBLIC_BACKEND_URL must be set for mobile authentication');
-        }
-        redirectUrl = backendUrl + '/';
+        // For development builds, use the custom grover:// scheme
+        // This enables proper OAuth redirect handling
+        redirectUrl = Linking.createURL('/', { scheme: 'grover' });
       }
 
       if (!redirectUrl) {
