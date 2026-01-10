@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -12,8 +11,9 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
-  ViewToken,
+  Dimensions,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,6 +24,8 @@ import { buildPostFormData } from '../../utils/formData';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import MediaDisplay from '../../components/MediaDisplay';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface Post {
   post_id: string;
@@ -54,509 +56,37 @@ interface Post {
   poll_expires_at?: string;
 }
 
-export default function HomeScreen() {
-  const { user } = useAuth();
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [stories, setStories] = useState<any[]>([]);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [newPostContent, setNewPostContent] = useState('');
-  const [selectedMedia, setSelectedMedia] = useState<any>(null);
-  const [uploading, setUploading] = useState(false);
-  const [taggedUsers, setTaggedUsers] = useState('');
-  const [location, setLocation] = useState('');
-  const [commentsModalVisible, setCommentsModalVisible] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-  const [comments, setComments] = useState<any[]>([]);
-  const [commentText, setCommentText] = useState('');
-  const [replyingTo, setReplyingTo] = useState<any>(null);
-  const [loadingComments, setLoadingComments] = useState(false);
-  const [repostModalVisible, setRepostModalVisible] = useState(false);
-  const [repostComment, setRepostComment] = useState('');
-  const [selectedRepostPost, setSelectedRepostPost] = useState<Post | null>(null);
-  const [showPollOption, setShowPollOption] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState('');
+// Estimated item heights for FlashList
+const ESTIMATED_POST_HEIGHT = 400;
+const ESTIMATED_POST_WITH_MEDIA_HEIGHT = 550;
+
+// Memoized Post Component for optimal performance
+const PostCard = memo(({ 
+  item, 
+  isVisible,
+  onLike,
+  onDislike,
+  onSave,
+  onShare,
+  onComment,
+  onRepost,
+  onVotePoll,
+  nextVideoUri,
+}: {
+  item: Post;
+  isVisible: boolean;
+  onLike: (id: string) => void;
+  onDislike: (id: string) => void;
+  onSave: (id: string) => void;
+  onShare: (id: string) => void;
+  onComment: (post: Post) => void;
+  onRepost: (post: Post) => void;
+  onVotePoll: (postId: string, optionIndex: number) => void;
+  nextVideoUri?: string;
+}) => {
+  const displayPost = item.is_repost && item.original_post ? item.original_post : item;
   
-  // Track visible video posts for auto-play
-  const [visiblePosts, setVisiblePosts] = useState<Set<string>>(new Set());
-  const [pollOptions, setPollOptions] = useState(['', '']);
-  const [pollDuration, setPollDuration] = useState(24);
-  
-  // Use refs for pagination to avoid stale closure issues
-  const skipRef = useRef(0);
-  const pageSize = 20;
-
-  // Helper to update a single post
-  const updatePost = useCallback((postId: string, updater: (p: Post) => Post) => {
-    setPosts(prev => prev.map(p => p.post_id === postId ? updater(p) : p));
-  }, []);
-
-  // Refresh feed when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      loadFeed(true);
-    }, [])
-  );
-
-  const loadFeed = useCallback(async (isRefresh = false) => {
-    // Set appropriate loading state
-    if (isRefresh) setRefreshing(true);
-    else if (skipRef.current === 0) setLoading(true);
-    else setLoadingMore(true);
-
-    try {
-      if (isRefresh) {
-        skipRef.current = 0;
-      }
-
-      const [feedData, storiesData] = await Promise.all([
-        api.getFeed(pageSize, skipRef.current),
-        isRefresh ? api.getStories().catch(() => []) : Promise.resolve(null),
-      ]);
-
-      const newPosts = feedData as Post[];
-      
-      // Update skip for next load
-      skipRef.current = isRefresh ? newPosts.length : skipRef.current + newPosts.length;
-      setHasMore(newPosts.length === pageSize);
-      
-      // Merge and deduplicate posts using Map
-      setPosts(prev => {
-        const merged = isRefresh ? newPosts : [...prev, ...newPosts];
-        const map = new Map(merged.map(p => [p.post_id, p]));
-        return Array.from(map.values());
-      });
-
-      if (isRefresh && storiesData) setStories(storiesData);
-    } catch (error) {
-      console.error('Feed load error:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-      setLoadingMore(false);
-    }
-  }, []);
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    loadFeed(true);
-  };
-
-  const loadMore = () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    loadFeed(false);
-  };
-
-  const loadComments = async (postId: string) => {
-    setLoadingComments(true);
-    try {
-      const data = await api.getComments(postId);
-      setComments(data);
-    } catch (error) {
-      console.error('Load comments error:', error);
-      Alert.alert('Error', 'Failed to load comments');
-    } finally {
-      setLoadingComments(false);
-    }
-  };
-
-  const handleCommentSubmit = async () => {
-    if (!selectedPost) return;
-    if (!commentText.trim()) return;
-
-    try {
-      await api.createComment(
-        selectedPost.post_id,
-        commentText,
-        replyingTo?.comment_id
-      );
-      setCommentText('');
-      setReplyingTo(null);
-      loadComments(selectedPost.post_id);
-      
-      // Update comment count in feed
-      setPosts(prev => prev.map(p =>
-        p.post_id === selectedPost.post_id
-          ? { ...p, comments_count: (p.comments_count || 0) + 1 }
-          : p
-      ));
-    } catch (error) {
-      console.error('Comment submit error:', error);
-      Alert.alert('Error', 'Failed to post comment');
-    }
-  };
-
-  const handleCommentLike = async (commentId: string) => {
-    try {
-      const result = await api.likeComment(commentId);
-      setComments((prev) => prev.map(c =>
-        c.comment_id === commentId
-          ? { ...c, liked: result.liked, likes_count: c.likes_count + (result.liked ? 1 : -1) }
-          : c
-      ));
-    } catch (error) {
-      if (__DEV__) console.error('Comment like error:', error);
-    }
-  };
-
-  const handleDeleteComment = async (commentId: string) => {
-    Alert.alert('Delete Comment', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.deleteComment(commentId);
-            setComments((prev) => prev.filter(c => c.comment_id !== commentId));
-            
-            // Update comment count with functional update
-            if (selectedPost) {
-              setPosts((prev) => prev.map(p =>
-                p.post_id === selectedPost.post_id
-                  ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) }
-                  : p
-              ));
-            }
-          } catch (error) {
-            Alert.alert('Error', 'Failed to delete comment');
-          }
-        },
-      },
-    ]);
-  };
-
-  const handleLike = useCallback(async (postId: string) => {
-    // Optimistic update - handle like/dislike interactions
-    updatePost(postId, (p) => {
-      const nextLiked = !p.liked;
-      const wasDisliked = !!p.disliked;
-
-      return {
-        ...p,
-        liked: nextLiked,
-        // If was disliked and now liking, remove dislike
-        dislikes_count: wasDisliked && nextLiked ? Math.max(0, (p.dislikes_count || 0) - 1) : p.dislikes_count,
-        disliked: wasDisliked && nextLiked ? false : p.disliked,
-        likes_count: p.likes_count + (nextLiked ? 1 : -1),
-      };
-    });
-
-    try {
-      const result = await api.likePost(postId);
-      // Reconcile with server truth
-      updatePost(postId, (p) => ({
-        ...p,
-        liked: !!result?.liked,
-        disliked: typeof result?.disliked === 'boolean' ? result.disliked : p.disliked,
-        likes_count: typeof result?.likes_count === 'number' ? result.likes_count : p.likes_count,
-        dislikes_count: typeof result?.dislikes_count === 'number' ? result.dislikes_count : p.dislikes_count,
-      }));
-    } catch (error) {
-      console.error('Like error:', error);
-      // Rollback on failure
-      updatePost(postId, (p) => ({
-        ...p,
-        liked: !p.liked,
-        likes_count: p.likes_count + (p.liked ? 1 : -1),
-      }));
-    }
-  }, [updatePost]);
-
-  const handleDislike = async (postId: string) => {
-    // Optimistic update
-    setPosts(prev =>
-      prev.map(p =>
-        p.post_id === postId
-          ? { ...p, disliked: !p.disliked, dislikes_count: (p.dislikes_count || 0) + (p.disliked ? -1 : 1) }
-          : p
-      )
-    );
-
-    try {
-      const result = await api.dislikePost(postId);
-      // Reconcile with server truth
-      setPosts(prev =>
-        prev.map(p =>
-          p.post_id === postId
-            ? {
-                ...p,
-                disliked: !!result.disliked,
-                dislikes_count:
-                  typeof result.dislikes_count === "number"
-                    ? result.dislikes_count
-                    : p.dislikes_count,
-              }
-            : p
-        )
-      );
-    } catch (error) {
-      console.error('Dislike error:', error);
-      // Rollback on failure
-      setPosts(prev =>
-        prev.map(p =>
-          p.post_id === postId
-            ? { ...p, disliked: !p.disliked, dislikes_count: (p.dislikes_count || 0) + (p.disliked ? -1 : 1) }
-            : p
-        )
-      );
-    }
-  };
-
-  const handleSave = async (postId: string) => {
-    // Optimistic update
-    setPosts(prev =>
-      prev.map(p =>
-        p.post_id === postId
-          ? { ...p, saved: !p.saved }
-          : p
-      )
-    );
-
-    try {
-      const result = await api.savePost(postId);
-      // Reconcile with server truth
-      setPosts(prev =>
-        prev.map(p =>
-          p.post_id === postId
-            ? { ...p, saved: !!result.saved }
-            : p
-        )
-      );
-    } catch (error) {
-      console.error('Save error:', error);
-      // Rollback on failure
-      setPosts(prev =>
-        prev.map(p =>
-          p.post_id === postId
-            ? { ...p, saved: !p.saved }
-            : p
-        )
-      );
-    }
-  };
-
-  const handleShare = async (postId: string) => {
-    // Optimistic update for share count
-    setPosts(prev =>
-      prev.map(p =>
-        p.post_id === postId
-          ? { ...p, shares_count: (p.shares_count || 0) + 1 }
-          : p
-      )
-    );
-
-    try {
-      await api.sharePost(postId);
-    } catch (error) {
-      console.error('Share error:', error);
-      // Rollback on failure
-      setPosts(prev =>
-        prev.map(p =>
-          p.post_id === postId
-            ? { ...p, shares_count: Math.max(0, (p.shares_count || 1) - 1) }
-            : p
-        )
-      );
-    }
-  };
-
-  const handleOpenRepost = (post: Post) => {
-    // If post is already a repost, repost the original
-    const targetPost = post.is_repost && post.original_post ? post.original_post : post;
-    setSelectedRepostPost(targetPost);
-    setRepostModalVisible(true);
-  };
-
-  const handleRepost = async () => {
-    if (!selectedRepostPost) return;
-
-    try {
-      await api.repostPost(
-        selectedRepostPost.post_id,
-        repostComment.trim() || undefined
-      );
-      
-      // Update repost count with functional update
-      setPosts((prev) => prev.map(p =>
-        p.post_id === selectedRepostPost.post_id
-          ? { ...p, repost_count: (p.repost_count || 0) + 1, reposted: true }
-          : p
-      ));
-
-      setRepostComment('');
-      setRepostModalVisible(false);
-      setSelectedRepostPost(null);
-      Alert.alert('Success', 'Post reposted to your feed!');
-      loadFeed(true); // Refresh to show the repost
-    } catch (error: any) {
-      if (__DEV__) console.error('Repost error:', error);
-      const message = error.message?.includes('already reposted')
-        ? 'You have already reposted this'
-        : 'Failed to repost';
-      Alert.alert('Error', message);
-    }
-  };
-
-  const handleVotePoll = async (postId: string, optionIndex: number) => {
-    try {
-      const updatedPost = await api.voteOnPoll(postId, optionIndex);
-      // Assume API returns the updated post; if not, add a getPost(postId) endpoint
-      setPosts(prev => prev.map(p => (p.post_id === postId ? updatedPost : p)));
-    } catch (error) {
-      console.error("Vote error:", error);
-      Alert.alert("Error", "Failed to vote on poll");
-    }
-  };
-
-  // Get next video URI for preloading
-  const getNextVideoUri = useCallback((currentPostId: string) => {
-    const currentIndex = posts.findIndex(p => p.post_id === currentPostId);
-    if (currentIndex === -1) return undefined;
-    
-    // Find next video post
-    for (let i = currentIndex + 1; i < Math.min(currentIndex + 3, posts.length); i++) {
-      if (posts[i]?.media_type === 'video' && posts[i]?.media_url) {
-        return posts[i].media_url;
-      }
-    }
-    return undefined;
-  }, [posts]);
-
-  // Track visible posts for auto-play
-  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
-    const visibleIds = new Set(viewableItems.map((item: any) => item.item.post_id));
-    setVisiblePosts(visibleIds);
-  }, []);
-
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 50,
-  }).current;
-
-  const handleUnrepost = async (postId: string) => {
-    Alert.alert(
-      'Remove Repost',
-      'Are you sure you want to remove this repost?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.unrepostPost(postId);
-              setPosts((prev) => prev.map(p =>
-                p.post_id === postId
-                  ? { ...p, repost_count: Math.max(0, (p.repost_count || 0) - 1), reposted: false }
-                  : p
-              ));
-              Alert.alert('Success', 'Repost removed');
-              loadFeed(true);
-            } catch (error) {
-              if (__DEV__) console.error('Unrepost error:', error);
-              Alert.alert('Error', 'Failed to remove repost');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const pickMedia = async (type: 'image' | 'video' | 'audio') => {
-    try {
-      if (type === 'audio') {
-        // Pick audio files
-        const result = await DocumentPicker.getDocumentAsync({
-          type: ['audio/*'],
-          copyToCacheDirectory: true,
-        });
-
-        if (!result.canceled && result.assets[0]) {
-          const asset = result.assets[0];
-          setSelectedMedia({
-            uri: asset.uri,
-            type: 'audio',
-            name: asset.name,
-            mimeType: asset.mimeType,
-          });
-        }
-      } else {
-        // Pick images or videos using the utility - NO base64!
-        const mediaType = type === 'image' ? 'Images' : type === 'video' ? 'Videos' : 'All';
-        const result = await pickMediaUtil({
-          mediaTypes: mediaType,
-          allowsEditing: type === 'image',
-          quality: 0.8,
-          base64: false, // Don't request base64 - use file URI
-        });
-
-        if (result) {
-          setSelectedMedia({
-            uri: result.uri,
-            type: result.type || type,
-            width: result.width,
-            height: result.height,
-          });
-        }
-      }
-    } catch (error) {
-      if (__DEV__) console.error('Media picker error:', error);
-      Alert.alert('Error', 'Failed to pick media. Please try again.');
-    }
-  };
-
-  const createPost = async () => {
-    if (!newPostContent.trim() && !selectedMedia && !showPollOption) {
-      Alert.alert('Error', 'Please add some content');
-      return;
-    }
-
-    if (showPollOption && (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2)) {
-      Alert.alert('Error', 'Poll needs a question and at least 2 options');
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const formData = await buildPostFormData({
-        content: newPostContent,
-        media: selectedMedia,
-        taggedUsers: taggedUsers,
-        location: location,
-        pollQuestion: showPollOption ? pollQuestion : undefined,
-        pollOptions: showPollOption ? pollOptions : undefined,
-        pollDurationHours: showPollOption ? pollDuration : undefined,
-      });
-
-      await api.createPost(formData);
-      
-      // Reset form
-      setNewPostContent('');
-      setTaggedUsers('');
-      setLocation('');
-      setSelectedMedia(null);
-      setShowPollOption(false);
-      setPollQuestion('');
-      setPollOptions(['', '']);
-      setPollDuration(24);
-      setCreateModalVisible(false);
-      
-      // Refresh feed
-      loadFeed(true);
-      Alert.alert('Success', 'Post created successfully!');
-    } catch (error) {
-      if (__DEV__) console.error('Create post error:', error);
-      Alert.alert('Error', 'Failed to create post. Please try again.');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const renderPost = ({ item }: { item: Post }) => (
+  return (
     <View style={styles.postCard}>
       {item.is_repost && item.original_post && (
         <View style={styles.repostHeader}>
@@ -569,26 +99,16 @@ export default function HomeScreen() {
 
       <View style={styles.postHeader}>
         <Image
-          source={{ 
-            uri: item.is_repost && item.original_post 
-              ? item.original_post.user?.picture 
-              : item.user?.picture || 'https://via.placeholder.com/40' 
-          }}
+          source={{ uri: displayPost.user?.picture || 'https://via.placeholder.com/40' }}
           style={styles.avatar}
         />
         <View style={styles.postHeaderText}>
-          <Text style={styles.username}>
-            {item.is_repost && item.original_post 
-              ? item.original_post.user?.name 
-              : item.user?.name || 'Unknown'}
-          </Text>
+          <Text style={styles.username}>{displayPost.user?.name || 'Unknown'}</Text>
           <Text style={styles.timestamp}>
-            {new Date(item.is_repost && item.original_post 
-              ? item.original_post.created_at 
-              : item.created_at).toLocaleDateString()}
+            {new Date(displayPost.created_at).toLocaleDateString()}
           </Text>
         </View>
-        {((item.is_repost && item.original_post?.user?.is_premium) || item.user?.is_premium) && (
+        {displayPost.user?.is_premium && (
           <Ionicons name="star" size={20} color={Colors.accent} />
         )}
       </View>
@@ -621,9 +141,9 @@ export default function HomeScreen() {
         mediaUrl={item.media_url}
         mediaType={item.media_type}
         title={item.content}
-        isVisible={visiblePosts.has(item.post_id)}
-        onDoubleTapLike={() => handleLike(item.post_id)}
-        preloadUri={getNextVideoUri(item.post_id)}
+        isVisible={isVisible}
+        onDoubleTapLike={() => onLike(item.post_id)}
+        preloadUri={nextVideoUri}
       />
 
       {/* Poll Display */}
@@ -639,7 +159,7 @@ export default function HomeScreen() {
               <TouchableOpacity
                 key={index}
                 style={styles.pollOption}
-                onPress={() => handleVotePoll(item.post_id, index)}
+                onPress={() => onVotePoll(item.post_id, index)}
               >
                 <View style={styles.pollOptionContent}>
                   <View style={[styles.pollBar, { width: `${percentage}%` }]} />
@@ -657,10 +177,7 @@ export default function HomeScreen() {
       )}
 
       <View style={styles.postActions}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleLike(item.post_id)}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onLike(item.post_id)}>
           <Ionicons
             name={item.liked ? 'heart' : 'heart-outline'}
             size={24}
@@ -671,10 +188,7 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleDislike(item.post_id)}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onDislike(item.post_id)}>
           <Ionicons
             name={item.disliked ? 'heart-dislike' : 'heart-dislike-outline'}
             size={24}
@@ -685,45 +199,29 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => {
-            setSelectedPost(item);
-            setCommentsModalVisible(true);
-            loadComments(item.post_id);
-          }}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onComment(item)}>
           <Ionicons name="chatbubble-outline" size={24} color={Colors.textSecondary} />
           <Text style={styles.actionText}>{item.comments_count || 0}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleOpenRepost(item)}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onRepost(item)}>
           <Ionicons
             name={item.reposted ? 'repeat' : 'repeat-outline'}
             size={24}
             color={item.reposted ? Colors.primary : Colors.textSecondary}
           />
-          {item.repost_count! > 0 && (
+          {(item.repost_count ?? 0) > 0 && (
             <Text style={[styles.actionText, item.reposted && { color: Colors.primary }]}>
               {item.repost_count}
             </Text>
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleShare(item.post_id)}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onShare(item.post_id)}>
           <Ionicons name="share-outline" size={24} color={Colors.textSecondary} />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleSave(item.post_id)}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onSave(item.post_id)}>
           <Ionicons
             name={item.saved ? 'bookmark' : 'bookmark-outline'}
             size={24}
@@ -733,10 +231,506 @@ export default function HomeScreen() {
       </View>
     </View>
   );
+}, (prevProps, nextProps) => {
+  // Custom comparison for optimal re-rendering
+  return (
+    prevProps.item.post_id === nextProps.item.post_id &&
+    prevProps.item.liked === nextProps.item.liked &&
+    prevProps.item.disliked === nextProps.item.disliked &&
+    prevProps.item.saved === nextProps.item.saved &&
+    prevProps.item.likes_count === nextProps.item.likes_count &&
+    prevProps.item.dislikes_count === nextProps.item.dislikes_count &&
+    prevProps.item.comments_count === nextProps.item.comments_count &&
+    prevProps.item.repost_count === nextProps.item.repost_count &&
+    prevProps.item.reposted === nextProps.item.reposted &&
+    prevProps.isVisible === nextProps.isVisible
+  );
+});
+
+// Memoized Story Item
+const StoryItem = memo(({ userStory, index, stories, isCreateButton }: any) => {
+  if (isCreateButton) {
+    return (
+      <TouchableOpacity
+        style={styles.storyItem}
+        onPress={() => router.push('/create-story')}
+      >
+        <View style={styles.createStoryRing}>
+          <Ionicons name="add" size={28} color={Colors.primary} />
+        </View>
+        <Text style={styles.storyUsername}>Your Story</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  const hasUnviewed = userStory.stories.some((s: any) => !s.viewed);
+  
+  return (
+    <TouchableOpacity
+      style={styles.storyItem}
+      onPress={() => {
+        router.push({
+          pathname: '/stories',
+          params: {
+            stories: JSON.stringify(stories),
+            initialIndex: index.toString(),
+          },
+        });
+      }}
+    >
+      <View style={[styles.storyRing, hasUnviewed && styles.storyRingUnviewed]}>
+        <Image
+          source={{ uri: userStory.user.picture || 'https://via.placeholder.com/60' }}
+          style={styles.storyAvatar}
+        />
+      </View>
+      <Text style={styles.storyUsername} numberOfLines={1}>
+        {userStory.user.name}
+      </Text>
+    </TouchableOpacity>
+  );
+});
+
+export default function HomeScreen() {
+  const { user } = useAuth();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [stories, setStories] = useState<any[]>([]);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [newPostContent, setNewPostContent] = useState('');
+  const [selectedMedia, setSelectedMedia] = useState<any>(null);
+  const [uploading, setUploading] = useState(false);
+  const [taggedUsers, setTaggedUsers] = useState('');
+  const [location, setLocation] = useState('');
+  const [commentsModalVisible, setCommentsModalVisible] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [replyingTo, setReplyingTo] = useState<any>(null);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [repostModalVisible, setRepostModalVisible] = useState(false);
+  const [repostComment, setRepostComment] = useState('');
+  const [selectedRepostPost, setSelectedRepostPost] = useState<Post | null>(null);
+  const [showPollOption, setShowPollOption] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [pollDuration, setPollDuration] = useState(24);
+  
+  // Track visible video posts for auto-play
+  const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
+  
+  // Refs for pagination and list
+  const skipRef = useRef(0);
+  const listRef = useRef<FlashList<Post>>(null);
+  const pageSize = 20;
+
+  // Memoized visible posts set for quick lookup
+  const visiblePostsSet = useMemo(() => new Set(visiblePostIds), [visiblePostIds]);
+
+  // Helper to update a single post - optimized
+  const updatePost = useCallback((postId: string, updater: (p: Post) => Post) => {
+    setPosts(prev => {
+      const index = prev.findIndex(p => p.post_id === postId);
+      if (index === -1) return prev;
+      const newPosts = [...prev];
+      newPosts[index] = updater(newPosts[index]);
+      return newPosts;
+    });
+  }, []);
+
+  // Load feed with proper state management
+  const loadFeed = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+      skipRef.current = 0;
+    } else if (skipRef.current === 0) {
+      setLoading(true);
+    } else {
+      if (loadingMore) return; // Prevent duplicate calls
+      setLoadingMore(true);
+    }
+
+    try {
+      const [feedData, storiesData] = await Promise.all([
+        api.getFeed(pageSize, isRefresh ? 0 : skipRef.current),
+        isRefresh ? api.getStories().catch(() => []) : Promise.resolve(null),
+      ]);
+
+      const newPosts = feedData as Post[];
+      
+      if (isRefresh) {
+        // Direct replacement for refresh - no animation jump
+        setPosts(newPosts);
+        skipRef.current = newPosts.length;
+      } else {
+        // Append for load more
+        setPosts(prev => {
+          const existingIds = new Set(prev.map(p => p.post_id));
+          const uniqueNewPosts = newPosts.filter(p => !existingIds.has(p.post_id));
+          return [...prev, ...uniqueNewPosts];
+        });
+        skipRef.current += newPosts.length;
+      }
+      
+      setHasMore(newPosts.length === pageSize);
+      if (isRefresh && storiesData) setStories(storiesData);
+    } catch (error) {
+      console.error('Feed load error:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      setLoadingMore(false);
+    }
+  }, [loadingMore]);
+
+  // Refresh feed when screen comes into focus (only on first mount)
+  useFocusEffect(
+    useCallback(() => {
+      if (posts.length === 0) {
+        loadFeed(true);
+      }
+    }, [])
+  );
+
+  const handleRefresh = useCallback(() => {
+    loadFeed(true);
+  }, [loadFeed]);
+
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore && !refreshing) {
+      loadFeed(false);
+    }
+  }, [loadingMore, hasMore, refreshing, loadFeed]);
+
+  // Optimistic updates for interactions
+  const handleLike = useCallback(async (postId: string) => {
+    updatePost(postId, (p) => ({
+      ...p,
+      liked: !p.liked,
+      disliked: p.liked ? p.disliked : false,
+      likes_count: p.likes_count + (p.liked ? -1 : 1),
+      dislikes_count: !p.liked && p.disliked ? (p.dislikes_count || 0) - 1 : p.dislikes_count,
+    }));
+
+    try {
+      const result = await api.likePost(postId);
+      updatePost(postId, (p) => ({
+        ...p,
+        liked: !!result?.liked,
+        disliked: typeof result?.disliked === 'boolean' ? result.disliked : p.disliked,
+        likes_count: typeof result?.likes_count === 'number' ? result.likes_count : p.likes_count,
+        dislikes_count: typeof result?.dislikes_count === 'number' ? result.dislikes_count : p.dislikes_count,
+      }));
+    } catch (error) {
+      // Rollback
+      updatePost(postId, (p) => ({
+        ...p,
+        liked: !p.liked,
+        likes_count: p.likes_count + (p.liked ? -1 : 1),
+      }));
+    }
+  }, [updatePost]);
+
+  const handleDislike = useCallback(async (postId: string) => {
+    updatePost(postId, (p) => ({
+      ...p,
+      disliked: !p.disliked,
+      liked: p.disliked ? p.liked : false,
+      dislikes_count: (p.dislikes_count || 0) + (p.disliked ? -1 : 1),
+      likes_count: !p.disliked && p.liked ? p.likes_count - 1 : p.likes_count,
+    }));
+
+    try {
+      const result = await api.dislikePost(postId);
+      updatePost(postId, (p) => ({
+        ...p,
+        disliked: !!result.disliked,
+        dislikes_count: typeof result.dislikes_count === 'number' ? result.dislikes_count : p.dislikes_count,
+      }));
+    } catch (error) {
+      updatePost(postId, (p) => ({
+        ...p,
+        disliked: !p.disliked,
+        dislikes_count: (p.dislikes_count || 0) + (p.disliked ? -1 : 1),
+      }));
+    }
+  }, [updatePost]);
+
+  const handleSave = useCallback(async (postId: string) => {
+    updatePost(postId, (p) => ({ ...p, saved: !p.saved }));
+    try {
+      const result = await api.savePost(postId);
+      updatePost(postId, (p) => ({ ...p, saved: !!result.saved }));
+    } catch (error) {
+      updatePost(postId, (p) => ({ ...p, saved: !p.saved }));
+    }
+  }, [updatePost]);
+
+  const handleShare = useCallback(async (postId: string) => {
+    try {
+      await api.sharePost(postId);
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  }, []);
+
+  const handleOpenComment = useCallback((post: Post) => {
+    setSelectedPost(post);
+    setCommentsModalVisible(true);
+    loadComments(post.post_id);
+  }, []);
+
+  const handleOpenRepost = useCallback((post: Post) => {
+    const targetPost = post.is_repost && post.original_post ? post.original_post : post;
+    setSelectedRepostPost(targetPost);
+    setRepostModalVisible(true);
+  }, []);
+
+  const handleVotePoll = useCallback(async (postId: string, optionIndex: number) => {
+    try {
+      const updatedPost = await api.voteOnPoll(postId, optionIndex);
+      setPosts(prev => prev.map(p => p.post_id === postId ? updatedPost : p));
+    } catch (error) {
+      Alert.alert('Error', 'Failed to vote on poll');
+    }
+  }, []);
+
+  const loadComments = async (postId: string) => {
+    setLoadingComments(true);
+    try {
+      const data = await api.getComments(postId);
+      setComments(data);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to load comments');
+    } finally {
+      setLoadingComments(false);
+    }
+  };
+
+  const handleCommentSubmit = async () => {
+    if (!selectedPost || !commentText.trim()) return;
+
+    try {
+      await api.createComment(selectedPost.post_id, commentText, replyingTo?.comment_id);
+      setCommentText('');
+      setReplyingTo(null);
+      loadComments(selectedPost.post_id);
+      updatePost(selectedPost.post_id, (p) => ({
+        ...p,
+        comments_count: (p.comments_count || 0) + 1,
+      }));
+    } catch (error) {
+      Alert.alert('Error', 'Failed to post comment');
+    }
+  };
+
+  const handleRepost = async () => {
+    if (!selectedRepostPost) return;
+
+    try {
+      await api.repostPost(selectedRepostPost.post_id, repostComment.trim() || undefined);
+      updatePost(selectedRepostPost.post_id, (p) => ({
+        ...p,
+        repost_count: (p.repost_count || 0) + 1,
+        reposted: true,
+      }));
+      setRepostComment('');
+      setRepostModalVisible(false);
+      setSelectedRepostPost(null);
+      Alert.alert('Success', 'Post reposted!');
+    } catch (error: any) {
+      const message = error.message?.includes('already reposted')
+        ? 'You have already reposted this'
+        : 'Failed to repost';
+      Alert.alert('Error', message);
+    }
+  };
+
+  // Get next video URI for preloading
+  const getNextVideoUri = useCallback((currentPostId: string) => {
+    const currentIndex = posts.findIndex(p => p.post_id === currentPostId);
+    if (currentIndex === -1) return undefined;
+    
+    for (let i = currentIndex + 1; i < Math.min(currentIndex + 3, posts.length); i++) {
+      if (posts[i]?.media_type === 'video' && posts[i]?.media_url) {
+        return posts[i].media_url;
+      }
+    }
+    return undefined;
+  }, [posts]);
+
+  // Viewability configuration for auto-play
+  const viewabilityConfig = useMemo(() => ({
+    itemVisiblePercentThreshold: 60,
+    minimumViewTime: 100,
+  }), []);
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
+    const ids = viewableItems.map(item => item.item.post_id);
+    setVisiblePostIds(ids);
+  }, []);
+
+  // Memoized render item
+  const renderItem = useCallback(({ item }: { item: Post }) => (
+    <PostCard
+      item={item}
+      isVisible={visiblePostsSet.has(item.post_id)}
+      onLike={handleLike}
+      onDislike={handleDislike}
+      onSave={handleSave}
+      onShare={handleShare}
+      onComment={handleOpenComment}
+      onRepost={handleOpenRepost}
+      onVotePoll={handleVotePoll}
+      nextVideoUri={getNextVideoUri(item.post_id)}
+    />
+  ), [visiblePostsSet, handleLike, handleDislike, handleSave, handleShare, handleOpenComment, handleOpenRepost, handleVotePoll, getNextVideoUri]);
+
+  const keyExtractor = useCallback((item: Post) => item.post_id, []);
+
+  const getItemType = useCallback((item: Post) => {
+    if (item.media_url) return 'media';
+    if (item.has_poll) return 'poll';
+    return 'text';
+  }, []);
+
+  const overrideItemLayout = useCallback((layout: any, item: Post) => {
+    layout.size = item.media_url ? ESTIMATED_POST_WITH_MEDIA_HEIGHT : ESTIMATED_POST_HEIGHT;
+  }, []);
+
+  const pickMedia = async (type: 'image' | 'video' | 'audio') => {
+    try {
+      if (type === 'audio') {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['audio/*'],
+          copyToCacheDirectory: true,
+        });
+
+        if (!result.canceled && result.assets[0]) {
+          const asset = result.assets[0];
+          setSelectedMedia({
+            uri: asset.uri,
+            type: 'audio',
+            name: asset.name,
+            mimeType: asset.mimeType,
+          });
+        }
+      } else {
+        const mediaType = type === 'image' ? 'Images' : 'Videos';
+        const result = await pickMediaUtil({
+          mediaTypes: mediaType,
+          allowsEditing: type === 'image',
+          quality: 0.8,
+          base64: false,
+        });
+
+        if (result) {
+          setSelectedMedia({
+            uri: result.uri,
+            type: result.type || type,
+            width: result.width,
+            height: result.height,
+          });
+        }
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to pick media');
+    }
+  };
+
+  const createPost = async () => {
+    if (!newPostContent.trim() && !selectedMedia && !showPollOption) {
+      Alert.alert('Error', 'Please add some content');
+      return;
+    }
+
+    if (showPollOption && (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2)) {
+      Alert.alert('Error', 'Poll needs a question and at least 2 options');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = await buildPostFormData({
+        content: newPostContent,
+        media: selectedMedia,
+        taggedUsers: taggedUsers,
+        location: location,
+        pollQuestion: showPollOption ? pollQuestion : undefined,
+        pollOptions: showPollOption ? pollOptions : undefined,
+        pollDurationHours: showPollOption ? pollDuration : undefined,
+      });
+
+      await api.createPost(formData);
+      
+      setNewPostContent('');
+      setTaggedUsers('');
+      setLocation('');
+      setSelectedMedia(null);
+      setShowPollOption(false);
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      setPollDuration(24);
+      setCreateModalVisible(false);
+      
+      loadFeed(true);
+      Alert.alert('Success', 'Post created!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to create post');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Footer component
+  const ListFooter = useMemo(() => {
+    if (!loadingMore) return null;
+    return (
+      <View style={styles.loadingMore}>
+        <ActivityIndicator size="small" color={Colors.primary} />
+        <Text style={styles.loadingMoreText}>Loading more...</Text>
+      </View>
+    );
+  }, [loadingMore]);
+
+  // Empty component
+  const ListEmpty = useMemo(() => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="images-outline" size={64} color={Colors.textSecondary} />
+      <Text style={styles.emptyText}>No posts yet</Text>
+      <Text style={styles.emptySubtext}>Follow creators to see their posts</Text>
+    </View>
+  ), []);
+
+  // Stories header
+  const StoriesHeader = useMemo(() => {
+    if (stories.length === 0) return null;
+    return (
+      <ScrollView
+        horizontal
+        style={styles.storiesContainer}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.storiesContent}
+      >
+        <StoryItem isCreateButton />
+        {stories.map((userStory, index) => (
+          <StoryItem
+            key={userStory.user.user_id}
+            userStory={userStory}
+            index={index}
+            stories={stories}
+          />
+        ))}
+      </ScrollView>
+    );
+  }, [stories]);
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
@@ -767,94 +761,39 @@ export default function HomeScreen() {
         </LinearGradient>
       </View>
 
-      {/* Stories Header */}
-      {stories.length > 0 && (
-        <ScrollView
-          horizontal
-          style={styles.storiesContainer}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.storiesContent}
-        >
-          {/* Create Story Button */}
-          <TouchableOpacity
-            style={styles.storyItem}
-            onPress={() => router.push('/create-story')}
-          >
-            <View style={styles.createStoryRing}>
-              <Ionicons name="add" size={28} color={Colors.primary} />
-            </View>
-            <Text style={styles.storyUsername}>Your Story</Text>
-          </TouchableOpacity>
+      {StoriesHeader}
 
-          {/* User Stories */}
-          {stories.map((userStory, index) => {
-            const hasUnviewed = userStory.stories.some((s: any) => !s.viewed);
-            return (
-              <TouchableOpacity
-                key={userStory.user.user_id}
-                style={styles.storyItem}
-                onPress={() => {
-                  router.push({
-                    pathname: '/stories',
-                    params: {
-                      stories: JSON.stringify(stories),
-                      initialIndex: index.toString(),
-                    },
-                  });
-                }}
-              >
-                <View style={[
-                  styles.storyRing,
-                  hasUnviewed && styles.storyRingUnviewed
-                ]}>
-                  <Image
-                    source={{ uri: userStory.user.picture || 'https://via.placeholder.com/60' }}
-                    style={styles.storyAvatar}
-                  />
-                </View>
-                <Text style={styles.storyUsername} numberOfLines={1}>
-                  {userStory.user.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      )}
-
-      <FlatList
+      <FlashList
+        ref={listRef}
         data={posts}
-        renderItem={renderPost}
-        keyExtractor={(item) => String(item.post_id)}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        estimatedItemSize={ESTIMATED_POST_HEIGHT}
+        getItemType={getItemType}
+        overrideItemLayout={overrideItemLayout}
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
         }
         onEndReached={loadMore}
-        onEndReachedThreshold={0.3}
+        onEndReachedThreshold={0.5}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={5}
-        windowSize={5}
-        initialNumToRender={5}
-        updateCellsBatchingPeriod={50}
-        ListFooterComponent={
-          loadingMore ? (
-            <View style={styles.loadingMore}>
-              <ActivityIndicator size="small" color={Colors.primary} />
-              <Text style={styles.loadingMoreText}>Loading more posts...</Text>
-            </View>
-          ) : null
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="images-outline" size={64} color={Colors.textSecondary} />
-            <Text style={styles.emptyText}>No posts yet</Text>
-            <Text style={styles.emptySubtext}>Follow some creators to see their posts here</Text>
-          </View>
-        }
+        ListFooterComponent={ListFooter}
+        ListEmptyComponent={ListEmpty}
+        drawDistance={SCREEN_WIDTH * 2}
+        maintainVisibleContentPosition={{
+          minIndexForVisible: 0,
+          autoscrollToTopThreshold: 10,
+        }}
       />
 
+      {/* Create Post Modal */}
       <Modal
         visible={createModalVisible}
         animationType="slide"
@@ -881,7 +820,7 @@ export default function HomeScreen() {
 
             <TextInput
               style={styles.tagInput}
-              placeholder="Tag users (comma separated user IDs)"
+              placeholder="Tag users (comma separated)"
               placeholderTextColor={Colors.textSecondary}
               value={taggedUsers}
               onChangeText={setTaggedUsers}
@@ -889,7 +828,7 @@ export default function HomeScreen() {
 
             <TextInput
               style={styles.tagInput}
-              placeholder="Add location (optional)"
+              placeholder="Location (optional)"
               placeholderTextColor={Colors.textSecondary}
               value={location}
               onChangeText={setLocation}
@@ -910,7 +849,6 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Poll Creation UI */}
             {showPollOption && (
               <View style={styles.pollCreationContainer}>
                 <TextInput
@@ -920,7 +858,6 @@ export default function HomeScreen() {
                   value={pollQuestion}
                   onChangeText={setPollQuestion}
                 />
-                
                 {pollOptions.map((option, index) => (
                   <View key={index} style={styles.pollOptionRow}>
                     <TextInput
@@ -935,49 +872,18 @@ export default function HomeScreen() {
                       }}
                     />
                     {pollOptions.length > 2 && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setPollOptions(pollOptions.filter((_, i) => i !== index));
-                        }}
-                      >
+                      <TouchableOpacity onPress={() => setPollOptions(pollOptions.filter((_, i) => i !== index))}>
                         <Ionicons name="close-circle" size={24} color={Colors.error} />
                       </TouchableOpacity>
                     )}
                   </View>
                 ))}
-                
                 {pollOptions.length < 4 && (
-                  <TouchableOpacity
-                    style={styles.addOptionButton}
-                    onPress={() => setPollOptions([...pollOptions, ''])}
-                  >
+                  <TouchableOpacity style={styles.addOptionButton} onPress={() => setPollOptions([...pollOptions, ''])}>
                     <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
                     <Text style={styles.addOptionText}>Add Option</Text>
                   </TouchableOpacity>
                 )}
-
-                <View style={styles.pollDurationContainer}>
-                  <Text style={styles.pollDurationLabel}>Poll Duration:</Text>
-                  <View style={styles.pollDurationButtons}>
-                    {[24, 48, 72].map((hours) => (
-                      <TouchableOpacity
-                        key={hours}
-                        style={[
-                          styles.durationButton,
-                          pollDuration === hours && styles.durationButtonActive
-                        ]}
-                        onPress={() => setPollDuration(hours)}
-                      >
-                        <Text style={[
-                          styles.durationButtonText,
-                          pollDuration === hours && styles.durationButtonTextActive
-                        ]}>
-                          {hours}h
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
               </View>
             )}
 
@@ -986,18 +892,12 @@ export default function HomeScreen() {
                 {selectedMedia.type === 'audio' ? (
                   <View style={styles.audioPreview}>
                     <Ionicons name="musical-notes" size={48} color={Colors.primary} />
-                    <Text style={styles.audioPreviewText}>{selectedMedia.name || 'Audio file'}</Text>
+                    <Text style={styles.audioPreviewText}>{selectedMedia.name || 'Audio'}</Text>
                   </View>
                 ) : (
-                  <Image
-                    source={{ uri: selectedMedia.uri }}
-                    style={styles.mediaPreviewImage}
-                  />
+                  <Image source={{ uri: selectedMedia.uri }} style={styles.mediaPreviewImage} />
                 )}
-                <TouchableOpacity
-                  style={styles.removeMediaButton}
-                  onPress={() => setSelectedMedia(null)}
-                >
+                <TouchableOpacity style={styles.removeMediaButton} onPress={() => setSelectedMedia(null)}>
                   <Ionicons name="close-circle" size={32} color={Colors.error} />
                 </TouchableOpacity>
               </View>
@@ -1009,12 +909,10 @@ export default function HomeScreen() {
                 <Ionicons name="image-outline" size={28} color={Colors.primary} />
                 <Text style={styles.mediaTypeText}>Photo</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.mediaTypeButton} onPress={() => pickMedia('video')}>
                 <Ionicons name="videocam-outline" size={28} color={Colors.secondary} />
                 <Text style={styles.mediaTypeText}>Video</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.mediaTypeButton} onPress={() => pickMedia('audio')}>
                 <Ionicons name="musical-notes-outline" size={28} color={Colors.accent} />
                 <Text style={styles.mediaTypeText}>Audio</Text>
@@ -1026,11 +924,7 @@ export default function HomeScreen() {
               onPress={createPost}
               disabled={uploading}
             >
-              {uploading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>Post</Text>
-              )}
+              {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Post</Text>}
             </TouchableOpacity>
           </View>
         </View>
@@ -1046,14 +940,8 @@ export default function HomeScreen() {
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Comments ({selectedPost?.comments_count || 0})
-              </Text>
-              <TouchableOpacity onPress={() => {
-                setCommentsModalVisible(false);
-                setReplyingTo(null);
-                setCommentText('');
-              }}>
+              <Text style={styles.modalTitle}>Comments ({selectedPost?.comments_count || 0})</Text>
+              <TouchableOpacity onPress={() => { setCommentsModalVisible(false); setReplyingTo(null); setCommentText(''); }}>
                 <Ionicons name="close" size={28} color={Colors.text} />
               </TouchableOpacity>
             </View>
@@ -1061,65 +949,33 @@ export default function HomeScreen() {
             {loadingComments ? (
               <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 32 }} />
             ) : (
-              <FlatList
+              <FlashList
                 data={comments}
                 renderItem={({ item }) => (
                   <View style={styles.commentItem}>
-                    <Image
-                      source={{ uri: item.user?.picture || 'https://via.placeholder.com/40' }}
-                      style={styles.commentAvatar}
-                    />
+                    <Image source={{ uri: item.user?.picture || 'https://via.placeholder.com/40' }} style={styles.commentAvatar} />
                     <View style={styles.commentContent}>
                       <View style={styles.commentHeader}>
                         <Text style={styles.commentUsername}>{item.user?.name || 'Unknown'}</Text>
-                        <Text style={styles.commentTime}>
-                          {new Date(item.created_at).toLocaleDateString()}
-                        </Text>
+                        <Text style={styles.commentTime}>{new Date(item.created_at).toLocaleDateString()}</Text>
                       </View>
                       <Text style={styles.commentText}>{item.content}</Text>
                       <View style={styles.commentActions}>
-                        <TouchableOpacity
-                          style={styles.commentAction}
-                          onPress={() => handleCommentLike(item.comment_id)}
-                        >
-                          <Ionicons
-                            name={item.liked ? 'heart' : 'heart-outline'}
-                            size={16}
-                            color={item.liked ? Colors.error : Colors.textSecondary}
-                          />
-                          <Text style={[styles.commentActionText, item.liked && { color: Colors.error }]}>
-                            {item.likes_count}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.commentAction}
-                          onPress={() => {
-                            setReplyingTo(item);
-                            setCommentText(`@${item.user?.name} `);
-                          }}
-                        >
+                        <TouchableOpacity style={styles.commentAction} onPress={() => setReplyingTo(item)}>
                           <Ionicons name="arrow-undo" size={16} color={Colors.textSecondary} />
                           <Text style={styles.commentActionText}>Reply</Text>
                         </TouchableOpacity>
-                        {user?.user_id === item.user_id && (
-                          <TouchableOpacity
-                            style={styles.commentAction}
-                            onPress={() => handleDeleteComment(item.comment_id)}
-                          >
-                            <Ionicons name="trash" size={16} color={Colors.error} />
-                          </TouchableOpacity>
-                        )}
                       </View>
                     </View>
                   </View>
                 )}
                 keyExtractor={(item) => item.comment_id}
+                estimatedItemSize={80}
                 contentContainerStyle={styles.commentsList}
                 ListEmptyComponent={
                   <View style={styles.emptyComments}>
                     <Ionicons name="chatbubble-outline" size={48} color={Colors.textSecondary} />
                     <Text style={styles.emptyCommentsText}>No comments yet</Text>
-                    <Text style={styles.emptyCommentsSubtext}>Be the first to comment!</Text>
                   </View>
                 }
               />
@@ -1127,23 +983,15 @@ export default function HomeScreen() {
 
             {replyingTo && (
               <View style={styles.replyingIndicator}>
-                <Text style={styles.replyingText}>
-                  Replying to @{replyingTo.user?.name}
-                </Text>
-                <TouchableOpacity onPress={() => {
-                  setReplyingTo(null);
-                  setCommentText('');
-                }}>
+                <Text style={styles.replyingText}>Replying to @{replyingTo.user?.name}</Text>
+                <TouchableOpacity onPress={() => { setReplyingTo(null); setCommentText(''); }}>
                   <Ionicons name="close-circle" size={20} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             )}
 
             <View style={styles.commentInputContainer}>
-              <Image
-                source={{ uri: user?.picture || 'https://via.placeholder.com/32' }}
-                style={styles.commentInputAvatar}
-              />
+              <Image source={{ uri: user?.picture || 'https://via.placeholder.com/32' }} style={styles.commentInputAvatar} />
               <TextInput
                 style={styles.commentInput}
                 placeholder="Add a comment..."
@@ -1175,11 +1023,7 @@ export default function HomeScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Repost</Text>
-              <TouchableOpacity onPress={() => {
-                setRepostModalVisible(false);
-                setRepostComment('');
-                setSelectedRepostPost(null);
-              }}>
+              <TouchableOpacity onPress={() => { setRepostModalVisible(false); setRepostComment(''); setSelectedRepostPost(null); }}>
                 <Ionicons name="close" size={28} color={Colors.text} />
               </TouchableOpacity>
             </View>
@@ -1187,15 +1031,10 @@ export default function HomeScreen() {
             {selectedRepostPost && (
               <View style={styles.repostPreview}>
                 <View style={styles.repostPreviewHeader}>
-                  <Image
-                    source={{ uri: selectedRepostPost.user?.picture || 'https://via.placeholder.com/32' }}
-                    style={styles.commentAvatar}
-                  />
+                  <Image source={{ uri: selectedRepostPost.user?.picture || 'https://via.placeholder.com/32' }} style={styles.commentAvatar} />
                   <Text style={styles.repostPreviewUsername}>{selectedRepostPost.user?.name || 'Unknown'}</Text>
                 </View>
-                <Text style={styles.repostPreviewContent} numberOfLines={3}>
-                  {selectedRepostPost.content}
-                </Text>
+                <Text style={styles.repostPreviewContent} numberOfLines={3}>{selectedRepostPost.content}</Text>
               </View>
             )}
 
@@ -1208,10 +1047,7 @@ export default function HomeScreen() {
               onChangeText={setRepostComment}
             />
 
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={handleRepost}
-            >
+            <TouchableOpacity style={styles.submitButton} onPress={handleRepost}>
               <Text style={styles.submitButtonText}>Repost</Text>
             </TouchableOpacity>
           </View>
@@ -1225,6 +1061,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     overflow: 'hidden',
@@ -1261,7 +1103,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   listContent: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 100,
   },
   postCard: {
     backgroundColor: Colors.card,
@@ -1311,15 +1155,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  postImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
   postActions: {
     flexDirection: 'row',
     gap: 16,
+    marginTop: 12,
   },
   actionButton: {
     flexDirection: 'row',
@@ -1329,263 +1168,6 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 14,
     color: Colors.textSecondary,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 64,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text,
-    marginTop: 16,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Colors.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    minHeight: 400,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.text,
-  },
-  input: {
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    padding: 16,
-    color: Colors.text,
-    fontSize: 16,
-    minHeight: 120,
-    textAlignVertical: 'top',
-    marginBottom: 16,
-  },
-  tagInput: {
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    padding: 12,
-    color: Colors.text,
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  mediaPreview: {
-    position: 'relative',
-    marginBottom: 16,
-  },
-  mediaPreviewImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-  },
-  removeMediaButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-  },
-  mediaButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.background,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  mediaButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  submitButton: {
-    backgroundColor: Colors.primary,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  submitButtonDisabled: {
-    opacity: 0.5,
-  },
-  submitButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  audioPreview: {
-    width: '100%',
-    height: 150,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    borderStyle: 'dashed',
-  },
-  audioPreviewText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: Colors.text,
-    fontWeight: '600',
-  },
-  mediaSectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 12,
-  },
-  mediaButtonsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  mediaTypeButton: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  mediaTypeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  commentsList: {
-    paddingVertical: 16,
-  },
-  commentItem: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    paddingHorizontal: 8,
-  },
-  commentAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 12,
-  },
-  commentContent: {
-    flex: 1,
-  },
-  commentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  commentUsername: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  commentTime: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  commentText: {
-    fontSize: 14,
-    color: Colors.text,
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  commentActions: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  commentAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  commentActionText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  emptyComments: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-  },
-  emptyCommentsText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginTop: 12,
-  },
-  emptyCommentsSubtext: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginTop: 4,
-  },
-  replyingIndicator: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.background,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginBottom: 8,
-    borderRadius: 8,
-  },
-  replyingText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  commentInputAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  commentInput: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    color: Colors.text,
-    fontSize: 14,
-    maxHeight: 100,
-  },
-  commentSendButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  commentSendButtonDisabled: {
-    opacity: 0.5,
   },
   repostHeader: {
     flexDirection: 'row',
@@ -1609,44 +1191,83 @@ const styles = StyleSheet.create({
   repostCommentText: {
     fontSize: 14,
     color: Colors.text,
-    lineHeight: 20,
     fontStyle: 'italic',
   },
-  repostPreview: {
-    backgroundColor: Colors.background,
+  pollContainer: {
+    backgroundColor: Colors.surface || Colors.card,
     padding: 16,
     borderRadius: 12,
+    marginTop: 12,
+  },
+  pollQuestion: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
   },
-  repostPreviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+  pollOption: {
+    marginBottom: 12,
   },
-  repostPreviewUsername: {
+  pollOptionContent: {
+    position: 'relative',
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    padding: 12,
+    overflow: 'hidden',
+  },
+  pollBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: Colors.primary,
+    opacity: 0.2,
+    borderRadius: 8,
+  },
+  pollOptionText: {
     fontSize: 14,
     fontWeight: '600',
     color: Colors.text,
   },
-  repostPreviewContent: {
+  pollPercentage: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  pollVoteCount: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 64,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.text,
+    marginTop: 16,
+  },
+  emptySubtext: {
     fontSize: 14,
     color: Colors.textSecondary,
-    lineHeight: 20,
+    marginTop: 8,
   },
-  repostInput: {
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    padding: 16,
-    color: Colors.text,
-    fontSize: 16,
-    minHeight: 100,
-    textAlignVertical: 'top',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
+  loadingMore: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  loadingMoreText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
   },
   storiesContainer: {
     paddingVertical: 16,
@@ -1696,12 +1317,53 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  input: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    color: Colors.text,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  tagInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 12,
+    color: Colors.text,
+    fontSize: 14,
+    marginBottom: 12,
+  },
   pollToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     padding: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.surface || Colors.background,
     borderRadius: 8,
     marginBottom: 12,
   },
@@ -1711,7 +1373,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   pollCreationContainer: {
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.surface || Colors.background,
     padding: 16,
     borderRadius: 12,
     marginBottom: 16,
@@ -1723,7 +1385,6 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 16,
     marginBottom: 12,
-    fontWeight: '600',
   },
   pollOptionRow: {
     flexDirection: 'row',
@@ -1751,100 +1412,210 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
-  pollDurationContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
+  mediaPreview: {
+    position: 'relative',
+    marginBottom: 16,
   },
-  pollDurationLabel: {
+  mediaPreviewImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+  },
+  removeMediaButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  audioPreview: {
+    width: '100%',
+    height: 150,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    borderStyle: 'dashed',
+  },
+  audioPreviewText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: Colors.text,
+  },
+  mediaSectionTitle: {
     fontSize: 14,
     fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 12,
+  },
+  mediaButtonsGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  mediaTypeButton: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  mediaTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  submitButton: {
+    backgroundColor: Colors.primary,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  submitButtonDisabled: {
+    opacity: 0.5,
+  },
+  submitButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  commentsList: {
+    paddingVertical: 16,
+  },
+  commentItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  commentContent: {
+    flex: 1,
+  },
+  commentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  commentUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  commentTime: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  commentText: {
+    fontSize: 14,
     color: Colors.text,
     marginBottom: 8,
   },
-  pollDurationButtons: {
+  commentActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 16,
   },
-  durationButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: Colors.background,
-    borderRadius: 8,
+  commentAction: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
-  durationButtonActive: {
-    backgroundColor: Colors.primary,
-  },
-  durationButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  durationButtonTextActive: {
-    color: '#fff',
-  },
-  pollContainer: {
-    backgroundColor: Colors.surface,
-    padding: 16,
-    borderRadius: 12,
-    marginTop: 12,
-  },
-  pollQuestion: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 16,
-  },
-  pollOption: {
-    marginBottom: 12,
-  },
-  pollOptionContent: {
-    position: 'relative',
-    backgroundColor: Colors.background,
-    borderRadius: 8,
-    padding: 12,
-    overflow: 'hidden',
-  },
-  pollBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: Colors.primary,
-    opacity: 0.2,
-    borderRadius: 8,
-  },
-  pollOptionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text,
-    zIndex: 1,
-  },
-  pollPercentage: {
-    position: 'absolute',
-    right: 12,
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.primary,
-    zIndex: 1,
-  },
-  pollVoteCount: {
+  commentActionText: {
     fontSize: 12,
     color: Colors.textSecondary,
-    marginTop: 8,
   },
-  loadingMore: {
+  emptyComments: {
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  emptyCommentsText: {
+    fontSize: 16,
+    color: Colors.text,
+    marginTop: 12,
+  },
+  replyingIndicator: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  replyingText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  commentInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  commentInputAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  commentInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    color: Colors.text,
+    fontSize: 14,
+    maxHeight: 100,
+  },
+  commentSendButton: {
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 20,
-    gap: 8,
   },
-  loadingMoreText: {
+  commentSendButtonDisabled: {
+    opacity: 0.5,
+  },
+  repostPreview: {
+    backgroundColor: Colors.background,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  repostPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  repostPreviewUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  repostPreviewContent: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  repostInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    color: Colors.text,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 16,
   },
 });
