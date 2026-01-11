@@ -1,0 +1,48 @@
+name: Create production builds
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  production-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          if [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Authenticate with EAS
+        env:
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+        run: |
+          if [ -z "$EAS_TOKEN" ]; then
+            echo "EAS_TOKEN secret is not set. Add it to repository secrets and rerun the workflow."; exit 1
+          fi
+          eas login --token "$EAS_TOKEN"
+
+      - name: Build Android (production)
+        run: eas build --platform android --profile production --non-interactive
+
+      - name: Build iOS (production)
+        run: eas build --platform ios --profile production --non-interactive
+
+# Notes:
+# - This workflow expects a repository secret named EAS_TOKEN with an EAS service token.
+# - Adjust the build profile names (here: `production`) to match the profiles in eas.json.
+# - The workflow runs on pushes to the `main` branch and can also be triggered manually.
