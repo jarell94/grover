@@ -46,3 +46,17 @@ jobs:
 # - This workflow expects a repository secret named EAS_TOKEN with an EAS service token.
 # - Adjust the build profile names (here: `production`) to match the profiles in eas.json.
 # - The workflow runs on pushes to the `main` branch and can also be triggered manually.
+
+---
+
+name: Create Production Builds
+
+jobs:
+  build_android:
+    type: build # This job type creates a production build for Android
+    params:
+      platform: android
+  build_ios:
+    type: build # This job type creates a production build for iOS
+    params:
+      platform: ios
