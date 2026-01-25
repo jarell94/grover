@@ -3756,6 +3756,9 @@ async def send_tip(
     if amount < 1:
         raise HTTPException(status_code=400, detail="Minimum tip is $1")
     
+    # Check if recipient has monetization enabled
+    await check_monetization_enabled(user_id, "tips")
+    
     recipient = await db.users.find_one({"user_id": user_id})
     if not recipient:
         raise HTTPException(status_code=404, detail="User not found")
