@@ -6,6 +6,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import { Platform, AppState } from 'react-native';
 import { api, setAuthToken } from '../services/api';
 import socketService from '../services/socket';
+import { setUser as setSentryUser, addBreadcrumb } from '../utils/sentry';
 
 // Ensure any incomplete auth sessions are dismissed
 WebBrowser.maybeCompleteAuthSession();
