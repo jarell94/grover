@@ -3817,6 +3817,349 @@ async def get_top_supporters(user_id: str, current_user: User = Depends(require_
     
     return leaderboard
 
+
+# ============ CREATOR SUBSCRIPTIONS ENDPOINTS ============
+
+class CreatorSubscriptionTier(BaseModel):
+    name: str = "Supporter"
+    price: float = 4.99
+    description: Optional[str] = None
+    benefits: List[str] = []
+
+@api_router.post("/creators/{user_id}/subscription-tiers")
+async def create_subscription_tier(
+    user_id: str,
+    tier: CreatorSubscriptionTier,
+    current_user: User = Depends(require_auth)
+):
+    """Create a subscription tier for your profile"""
+    if user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Can only create tiers for your own profile")
+    
+    tier_id = f"tier_{uuid.uuid4().hex[:12]}"
+    
+    await db.subscription_tiers.insert_one({
+        "tier_id": tier_id,
+        "creator_id": user_id,
+        "name": tier.name,
+        "price": tier.price,
+        "description": tier.description,
+        "benefits": tier.benefits,
+        "active": True,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"tier_id": tier_id, "message": "Subscription tier created"}
+
+
+@api_router.get("/creators/{user_id}/subscription-tiers")
+async def get_subscription_tiers(user_id: str, current_user: User = Depends(require_auth)):
+    """Get subscription tiers for a creator"""
+    tiers = await db.subscription_tiers.find(
+        {"creator_id": user_id, "active": True},
+        {"_id": 0}
+    ).to_list(10)
+    return tiers
+
+
+@api_router.post("/creators/{user_id}/subscribe/{tier_id}")
+async def subscribe_to_creator(
+    user_id: str,
+    tier_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Subscribe to a creator (15% platform fee)"""
+    if user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Cannot subscribe to yourself")
+    
+    tier = await db.subscription_tiers.find_one({"tier_id": tier_id, "creator_id": user_id, "active": True})
+    if not tier:
+        raise HTTPException(status_code=404, detail="Subscription tier not found")
+    
+    # Check if already subscribed
+    existing = await db.creator_subscriptions.find_one({
+        "subscriber_id": current_user.user_id,
+        "creator_id": user_id,
+        "status": "active"
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Already subscribed to this creator")
+    
+    # Calculate revenue split (15% platform, 85% creator)
+    split = calculate_revenue_split(tier["price"], "subscriptions")
+    
+    subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    
+    await db.creator_subscriptions.insert_one({
+        "subscription_id": subscription_id,
+        "subscriber_id": current_user.user_id,
+        "creator_id": user_id,
+        "tier_id": tier_id,
+        "amount": tier["price"],
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "status": "active",
+        "started_at": now,
+        "next_billing": now + timedelta(days=30),
+        "created_at": now
+    })
+    
+    # Record transaction
+    await record_transaction(
+        "subscriptions",
+        tier["price"],
+        current_user.user_id,
+        user_id,
+        subscription_id,
+        {"tier_id": tier_id, "tier_name": tier["name"]}
+    )
+    
+    # Notify creator
+    await create_and_send_notification(
+        user_id,
+        "subscription",
+        f"{current_user.name} subscribed to your {tier['name']} tier! (+${split['creator_payout']:.2f})",
+        subscription_id,
+        current_user.user_id
+    )
+    
+    return {
+        "subscription_id": subscription_id,
+        "message": f"Subscribed to {tier['name']}",
+        "amount": tier["price"],
+        "platform_fee": split["platform_fee"],
+        "creator_receives": split["creator_payout"],
+        "next_billing": (now + timedelta(days=30)).isoformat()
+    }
+
+
+@api_router.delete("/subscriptions/{subscription_id}")
+async def cancel_subscription(subscription_id: str, current_user: User = Depends(require_auth)):
+    """Cancel a subscription"""
+    subscription = await db.creator_subscriptions.find_one({
+        "subscription_id": subscription_id,
+        "subscriber_id": current_user.user_id
+    })
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    
+    await db.creator_subscriptions.update_one(
+        {"subscription_id": subscription_id},
+        {"$set": {"status": "cancelled", "cancelled_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"message": "Subscription cancelled"}
+
+
+@api_router.get("/subscriptions/my-subscriptions")
+async def get_my_subscriptions(current_user: User = Depends(require_auth)):
+    """Get subscriptions I've made to creators"""
+    subscriptions = await db.creator_subscriptions.find(
+        {"subscriber_id": current_user.user_id, "status": "active"},
+        {"_id": 0}
+    ).to_list(100)
+    
+    for sub in subscriptions:
+        creator = await db.users.find_one({"user_id": sub["creator_id"]}, {"_id": 0, "name": 1, "picture": 1})
+        sub["creator"] = creator
+        tier = await db.subscription_tiers.find_one({"tier_id": sub["tier_id"]}, {"_id": 0})
+        sub["tier"] = tier
+    
+    return subscriptions
+
+
+@api_router.get("/subscriptions/my-subscribers")
+async def get_my_subscribers(current_user: User = Depends(require_auth)):
+    """Get people subscribed to me"""
+    subscriptions = await db.creator_subscriptions.find(
+        {"creator_id": current_user.user_id, "status": "active"},
+        {"_id": 0}
+    ).to_list(100)
+    
+    for sub in subscriptions:
+        subscriber = await db.users.find_one({"user_id": sub["subscriber_id"]}, {"_id": 0, "name": 1, "picture": 1})
+        sub["subscriber"] = subscriber
+        tier = await db.subscription_tiers.find_one({"tier_id": sub["tier_id"]}, {"_id": 0})
+        sub["tier"] = tier
+    
+    return subscriptions
+
+
+# ============ PAID CONTENT ENDPOINTS ============
+
+@api_router.post("/posts/{post_id}/set-paid")
+async def set_post_as_paid(
+    post_id: str,
+    price: float,
+    preview_content: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Set a post as paid content (10% platform fee on purchases)"""
+    if price < 0.99:
+        raise HTTPException(status_code=400, detail="Minimum price is $0.99")
+    
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not your post")
+    
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$set": {
+            "is_paid": True,
+            "price": price,
+            "preview_content": preview_content,
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    return {"message": "Post set as paid content", "price": price}
+
+
+@api_router.post("/posts/{post_id}/purchase")
+async def purchase_paid_content(post_id: str, current_user: User = Depends(require_auth)):
+    """Purchase access to paid content (10% platform fee)"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("is_paid"):
+        raise HTTPException(status_code=400, detail="This post is not paid content")
+    
+    if post["user_id"] == current_user.user_id:
+        raise HTTPException(status_code=400, detail="You own this content")
+    
+    # Check if already purchased
+    existing = await db.content_purchases.find_one({
+        "post_id": post_id,
+        "user_id": current_user.user_id
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Already purchased")
+    
+    # Calculate revenue split (10% platform, 90% creator)
+    split = calculate_revenue_split(post["price"], "paid_content")
+    
+    purchase_id = f"purchase_{uuid.uuid4().hex[:12]}"
+    
+    await db.content_purchases.insert_one({
+        "purchase_id": purchase_id,
+        "post_id": post_id,
+        "user_id": current_user.user_id,
+        "creator_id": post["user_id"],
+        "amount": post["price"],
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Record transaction
+    await record_transaction(
+        "paid_content",
+        post["price"],
+        current_user.user_id,
+        post["user_id"],
+        purchase_id,
+        {"post_id": post_id}
+    )
+    
+    # Notify creator
+    await create_and_send_notification(
+        post["user_id"],
+        "content_purchase",
+        f"{current_user.name} purchased your content! (+${split['creator_payout']:.2f})",
+        post_id,
+        current_user.user_id
+    )
+    
+    return {
+        "purchase_id": purchase_id,
+        "message": "Content unlocked",
+        "amount": post["price"],
+        "platform_fee": split["platform_fee"],
+        "creator_receives": split["creator_payout"],
+    }
+
+
+@api_router.get("/posts/{post_id}/purchased")
+async def check_if_purchased(post_id: str, current_user: User = Depends(require_auth)):
+    """Check if current user has purchased a post"""
+    post = await db.posts.find_one({"post_id": post_id}, {"user_id": 1, "is_paid": 1})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Creator owns all their content
+    if post["user_id"] == current_user.user_id:
+        return {"purchased": True, "is_owner": True}
+    
+    # Not paid content = everyone has access
+    if not post.get("is_paid"):
+        return {"purchased": True, "is_free": True}
+    
+    # Check purchase record
+    purchase = await db.content_purchases.find_one({
+        "post_id": post_id,
+        "user_id": current_user.user_id
+    })
+    
+    return {"purchased": purchase is not None}
+
+
+# ============ EARNINGS/PAYOUT ENDPOINTS ============
+
+@api_router.get("/earnings")
+async def get_earnings(current_user: User = Depends(require_auth)):
+    """Get creator earnings summary"""
+    user = await db.users.find_one({"user_id": current_user.user_id})
+    
+    # Get breakdown by type
+    pipeline = [
+        {"$match": {"to_user_id": current_user.user_id, "status": "completed"}},
+        {"$group": {
+            "_id": "$type",
+            "total": {"$sum": "$creator_payout"},
+            "count": {"$sum": 1}
+        }}
+    ]
+    
+    breakdown = await db.transactions.aggregate(pipeline).to_list(10)
+    
+    earnings_by_type = {item["_id"]: {"total": item["total"], "count": item["count"]} for item in breakdown}
+    
+    return {
+        "balance": user.get("earnings_balance", 0),
+        "total_earned": user.get("total_earnings", 0),
+        "breakdown": {
+            "tips": earnings_by_type.get("tips", {"total": 0, "count": 0}),
+            "super_chat": earnings_by_type.get("super_chat", {"total": 0, "count": 0}),
+            "subscriptions": earnings_by_type.get("subscriptions", {"total": 0, "count": 0}),
+            "products": earnings_by_type.get("products", {"total": 0, "count": 0}),
+            "paid_content": earnings_by_type.get("paid_content", {"total": 0, "count": 0}),
+        },
+        "revenue_rates": REVENUE_SHARE
+    }
+
+
+@api_router.get("/transactions")
+async def get_transactions(
+    limit: int = 50,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get transaction history"""
+    transactions = await db.transactions.find(
+        {"$or": [
+            {"to_user_id": current_user.user_id},
+            {"from_user_id": current_user.user_id}
+        ]},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return transactions
+
+
 # ============ ANALYTICS ENDPOINTS ============
 
 @api_router.get("/analytics/overview")
