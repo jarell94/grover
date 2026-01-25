@@ -4026,6 +4026,13 @@ async def set_post_as_paid(
     current_user: User = Depends(require_auth)
 ):
     """Set a post as paid content (10% platform fee on purchases)"""
+    # Check if creator has monetization enabled
+    if not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403, 
+            detail="You must enable monetization in your profile settings before creating paid content."
+        )
+    
     if price < 0.99:
         raise HTTPException(status_code=400, detail="Minimum price is $0.99")
     
