@@ -232,6 +232,17 @@ class MonetizationTester:
                     data={"monetization_enabled": "true"}
                 )
                 
+                # Add a small delay to ensure the update is processed
+                import asyncio
+                await asyncio.sleep(1)
+                
+                # Verify the user's monetization status
+                me_response = await client.get(f"{API_BASE}/auth/me", headers=headers)
+                if me_response.status_code == 200:
+                    user_data = me_response.json()
+                    monetization_status = user_data.get("monetization_enabled", False)
+                    print(f"   DEBUG: User monetization_enabled status: {monetization_status}")
+                
                 # Create a test user to tip (or use current user for testing)
                 target_user_id = self.user_id or "test_user_123"
                 
