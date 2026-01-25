@@ -2170,7 +2170,7 @@ async def execute_paypal_payment(
     product_id: str,
     current_user: User = Depends(require_auth)
 ):
-    """Execute a PayPal payment after user approval"""
+    """Execute a PayPal payment after user approval (5% platform fee for products)"""
     result = execute_payment(payment_id, payer_id)
     
     if result["success"]:
@@ -2182,10 +2182,10 @@ async def execute_paypal_payment(
         # Get seller info
         seller = await db.users.find_one({"user_id": product["user_id"]}, {"_id": 0})
         
-        # Calculate platform fee (5% for now, can be adjusted)
-        platform_fee_percentage = 0.05
-        platform_fee = product["price"] * platform_fee_percentage
-        seller_amount = product["price"] - platform_fee
+        # Calculate platform fee using standard revenue share (5% for products)
+        split = calculate_revenue_split(product["price"], "products")
+        platform_fee = split["platform_fee"]
+        seller_amount = split["creator_payout"]
         
         # Create order in database
         order_id = f"order_{uuid.uuid4().hex[:12]}"
