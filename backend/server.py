@@ -3688,6 +3688,217 @@ async def search(q: str, current_user: User = Depends(require_auth)):
     
     return {"users": users, "posts": posts}
 
+
+# ============ ENHANCED SEARCH ENDPOINTS ============
+
+@api_router.get("/search/users")
+async def search_users(
+    q: str,
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Search for users by name or username"""
+    users = await db.users.find(
+        {"$or": [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": f"^{q}", "$options": "i"}},
+            {"bio": {"$regex": q, "$options": "i"}}
+        ]},
+        {"_id": 0, "session_token": 0}
+    ).skip(skip).limit(limit).to_list(limit)
+    
+    # Add follower counts
+    for user in users:
+        user["followers_count"] = await db.follows.count_documents({"following_id": user["user_id"]})
+        user["is_following"] = await db.follows.count_documents({
+            "follower_id": current_user.user_id,
+            "following_id": user["user_id"]
+        }) > 0
+    
+    return users
+
+
+@api_router.get("/search/hashtags")
+async def search_hashtags(
+    q: str,
+    limit: int = 20,
+    current_user: User = Depends(require_auth)
+):
+    """Search for hashtags and get their post counts"""
+    import re
+    
+    # Clean the query
+    tag = q.lstrip('#').lower()
+    
+    # Find posts with this hashtag
+    hashtag_regex = re.compile(f"#({re.escape(tag)}\\w*)", re.IGNORECASE)
+    
+    # Aggregate to find matching hashtags and their counts
+    pipeline = [
+        {"$match": {"content": {"$regex": f"#{tag}", "$options": "i"}}},
+        {"$project": {
+            "hashtags": {
+                "$regexFindAll": {
+                    "input": "$content",
+                    "regex": "#(\\w+)",
+                    "options": "i"
+                }
+            }
+        }},
+        {"$unwind": "$hashtags"},
+        {"$group": {
+            "_id": {"$toLower": "$hashtags.match"},
+            "count": {"$sum": 1}
+        }},
+        {"$match": {"_id": {"$regex": f"^#{tag}", "$options": "i"}}},
+        {"$sort": {"count": -1}},
+        {"$limit": limit}
+    ]
+    
+    results = await db.posts.aggregate(pipeline).to_list(limit)
+    
+    hashtags = [
+        {
+            "tag": result["_id"],
+            "post_count": result["count"]
+        }
+        for result in results
+    ]
+    
+    return hashtags
+
+
+@api_router.get("/search/hashtag/{tag}/posts")
+async def get_hashtag_posts(
+    tag: str,
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get posts containing a specific hashtag"""
+    clean_tag = tag.lstrip('#')
+    
+    posts = await db.posts.find(
+        {"content": {"$regex": f"#{clean_tag}\\b", "$options": "i"}},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with user data and interaction status
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0, "session_token": 0})
+        post["user"] = user
+        post["liked"] = await db.reactions.count_documents({
+            "post_id": post["post_id"],
+            "user_id": current_user.user_id,
+            "reaction_type": "like"
+        }) > 0
+        post["saved"] = await db.saved_posts.count_documents({
+            "post_id": post["post_id"],
+            "user_id": current_user.user_id
+        }) > 0
+    
+    return posts
+
+
+@api_router.get("/trending/tags")
+async def get_trending_tags(
+    limit: int = 20,
+    current_user: User = Depends(require_auth)
+):
+    """Get trending hashtags based on recent usage"""
+    # Look at posts from the last 7 days
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    
+    pipeline = [
+        {"$match": {"created_at": {"$gte": week_ago}}},
+        {"$project": {
+            "hashtags": {
+                "$regexFindAll": {
+                    "input": "$content",
+                    "regex": "#(\\w+)",
+                    "options": "i"
+                }
+            },
+            "likes_count": 1
+        }},
+        {"$unwind": "$hashtags"},
+        {"$group": {
+            "_id": {"$toLower": "$hashtags.match"},
+            "post_count": {"$sum": 1},
+            "total_likes": {"$sum": "$likes_count"}
+        }},
+        {"$addFields": {
+            "score": {"$add": [
+                {"$multiply": ["$post_count", 2]},
+                "$total_likes"
+            ]}
+        }},
+        {"$sort": {"score": -1}},
+        {"$limit": limit}
+    ]
+    
+    results = await db.posts.aggregate(pipeline).to_list(limit)
+    
+    trending = [
+        {
+            "tag": result["_id"],
+            "post_count": result["post_count"],
+            "total_likes": result["total_likes"],
+            "trending_score": result["score"]
+        }
+        for result in results
+    ]
+    
+    return trending
+
+
+@api_router.get("/trending/creators")
+async def get_trending_creators(
+    limit: int = 10,
+    current_user: User = Depends(require_auth)
+):
+    """Get trending creators based on recent engagement"""
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    
+    # Find creators with most engagement in the last week
+    pipeline = [
+        {"$match": {"created_at": {"$gte": week_ago}}},
+        {"$group": {
+            "_id": "$user_id",
+            "post_count": {"$sum": 1},
+            "total_likes": {"$sum": "$likes_count"},
+            "total_comments": {"$sum": "$comments_count"}
+        }},
+        {"$addFields": {
+            "engagement_score": {"$add": [
+                {"$multiply": ["$total_likes", 1]},
+                {"$multiply": ["$total_comments", 2]},
+                {"$multiply": ["$post_count", 3]}
+            ]}
+        }},
+        {"$sort": {"engagement_score": -1}},
+        {"$limit": limit}
+    ]
+    
+    results = await db.posts.aggregate(pipeline).to_list(limit)
+    
+    creators = []
+    for result in results:
+        user = await db.users.find_one({"user_id": result["_id"]}, {"_id": 0, "session_token": 0})
+        if user:
+            user["post_count"] = result["post_count"]
+            user["total_likes"] = result["total_likes"]
+            user["engagement_score"] = result["engagement_score"]
+            user["followers_count"] = await db.follows.count_documents({"following_id": user["user_id"]})
+            user["is_following"] = await db.follows.count_documents({
+                "follower_id": current_user.user_id,
+                "following_id": user["user_id"]
+            }) > 0
+            creators.append(user)
+    
+    return creators
+
 # ============ STORIES ENDPOINTS ============
 
 @api_router.post("/stories")
