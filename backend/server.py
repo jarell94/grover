@@ -4859,13 +4859,19 @@ async def send_super_chat(
     message: str,
     current_user: User = Depends(require_auth)
 ):
-    """Send a paid super chat message"""
+    """Send a paid super chat message (10% platform fee)"""
+    if amount < 1:
+        raise HTTPException(status_code=400, detail="Minimum super chat is $1")
+    
     stream = await db.streams.find_one({"stream_id": stream_id})
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
     
     if not stream.get("enable_super_chat"):
         raise HTTPException(status_code=400, detail="Super chat not enabled")
+    
+    # Calculate revenue split (10% platform, 90% creator)
+    split = calculate_revenue_split(amount, "super_chat")
     
     # In production, process PayPal payment here
     super_chat_id = f"superchat_{uuid.uuid4().hex[:12]}"
@@ -4874,20 +4880,40 @@ async def send_super_chat(
         "super_chat_id": super_chat_id,
         "stream_id": stream_id,
         "user_id": current_user.user_id,
+        "host_id": stream["user_id"],
         "amount": amount,
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
         "message": message,
         "created_at": datetime.now(timezone.utc)
     })
     
-    # Notify streamer
-    await create_notification(
-        stream["user_id"],
+    # Record transaction
+    await record_transaction(
         "super_chat",
-        f"{current_user.name} sent ${amount}: {message}",
-        super_chat_id
+        amount,
+        current_user.user_id,
+        stream["user_id"],
+        super_chat_id,
+        {"stream_id": stream_id, "message": message}
     )
     
-    return {"message": "Super chat sent", "super_chat_id": super_chat_id}
+    # Notify streamer via push
+    await create_and_send_notification(
+        stream["user_id"],
+        "super_chat",
+        f"{current_user.name} sent ${split['creator_payout']:.2f}: {message}",
+        super_chat_id,
+        current_user.user_id
+    )
+    
+    return {
+        "message": "Super chat sent",
+        "super_chat_id": super_chat_id,
+        "amount": amount,
+        "platform_fee": split["platform_fee"],
+        "creator_receives": split["creator_payout"],
+    }
 
 @api_router.get("/streams/{stream_id}/join-info")
 async def get_stream_join_info(stream_id: str, current_user: User = Depends(require_auth)):
