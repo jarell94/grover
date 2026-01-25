@@ -121,9 +121,8 @@ class MonetizationTester:
                 
                 # Test PUT /api/users/me with monetization_enabled=true
                 response = await client.put(
-                    f"{API_BASE}/users/me", 
-                    headers=headers,
-                    data={"monetization_enabled": "true"}
+                    f"{API_BASE}/users/me?monetization_enabled=true", 
+                    headers=headers
                 )
                 if response.status_code == 200:
                     self.results.add_result(
@@ -140,9 +139,8 @@ class MonetizationTester:
                 
                 # Test PUT /api/users/me with monetization_enabled=false
                 response = await client.put(
-                    f"{API_BASE}/users/me", 
-                    headers=headers,
-                    data={"monetization_enabled": "false"}
+                    f"{API_BASE}/users/me?monetization_enabled=false", 
+                    headers=headers
                 )
                 if response.status_code == 200:
                     self.results.add_result(
