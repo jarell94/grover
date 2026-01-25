@@ -326,12 +326,16 @@ export default function ProfileContentTabs({ userId, api, stickyHeader, scrollEn
         renderItem={renderGridItem}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={{ gap: 8 }}
+        scrollEnabled={scrollEnabled}
+        nestedScrollEnabled={!scrollEnabled}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.primary}
-          />
+          scrollEnabled ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.primary}
+            />
+          ) : undefined
         }
         onEndReached={onEndReached}
         onEndReachedThreshold={0.35}
