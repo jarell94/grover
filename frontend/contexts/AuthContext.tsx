@@ -153,11 +153,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let redirectUrl = '';
       
       if (Platform.OS === 'web') {
-        // Use window.location.origin directly - NO fallbacks for proper deployment
-        if (typeof window !== 'undefined' && window.location?.origin) {
-          redirectUrl = window.location.origin + '/';
-        }
-        // Note: No fallback - this ensures auth works correctly across all environments
+        // Use window.location.origin directly for proper deployment across all environments
+        redirectUrl = window.location.origin + '/';
       } else {
         // For development builds, use the custom grover:// scheme
         // This enables proper OAuth redirect handling
