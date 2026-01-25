@@ -17,8 +17,10 @@ const getBackendUrl = (): string => {
   // 1. Check env variable first (works for all platforms - web, iOS, Android)
   // This allows deploying frontend to Vercel/Netlify and backend to Render/Railway
   const envUrl =
-    (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_BACKEND_URL) ||
-    Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL;
+    (typeof process !== 'undefined' &&
+      (process.env?.EXPO_PUBLIC_BACKEND_URL || process.env?.EXPO_PUBLIC_API_URL)) ||
+    Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL ||
+    Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL;
 
   if (envUrl && !envUrl.includes('REPLACEME')) return envUrl;
 
@@ -29,8 +31,12 @@ const getBackendUrl = (): string => {
 
   // 3. Native dev fallback: build URL from Metro host
   if (__DEV__ && Platform.OS !== 'web') {
+    // Android emulator -> host machine
+    if (Platform.OS === 'android') return 'http://10.0.2.2:8001';
+
+    // iOS sim / physical devices
     const host = guessDevHost();
-    if (host) return `http://${host}:3000`;
+    if (host) return `http://${host}:8001`;
   }
 
   // 4. Production native: fail loudly so you notice immediately
@@ -45,11 +51,17 @@ let API_URL: string;
 
 const initializeUrls = () => {
   if (!BACKEND_URL) {
+    const devHost = guessDevHost();
+
     BACKEND_URL = getBackendUrl();
-    
+
     // Normalize: remove trailing slash and append /api
     API_URL = `${BACKEND_URL.replace(/\/+$/, '')}/api`;
-    console.log('API Configuration:', { BACKEND_URL, API_URL });
+
+    console.log('🔧 API Configuration');
+    console.log('Dev host guess:', devHost);
+    console.log('BACKEND_URL:', BACKEND_URL);
+    console.log('API_URL:', API_URL);
   }
 };
 

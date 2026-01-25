@@ -8,7 +8,7 @@ import uuid
 
 async def test_reactions():
     """Test the new reactions system"""
-    base_url = "http://localhost:8001/api"
+    base_url = "http://192.168.1.101:8001/api"
     
     # Test data
     test_user = {

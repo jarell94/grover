@@ -18,7 +18,7 @@ load_dotenv(ROOT_DIR / '.env')
 async def test_api_performance():
     """Test API endpoint performance"""
     
-    base_url = "http://localhost:8001/api"
+    base_url = "http://192.168.1.101:8001/api"
     
     # Test endpoints with different pagination sizes
     endpoints = [

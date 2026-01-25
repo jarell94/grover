@@ -12,7 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8001/api")
+BASE_URL = os.getenv("BASE_URL", "http://192.168.1.101:8001/api")
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.getenv("DB_NAME", "test_database")
 TOKEN = os.getenv("GROVER_TOKEN")  # optional bearer token
