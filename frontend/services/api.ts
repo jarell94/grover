@@ -415,6 +415,22 @@ export const api = {
   unregisterPushToken: (token: string) => 
     apiRequest(`/push/unregister?token=${token}`, { method: 'DELETE' }),
 
+  // Enhanced Search
+  searchUsers: (q: string, limit = 20, skip = 0) => 
+    apiRequest(`/search/users?q=${encodeURIComponent(q)}&limit=${limit}&skip=${skip}`),
+  searchHashtags: (q: string, limit = 20) => 
+    apiRequest(`/search/hashtags?q=${encodeURIComponent(q)}&limit=${limit}`),
+  getHashtagPosts: (tag: string, limit = 20, skip = 0) => 
+    apiRequest(`/search/hashtag/${encodeURIComponent(tag)}/posts?limit=${limit}&skip=${skip}`),
+  getTrendingTags: (limit = 20) => 
+    apiRequest(`/trending/tags?limit=${limit}`),
+  getTrendingCreators: (limit = 10) => 
+    apiRequest(`/trending/creators?limit=${limit}`),
+
+  // Story Analytics
+  getStoryAnalytics: () => apiRequest('/stories/analytics'),
+  deleteStory: (storyId: string) => apiRequest(`/stories/${storyId}`, { method: 'DELETE' }),
+
   // Tips
   sendTip: (userId: string, amount: number, message: string) => apiRequest(`/users/${userId}/tip`, {
     method: 'POST',
