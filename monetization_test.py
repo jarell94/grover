@@ -498,7 +498,7 @@ class MonetizationTester:
                     if method == "GET":
                         response = await client.get(url)
                     elif method == "PUT":
-                        response = await client.put(url, data={"monetization_enabled": "true"})
+                        response = await client.put(url, params={"monetization_enabled": "true"})
                     elif method == "POST":
                         response = await client.post(url, json={"test": "data"})
                     
