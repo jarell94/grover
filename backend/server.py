@@ -3731,9 +3731,6 @@ async def search_hashtags(
     # Clean the query
     tag = q.lstrip('#').lower()
     
-    # Find posts with this hashtag
-    hashtag_regex = re.compile(f"#({re.escape(tag)}\\w*)", re.IGNORECASE)
-    
     # Aggregate to find matching hashtags and their counts
     pipeline = [
         {"$match": {"content": {"$regex": f"#{tag}", "$options": "i"}}},
