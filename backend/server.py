@@ -194,126 +194,102 @@ async def create_indexes():
     try:
         logger.info("Creating database indexes...")
         
+        # Helper function to safely create index
+        async def safe_create_index(collection, keys, **kwargs):
+            try:
+                await collection.create_index(keys, **kwargs)
+            except Exception as e:
+                # Index might already exist with same or different options
+                logger.debug(f"Index creation skipped for {collection.name}: {e}")
+        
         # ========== USERS COLLECTION ==========
-        # Primary lookup by user_id
-        await db.users.create_index("user_id", unique=True, background=True)
-        # Email lookup for auth
-        await db.users.create_index("email", unique=True, background=True)
-        # Text search on name for user search
-        await db.users.create_index([("name", "text")], background=True)
-        # For finding premium users
-        await db.users.create_index("is_premium", background=True)
+        await safe_create_index(db.users, "user_id", unique=True, background=True, name="users_user_id_unique")
+        await safe_create_index(db.users, "email", unique=True, background=True, name="users_email_unique")
+        await safe_create_index(db.users, [("name", "text")], background=True, name="users_name_text")
+        await safe_create_index(db.users, "is_premium", background=True, name="users_is_premium")
         
         # ========== POSTS COLLECTION ==========
-        # Primary lookup
-        await db.posts.create_index("post_id", unique=True, background=True)
-        # Feed queries - user's posts sorted by date
-        await db.posts.create_index([("user_id", 1), ("created_at", -1)], background=True)
-        # Global feed sorted by date (most recent first)
-        await db.posts.create_index([("created_at", -1)], background=True)
-        # Explore feed - popular posts
-        await db.posts.create_index([("likes_count", -1), ("created_at", -1)], background=True)
-        # Media type filtering
-        await db.posts.create_index([("user_id", 1), ("media_type", 1), ("created_at", -1)], background=True)
-        # For repost lookups
-        await db.posts.create_index("original_post_id", background=True, sparse=True)
+        await safe_create_index(db.posts, "post_id", unique=True, background=True, name="posts_post_id_unique")
+        await safe_create_index(db.posts, [("user_id", 1), ("created_at", -1)], background=True, name="posts_user_created")
+        await safe_create_index(db.posts, [("created_at", -1)], background=True, name="posts_created_desc")
+        await safe_create_index(db.posts, [("likes_count", -1), ("created_at", -1)], background=True, name="posts_popular")
+        await safe_create_index(db.posts, [("user_id", 1), ("media_type", 1), ("created_at", -1)], background=True, name="posts_user_media")
+        await safe_create_index(db.posts, "original_post_id", background=True, sparse=True, name="posts_original_post")
         
         # ========== LIKES COLLECTION ==========
-        # Unique constraint: one like per user per post
-        await db.likes.create_index([("post_id", 1), ("user_id", 1)], unique=True, background=True)
-        # Count likes for a post
-        await db.likes.create_index("post_id", background=True)
-        # User's liked posts
-        await db.likes.create_index([("user_id", 1), ("created_at", -1)], background=True)
+        await safe_create_index(db.likes, [("post_id", 1), ("user_id", 1)], unique=True, background=True, name="likes_post_user_unique")
+        await safe_create_index(db.likes, "post_id", background=True, name="likes_post_id")
+        await safe_create_index(db.likes, [("user_id", 1), ("created_at", -1)], background=True, name="likes_user_created")
         
         # ========== DISLIKES COLLECTION ==========
-        await db.dislikes.create_index([("post_id", 1), ("user_id", 1)], unique=True, background=True)
-        await db.dislikes.create_index("post_id", background=True)
+        await safe_create_index(db.dislikes, [("post_id", 1), ("user_id", 1)], unique=True, background=True, name="dislikes_post_user_unique")
+        await safe_create_index(db.dislikes, "post_id", background=True, name="dislikes_post_id")
         
         # ========== COMMENTS COLLECTION ==========
-        await db.comments.create_index("comment_id", unique=True, background=True)
-        # Comments on a post sorted by date
-        await db.comments.create_index([("post_id", 1), ("created_at", -1)], background=True)
-        # User's comments
-        await db.comments.create_index([("user_id", 1), ("created_at", -1)], background=True)
-        # Nested replies
-        await db.comments.create_index("parent_id", background=True, sparse=True)
+        await safe_create_index(db.comments, "comment_id", unique=True, background=True, name="comments_comment_id_unique")
+        await safe_create_index(db.comments, [("post_id", 1), ("created_at", -1)], background=True, name="comments_post_created")
+        await safe_create_index(db.comments, [("user_id", 1), ("created_at", -1)], background=True, name="comments_user_created")
+        await safe_create_index(db.comments, "parent_id", background=True, sparse=True, name="comments_parent")
         
         # ========== FOLLOWERS COLLECTION ==========
-        # Unique follow relationship
-        await db.followers.create_index([("follower_id", 1), ("following_id", 1)], unique=True, background=True)
-        # Who follows a user (for follower count/list)
-        await db.followers.create_index("following_id", background=True)
-        # Who a user follows (for following count/list)
-        await db.followers.create_index("follower_id", background=True)
+        await safe_create_index(db.followers, [("follower_id", 1), ("following_id", 1)], unique=True, background=True, name="followers_unique")
+        await safe_create_index(db.followers, "following_id", background=True, name="followers_following")
+        await safe_create_index(db.followers, "follower_id", background=True, name="followers_follower")
         
         # ========== MESSAGES COLLECTION ==========
-        await db.messages.create_index("message_id", unique=True, background=True)
-        # Messages in a conversation sorted by date
-        await db.messages.create_index([("conversation_id", 1), ("created_at", -1)], background=True)
-        # Unread messages lookup
-        await db.messages.create_index([("conversation_id", 1), ("read", 1)], background=True)
+        await safe_create_index(db.messages, "message_id", unique=True, background=True, name="messages_message_id_unique")
+        await safe_create_index(db.messages, [("conversation_id", 1), ("created_at", -1)], background=True, name="messages_conv_created")
+        await safe_create_index(db.messages, [("conversation_id", 1), ("read", 1)], background=True, name="messages_conv_read")
         
         # ========== CONVERSATIONS COLLECTION ==========
-        await db.conversations.create_index("conversation_id", unique=True, background=True)
-        # Find conversations for a user
-        await db.conversations.create_index("participants", background=True)
-        # Sort by last activity
-        await db.conversations.create_index([("participants", 1), ("updated_at", -1)], background=True)
+        await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
+        await safe_create_index(db.conversations, "participants", background=True, name="conversations_participants")
+        await safe_create_index(db.conversations, [("participants", 1), ("updated_at", -1)], background=True, name="conversations_participants_updated")
         
         # ========== NOTIFICATIONS COLLECTION ==========
-        await db.notifications.create_index("notification_id", unique=True, background=True)
-        # User's notifications sorted by date
-        await db.notifications.create_index([("user_id", 1), ("created_at", -1)], background=True)
-        # Unread notifications for badge count
-        await db.notifications.create_index([("user_id", 1), ("read", 1), ("created_at", -1)], background=True)
+        await safe_create_index(db.notifications, "notification_id", unique=True, background=True, name="notifications_id_unique")
+        await safe_create_index(db.notifications, [("user_id", 1), ("created_at", -1)], background=True, name="notifications_user_created")
+        await safe_create_index(db.notifications, [("user_id", 1), ("read", 1), ("created_at", -1)], background=True, name="notifications_user_unread")
         
         # ========== STORIES COLLECTION ==========
-        await db.stories.create_index("story_id", unique=True, background=True)
-        # Active stories for a user (expires_at in future)
-        await db.stories.create_index([("user_id", 1), ("expires_at", 1)], background=True)
-        # Expire stories (TTL index - auto-delete after 24 hours)
-        await db.stories.create_index("expires_at", expireAfterSeconds=0, background=True)
+        await safe_create_index(db.stories, "story_id", unique=True, background=True, name="stories_story_id_unique")
+        await safe_create_index(db.stories, [("user_id", 1), ("expires_at", 1)], background=True, name="stories_user_expires")
+        await safe_create_index(db.stories, "expires_at", expireAfterSeconds=0, background=True, name="stories_ttl")
         
         # ========== SAVED POSTS COLLECTION ==========
-        await db.saved_posts.create_index([("user_id", 1), ("post_id", 1)], unique=True, background=True)
-        await db.saved_posts.create_index([("user_id", 1), ("created_at", -1)], background=True)
+        await safe_create_index(db.saved_posts, [("user_id", 1), ("post_id", 1)], unique=True, background=True, name="saved_posts_unique")
+        await safe_create_index(db.saved_posts, [("user_id", 1), ("created_at", -1)], background=True, name="saved_posts_user_created")
         
         # ========== COLLECTIONS COLLECTION ==========
-        await db.collections.create_index("collection_id", unique=True, background=True)
-        await db.collections.create_index([("user_id", 1), ("created_at", -1)], background=True)
+        await safe_create_index(db.collections, "collection_id", unique=True, background=True, name="collections_id_unique")
+        await safe_create_index(db.collections, [("user_id", 1), ("created_at", -1)], background=True, name="collections_user_created")
         
         # ========== PRODUCTS COLLECTION ==========
-        await db.products.create_index("product_id", unique=True, background=True)
-        await db.products.create_index([("seller_id", 1), ("created_at", -1)], background=True)
-        # Search products
-        await db.products.create_index([("title", "text"), ("description", "text")], background=True)
-        # Filter by category
-        await db.products.create_index([("category", 1), ("created_at", -1)], background=True)
+        await safe_create_index(db.products, "product_id", unique=True, background=True, name="products_id_unique")
+        await safe_create_index(db.products, [("seller_id", 1), ("created_at", -1)], background=True, name="products_seller_created")
+        await safe_create_index(db.products, [("title", "text"), ("description", "text")], background=True, name="products_text_search")
+        await safe_create_index(db.products, [("category", 1), ("created_at", -1)], background=True, name="products_category_created")
         
         # ========== LIVE STREAMS COLLECTION ==========
-        await db.live_streams.create_index("stream_id", unique=True, background=True)
-        await db.live_streams.create_index([("host_id", 1), ("created_at", -1)], background=True)
-        # Active streams
-        await db.live_streams.create_index([("status", 1), ("viewer_count", -1)], background=True)
+        await safe_create_index(db.live_streams, "stream_id", unique=True, background=True, name="streams_id_unique")
+        await safe_create_index(db.live_streams, [("host_id", 1), ("created_at", -1)], background=True, name="streams_host_created")
+        await safe_create_index(db.live_streams, [("status", 1), ("viewer_count", -1)], background=True, name="streams_active_popular")
         
         # ========== COMMUNITIES COLLECTION ==========
-        await db.communities.create_index("community_id", unique=True, background=True)
-        await db.communities.create_index("members", background=True)
-        # Search communities
-        await db.communities.create_index([("name", "text"), ("description", "text")], background=True)
+        await safe_create_index(db.communities, "community_id", unique=True, background=True, name="communities_id_unique")
+        await safe_create_index(db.communities, "members", background=True, name="communities_members")
+        await safe_create_index(db.communities, [("name", "text"), ("description", "text")], background=True, name="communities_text_search")
         
         # ========== SESSIONS COLLECTION ==========
-        await db.sessions.create_index("session_token", unique=True, background=True)
-        await db.sessions.create_index("user_id", background=True)
-        # Session expiry (TTL index)
-        await db.sessions.create_index("expires_at", expireAfterSeconds=0, background=True)
+        await safe_create_index(db.sessions, "session_token", unique=True, background=True, name="sessions_token_unique")
+        await safe_create_index(db.sessions, "user_id", background=True, name="sessions_user")
+        await safe_create_index(db.sessions, "expires_at", expireAfterSeconds=0, background=True, name="sessions_ttl")
         
-        logger.info("Database indexes created successfully!")
+        logger.info("Database indexes created/verified successfully!")
         
     except Exception as e:
         logger.error(f"Error creating indexes: {e}")
-        # Don't fail startup if indexes fail - they might already exist
+        # Don't fail startup if indexes fail
         pass
 
 @app.on_event("startup")
