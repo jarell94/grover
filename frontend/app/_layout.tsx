@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Stack, usePathname } from 'expo-router';
 import { AuthProvider } from '../contexts/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ErrorBoundary from '../components/ErrorBoundary';
+import { initSentry } from '../utils/sentry';
+
+// Initialize Sentry as early as possible
+initSentry();
 
 export default function RootLayout() {
   const pathname = usePathname();
