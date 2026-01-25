@@ -94,6 +94,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthToken(session_token);
         setUser(userData);
         
+        // Set user in Sentry for error tracking
+        setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
+        addBreadcrumb('User logged in', 'auth', { userId: userData.user_id });
+        
         console.log('Login successful for user:', userData.email);
         
         // Connect socket
