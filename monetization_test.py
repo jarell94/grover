@@ -226,11 +226,14 @@ class MonetizationTester:
         async with httpx.AsyncClient() as client:
             try:
                 # First ensure monetization is enabled
-                await client.put(
+                put_response = await client.put(
                     f"{API_BASE}/users/me", 
                     headers=headers,
                     data={"monetization_enabled": "true"}
                 )
+                print(f"   DEBUG: PUT response status: {put_response.status_code}")
+                if put_response.status_code != 200:
+                    print(f"   DEBUG: PUT response text: {put_response.text}")
                 
                 # Add a small delay to ensure the update is processed
                 import asyncio
@@ -242,6 +245,23 @@ class MonetizationTester:
                     user_data = me_response.json()
                     monetization_status = user_data.get("monetization_enabled", False)
                     print(f"   DEBUG: User monetization_enabled status: {monetization_status}")
+                    
+                    # If still False, try a different approach
+                    if not monetization_status:
+                        print("   DEBUG: Trying alternative PUT format...")
+                        put_response2 = await client.put(
+                            f"{API_BASE}/users/me", 
+                            headers=headers,
+                            json={"monetization_enabled": True}
+                        )
+                        print(f"   DEBUG: Alternative PUT response status: {put_response2.status_code}")
+                        
+                        # Check again
+                        me_response2 = await client.get(f"{API_BASE}/auth/me", headers=headers)
+                        if me_response2.status_code == 200:
+                            user_data2 = me_response2.json()
+                            monetization_status = user_data2.get("monetization_enabled", False)
+                            print(f"   DEBUG: User monetization_enabled status after retry: {monetization_status}")
                 
                 # Create a test user to tip (or use current user for testing)
                 target_user_id = self.user_id or "test_user_123"
