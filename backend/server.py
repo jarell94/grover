@@ -4378,6 +4378,104 @@ async def react_to_story(
     
     return {"message": "Reaction added"}
 
+
+@api_router.get("/stories/analytics")
+async def get_story_analytics(current_user: User = Depends(require_auth)):
+    """Get analytics for user's stories"""
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+    
+    # Get user's recent stories (past 7 days, including expired)
+    stories = await db.stories.find(
+        {"user_id": current_user.user_id, "created_at": {"$gte": week_ago}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    total_views = 0
+    total_reactions = 0
+    total_stories = len(stories)
+    
+    story_details = []
+    for story in stories:
+        views = story.get("views_count", 0)
+        reactions = story.get("reactions_count", 0)
+        total_views += views
+        total_reactions += reactions
+        
+        # Calculate if story is still active
+        is_active = story.get("expires_at", now) > now
+        time_remaining = None
+        if is_active:
+            remaining = story["expires_at"] - now
+            hours_remaining = remaining.total_seconds() / 3600
+            time_remaining = f"{hours_remaining:.1f}h"
+        
+        story_details.append({
+            "story_id": story["story_id"],
+            "views_count": views,
+            "reactions_count": reactions,
+            "is_active": is_active,
+            "time_remaining": time_remaining,
+            "created_at": story["created_at"],
+            "expires_at": story.get("expires_at"),
+        })
+    
+    # Calculate averages
+    avg_views = total_views / total_stories if total_stories > 0 else 0
+    avg_reactions = total_reactions / total_stories if total_stories > 0 else 0
+    
+    # Get top viewers (users who view your stories most)
+    top_viewers_pipeline = [
+        {"$match": {"story_id": {"$in": [s["story_id"] for s in stories]}}},
+        {"$group": {"_id": "$user_id", "view_count": {"$sum": 1}}},
+        {"$sort": {"view_count": -1}},
+        {"$limit": 10}
+    ]
+    
+    top_viewers_data = await db.story_views.aggregate(top_viewers_pipeline).to_list(10)
+    
+    top_viewers = []
+    for viewer in top_viewers_data:
+        user = await db.users.find_one(
+            {"user_id": viewer["_id"]},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+        )
+        if user:
+            top_viewers.append({
+                "user": user,
+                "view_count": viewer["view_count"]
+            })
+    
+    return {
+        "total_stories": total_stories,
+        "total_views": total_views,
+        "total_reactions": total_reactions,
+        "average_views": round(avg_views, 1),
+        "average_reactions": round(avg_reactions, 1),
+        "stories": story_details,
+        "top_viewers": top_viewers
+    }
+
+
+@api_router.delete("/stories/{story_id}")
+async def delete_story(story_id: str, current_user: User = Depends(require_auth)):
+    """Delete a story"""
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    if story["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this story")
+    
+    # Delete associated views and reactions
+    await db.story_views.delete_many({"story_id": story_id})
+    await db.story_reactions.delete_many({"story_id": story_id})
+    
+    # Delete the story
+    await db.stories.delete_one({"story_id": story_id})
+    
+    return {"message": "Story deleted"}
+
 @api_router.post("/stories/{story_id}/reply")
 async def reply_to_story(
     story_id: str,
