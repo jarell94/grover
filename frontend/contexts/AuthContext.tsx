@@ -47,6 +47,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     
+    // Skip if user is already logged in
+    if (user) {
+      console.log('User already logged in, skipping auth processing');
+      return;
+    }
+    
     try {
       console.log('Processing redirect URL:', url);
       isProcessingAuth.current = true;
@@ -88,10 +94,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (sessionId) {
         console.log('Calling API to create session...');
         const response = await api.createSession(sessionId);
+        console.log('Session created successfully');
         const { session_token, ...userData } = response;
         
+        // Store token FIRST
         await AsyncStorage.setItem('session_token', session_token);
         setAuthToken(session_token);
+        
+        // Then set user state - this will trigger navigation
         setUser(userData);
         
         // Set user in Sentry for error tracking
@@ -111,10 +121,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error) {
       console.error('Process redirect error:', error);
+      // Clear any partial state
+      await AsyncStorage.removeItem('session_token');
+      setAuthToken(null);
     } finally {
       isProcessingAuth.current = false;
     }
-  }, []);
+  }, [user]);
 
   const checkAuth = useCallback(async () => {
     try {
