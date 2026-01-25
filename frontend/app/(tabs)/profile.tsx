@@ -374,7 +374,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
     </>
-  ), [user.is_premium, isPrivate]);
+  ), [user.is_premium, isPrivate, monetizationEnabled]);
 
   return (
     <View style={styles.container}>
