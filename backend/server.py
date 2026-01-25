@@ -21,6 +21,39 @@ from PIL import Image
 from paypal_service import create_payment, execute_payment, get_payment_details
 from paypal_payout_service import send_payout
 
+# Sentry for error tracking
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+
+# Load environment variables first
+load_dotenv()
+
+# Initialize Sentry (must be before FastAPI app initialization)
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=ENVIRONMENT,
+        integrations=[
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(transaction_style="endpoint"),
+        ],
+        # Set traces_sample_rate to capture performance data
+        traces_sample_rate=0.1 if ENVIRONMENT == "production" else 1.0,
+        # Set profiles_sample_rate to profile transactions
+        profiles_sample_rate=0.1 if ENVIRONMENT == "production" else 1.0,
+        # Capture user info (without PII)
+        send_default_pii=False,
+        # Release version
+        release=os.getenv("APP_VERSION", "1.0.0"),
+    )
+    logging.info(f"Sentry initialized for environment: {ENVIRONMENT}")
+else:
+    logging.warning("SENTRY_DSN not set - error tracking disabled")
+
 # Media Service (Cloudinary)
 from media_service import (
     upload_media, 
