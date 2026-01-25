@@ -2969,6 +2969,168 @@ async def mark_notification_read(notification_id: str, current_user: User = Depe
     
     return {"message": "Notification marked as read"}
 
+
+# ============ PUSH NOTIFICATIONS ENDPOINTS ============
+
+class PushTokenData(BaseModel):
+    token: str
+    platform: str = "unknown"  # "ios", "android", "web"
+
+@api_router.post("/push/register")
+async def register_push_token(
+    data: PushTokenData,
+    current_user: User = Depends(require_auth)
+):
+    """Register a device push notification token"""
+    # Upsert the push token for this user/device
+    await db.push_tokens.update_one(
+        {"user_id": current_user.user_id, "token": data.token},
+        {"$set": {
+            "user_id": current_user.user_id,
+            "token": data.token,
+            "platform": data.platform,
+            "updated_at": datetime.now(timezone.utc),
+            "active": True
+        }},
+        upsert=True
+    )
+    
+    logger.info(f"Push token registered for user {current_user.user_id}")
+    return {"message": "Push token registered"}
+
+
+@api_router.delete("/push/unregister")
+async def unregister_push_token(
+    token: str,
+    current_user: User = Depends(require_auth)
+):
+    """Unregister a device push notification token"""
+    await db.push_tokens.update_one(
+        {"user_id": current_user.user_id, "token": token},
+        {"$set": {"active": False}}
+    )
+    return {"message": "Push token unregistered"}
+
+
+async def send_push_notification(
+    user_id: str,
+    title: str,
+    body: str,
+    data: dict = None,
+    channel: str = "default"
+):
+    """
+    Send push notification to a user via Expo Push Notifications
+    
+    Requires EXPO_ACCESS_TOKEN environment variable for production
+    """
+    import httpx
+    
+    # Get user's active push tokens
+    tokens = await db.push_tokens.find(
+        {"user_id": user_id, "active": True},
+        {"token": 1, "_id": 0}
+    ).to_list(10)
+    
+    if not tokens:
+        return {"sent": 0, "reason": "No active push tokens"}
+    
+    # Prepare Expo push messages
+    messages = []
+    for token_doc in tokens:
+        token = token_doc["token"]
+        if not token.startswith("ExponentPushToken"):
+            continue
+            
+        message = {
+            "to": token,
+            "title": title,
+            "body": body,
+            "sound": "default",
+            "channelId": channel,
+        }
+        if data:
+            message["data"] = data
+        messages.append(message)
+    
+    if not messages:
+        return {"sent": 0, "reason": "No valid Expo push tokens"}
+    
+    # Send via Expo Push API
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=messages,
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Content-Type": "application/json",
+                }
+            )
+            result = response.json()
+            logger.info(f"Push notification sent to {user_id}: {result}")
+            return {"sent": len(messages), "result": result}
+    except Exception as e:
+        logger.error(f"Push notification failed: {e}")
+        return {"sent": 0, "error": str(e)}
+
+
+# Helper function to send notification and push
+async def create_and_send_notification(
+    user_id: str,
+    notification_type: str,
+    content: str,
+    related_id: str = None,
+    actor_id: str = None,
+    send_push: bool = True
+):
+    """Create in-app notification and optionally send push notification"""
+    notification_id = f"notif_{uuid.uuid4().hex[:12]}"
+    
+    notification_data = {
+        "notification_id": notification_id,
+        "user_id": user_id,
+        "type": notification_type,
+        "content": content,
+        "related_id": related_id,
+        "actor_id": actor_id,
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.notifications.insert_one(notification_data)
+    
+    # Send push notification
+    if send_push:
+        # Get actor name for push title
+        actor_name = "Someone"
+        if actor_id:
+            actor = await db.users.find_one({"user_id": actor_id}, {"name": 1})
+            if actor:
+                actor_name = actor.get("name", "Someone")
+        
+        # Build push notification
+        push_title = actor_name
+        push_body = content
+        push_channel = "social"
+        
+        if notification_type == "message":
+            push_channel = "messages"
+        elif notification_type in ("follow", "like", "comment"):
+            push_channel = "social"
+        
+        await send_push_notification(
+            user_id=user_id,
+            title=push_title,
+            body=push_body,
+            data={"type": notification_type, "related_id": related_id},
+            channel=push_channel
+        )
+    
+    return notification_id
+
+
 # ============ COLLECTIONS ENDPOINTS ============
 
 @api_router.post("/collections")
