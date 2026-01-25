@@ -225,9 +225,8 @@ class MonetizationTester:
             try:
                 # First ensure monetization is enabled
                 put_response = await client.put(
-                    f"{API_BASE}/users/me", 
-                    headers=headers,
-                    data={"monetization_enabled": "true"}
+                    f"{API_BASE}/users/me?monetization_enabled=true", 
+                    headers=headers
                 )
                 print(f"   DEBUG: PUT response status: {put_response.status_code}")
                 if put_response.status_code != 200:
