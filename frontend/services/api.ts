@@ -409,6 +409,12 @@ export const api = {
   getRevenueAnalytics: () => apiRequest('/analytics/revenue'),
   getEngagementAnalytics: () => apiRequest('/analytics/engagement'),
 
+  // Push Notifications
+  registerPushToken: (token: string, platform: string) => 
+    apiRequest('/push/register', { method: 'POST', body: { token, platform } }),
+  unregisterPushToken: (token: string) => 
+    apiRequest(`/push/unregister?token=${token}`, { method: 'DELETE' }),
+
   // Tips
   sendTip: (userId: string, amount: number, message: string) => apiRequest(`/users/${userId}/tip`, {
     method: 'POST',
