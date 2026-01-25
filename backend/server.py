@@ -3856,6 +3856,13 @@ async def create_subscription_tier(
     if user_id != current_user.user_id:
         raise HTTPException(status_code=403, detail="Can only create tiers for your own profile")
     
+    # Check if creator has monetization enabled
+    if not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403, 
+            detail="You must enable monetization in your profile settings before creating subscription tiers."
+        )
+    
     tier_id = f"tier_{uuid.uuid4().hex[:12]}"
     
     await db.subscription_tiers.insert_one({
