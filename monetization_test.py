@@ -362,15 +362,13 @@ class MonetizationTester:
                     
                     if post_id:
                         # Try to set post as paid - should fail with 403
-                        paid_data = {
-                            "price": 2.99,
-                            "preview_content": "This is a preview..."
-                        }
-                        
                         response = await client.post(
                             f"{API_BASE}/posts/{post_id}/set-paid",
                             headers=headers,
-                            json=paid_data
+                            params={
+                                "price": 2.99,
+                                "preview_content": "This is a preview..."
+                            }
                         )
                         
                         if response.status_code == 403:
