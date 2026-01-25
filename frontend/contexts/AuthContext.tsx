@@ -240,7 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [processRedirectUrl]);
 
-  // Handle deep link on mobile - this is critical for Expo Go auth
+  // Handle deep link on mobile - this is critical for development build auth
   useEffect(() => {
     if (Platform.OS === 'web') return;
     
@@ -259,9 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     Linking.getInitialURL().then((url) => {
       if (url) {
         console.log('Initial URL found:', url);
-        if (url.includes('session_id') || url.includes('auth-callback')) {
-          handleUrl({ url });
-        }
+        handleUrl({ url });
       }
     });
 
