@@ -236,15 +236,13 @@ class MonetizationTester:
                 target_user_id = self.user_id or "test_user_123"
                 
                 # Try to send a tip - should work now
-                tip_data = {
-                    "amount": 5.00,
-                    "message": "Test tip with monetization enabled"
-                }
-                
                 response = await client.post(
                     f"{API_BASE}/users/{target_user_id}/tip",
                     headers=headers,
-                    json=tip_data
+                    params={
+                        "amount": 5.00,
+                        "message": "Test tip with monetization enabled"
+                    }
                 )
                 
                 if response.status_code == 200:
