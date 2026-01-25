@@ -3672,6 +3672,18 @@ REVENUE_SHARE = {
     "paid_content": {"platform": 0.10, "creator": 0.90},  # 10% Grover, 90% Creator
 }
 
+async def check_monetization_enabled(user_id: str, feature_name: str = "monetization"):
+    """Check if a creator has monetization enabled. Raises HTTPException if not."""
+    creator = await db.users.find_one({"user_id": user_id}, {"monetization_enabled": 1})
+    if not creator:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not creator.get("monetization_enabled", False):
+        raise HTTPException(
+            status_code=403, 
+            detail=f"This creator has not enabled {feature_name}. They must enable monetization in their settings first."
+        )
+    return True
+
 def calculate_revenue_split(amount: float, revenue_type: str) -> dict:
     """Calculate the platform fee and creator payout"""
     share = REVENUE_SHARE.get(revenue_type, {"platform": 0.10, "creator": 0.90})
