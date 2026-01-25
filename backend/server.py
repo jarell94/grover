@@ -3899,6 +3899,9 @@ async def subscribe_to_creator(
     if user_id == current_user.user_id:
         raise HTTPException(status_code=400, detail="Cannot subscribe to yourself")
     
+    # Check if creator has monetization enabled
+    await check_monetization_enabled(user_id, "subscriptions")
+    
     tier = await db.subscription_tiers.find_one({"tier_id": tier_id, "creator_id": user_id, "active": True})
     if not tier:
         raise HTTPException(status_code=404, detail="Subscription tier not found")
