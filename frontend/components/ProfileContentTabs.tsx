@@ -39,6 +39,9 @@ type Props = {
     ) => Promise<Post[]>;
   };
   stickyHeader?: boolean;
+  scrollEnabled?: boolean; // Set to false when nested in parent FlatList
+  onRefresh?: () => void; // Parent handles refresh
+  refreshing?: boolean;
 };
 
 const PAGE_SIZE = 18;
