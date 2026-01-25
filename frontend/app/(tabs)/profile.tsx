@@ -45,6 +45,7 @@ export default function ProfileScreen() {
   const [instagram, setInstagram] = useState(user?.instagram || '');
   const [linkedin, setLinkedin] = useState(user?.linkedin || '');
   const [paypalEmail, setPaypalEmail] = useState(user?.paypal_email || '');
+  const [monetizationEnabled, setMonetizationEnabled] = useState(user?.monetization_enabled || false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
