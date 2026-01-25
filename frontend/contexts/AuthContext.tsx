@@ -169,12 +169,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Use window.location.origin directly for proper deployment across all environments
         redirectUrl = window.location.origin + '/';
       } else {
-        // For development builds, use the custom grover:// scheme
-        // This enables proper OAuth redirect handling
-        redirectUrl = makeRedirectUri({
-          scheme: 'grover',
-          path: 'auth-callback',
-        });
+        // For native apps (iOS/Android), use simple scheme URL
+        // Android requires the scheme to match exactly what's in app.json intentFilters
+        redirectUrl = 'grover://auth-callback';
       }
 
       if (!redirectUrl) {
@@ -182,7 +179,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Unable to determine redirect URL');
       }
 
-      console.log('Login - Mode:', mode, 'Redirect URL:', redirectUrl);
+      console.log('Login - Platform:', Platform.OS, 'Mode:', mode, 'Redirect URL:', redirectUrl);
       // Include mode in auth URL for Emergent Auth to differentiate sign up vs sign in
       const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}&mode=${mode}`;
       console.log('Login - Auth URL:', authUrl);
