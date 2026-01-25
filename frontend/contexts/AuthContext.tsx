@@ -158,7 +158,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // For development builds, use the custom grover:// scheme
         // This enables proper OAuth redirect handling
-        redirectUrl = Linking.createURL('/', { scheme: 'grover' });
+        redirectUrl = makeRedirectUri({
+          scheme: 'grover',
+          path: 'auth-callback',
+        });
       }
 
       if (!redirectUrl) {
@@ -177,8 +180,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } else {
         // Use WebBrowser.openAuthSessionAsync for mobile
-        // After auth completes, the browser will redirect to the web preview URL
-        // which will have the session_id and auto-login
         const result = await WebBrowser.openAuthSessionAsync(
           authUrl, 
           redirectUrl,
@@ -187,36 +188,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             preferEphemeralSession: false,
           }
         );
-        console.log('Login - WebBrowser result:', JSON.stringify(result));
+        console.log('Login - WebBrowser result type:', result.type);
         
         if (result.type === 'success' && result.url) {
           console.log('Auth success - processing URL:', result.url);
           await processRedirectUrl(result.url);
-        } else {
-          // For mobile, when browser closes (dismiss/cancel), the web page has the session
-          // We need to check if the web page processed the auth and get the session
-          console.log('Browser closed, checking if web processed auth...');
-          
-          // Wait a moment for any async processes
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Try to fetch session from the web endpoint
-          try {
-            // Check if we now have a valid session by trying to get user data
-            const userData = await api.getMe();
-            if (userData && userData.user_id) {
-              console.log('Found authenticated session after browser close:', userData.email);
-              setUser(userData);
-              // Connect socket
-              try {
-                await socketService.connect(userData.user_id);
-              } catch (error) {
-                console.error('Socket connection failed:', error);
-              }
-            }
-          } catch (e) {
-            console.log('No session found after browser close, user may need to try again');
-          }
+        } else if (result.type === 'dismiss' || result.type === 'cancel') {
+          console.log('Auth dismissed/cancelled by user');
+          // User cancelled, don't do anything
         }
       }
     } catch (error) {
