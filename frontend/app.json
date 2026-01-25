@@ -41,7 +41,8 @@
           "autoVerify": true,
           "data": [
             {
-              "scheme": "grover"
+              "scheme": "grover",
+              "host": "*"
             }
           ],
           "category": [
