@@ -406,6 +406,8 @@ export const api = {
   // Analytics
   getAnalyticsOverview: () => apiRequest('/analytics/overview'),
   getContentPerformance: () => apiRequest('/analytics/content-performance'),
+  getRevenueAnalytics: () => apiRequest('/analytics/revenue'),
+  getEngagementAnalytics: () => apiRequest('/analytics/engagement'),
 
   // Tips
   sendTip: (userId: string, amount: number, message: string) => apiRequest(`/users/${userId}/tip`, {
