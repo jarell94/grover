@@ -9,338 +9,321 @@ import {
   Dimensions,
   RefreshControl,
   FlatList,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { api } from '../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const Colors = {
   primary: '#8B5CF6',
   secondary: '#EC4899',
   background: '#0F172A',
   surface: '#1E293B',
+  card: '#334155',
   text: '#F1F5F9',
   textSecondary: '#94A3B8',
   success: '#10B981',
   warning: '#F59E0B',
   danger: '#EF4444',
+  info: '#0EA5E9',
 };
 
-const formatNumber = (n: any) => {
-  const num = Number(n);
-  if (!Number.isFinite(num)) return '0';
-  return Intl.NumberFormat().format(num);
+// Simple mini chart component
+const MiniChart = ({ data, color, height = 60 }: { data: number[], color: string, height?: number }) => {
+  if (!data || data.length === 0) return null;
+  
+  const max = Math.max(...data, 1);
+  const chartWidth = SCREEN_WIDTH - 80;
+  const barWidth = chartWidth / data.length - 4;
+  
+  return (
+    <View style={[styles.miniChart, { height }]}>
+      {data.map((value, index) => (
+        <View
+          key={index}
+          style={[
+            styles.miniChartBar,
+            {
+              width: barWidth,
+              height: Math.max(4, (value / max) * height),
+              backgroundColor: color,
+              opacity: 0.3 + (index / data.length) * 0.7,
+            }
+          ]}
+        />
+      ))}
+    </View>
+  );
 };
 
-const formatTimestamp = (date: Date) => {
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const minutes = Math.floor(diff / 60000);
+// Stat Card Component
+const StatCard = ({ 
+  icon, 
+  value, 
+  label, 
+  change, 
+  color,
+  onPress 
+}: { 
+  icon: string, 
+  value: string | number, 
+  label: string, 
+  change?: number,
+  color: string,
+  onPress?: () => void
+}) => (
+  <TouchableOpacity 
+    style={[styles.statCard, { borderLeftColor: color }]} 
+    onPress={onPress}
+    activeOpacity={onPress ? 0.7 : 1}
+  >
+    <View style={[styles.statIconBg, { backgroundColor: color + '20' }]}>
+      <Ionicons name={icon as any} size={24} color={color} />
+    </View>
+    <View style={styles.statInfo}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+    {change !== undefined && (
+      <View style={[styles.statChange, { backgroundColor: change >= 0 ? Colors.success + '20' : Colors.danger + '20' }]}>
+        <Ionicons 
+          name={change >= 0 ? 'trending-up' : 'trending-down'} 
+          size={14} 
+          color={change >= 0 ? Colors.success : Colors.danger} 
+        />
+        <Text style={[styles.statChangeText, { color: change >= 0 ? Colors.success : Colors.danger }]}>
+          {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+        </Text>
+      </View>
+    )}
+  </TouchableOpacity>
+);
+
+// Revenue Card Component
+const RevenueCard = ({ revenue, tips, sales }: { revenue: number, tips: number, sales: number }) => (
+  <LinearGradient
+    colors={['#059669', '#10B981', '#34D399']}
+    start={{ x: 0, y: 0 }}
+    end={{ x: 1, y: 1 }}
+    style={styles.revenueCard}
+  >
+    <View style={styles.revenueHeader}>
+      <View style={styles.revenueIconBg}>
+        <Ionicons name="cash" size={28} color="#fff" />
+      </View>
+      <View>
+        <Text style={styles.revenueLabel}>Total Revenue</Text>
+        <Text style={styles.revenueValue}>${revenue.toFixed(2)}</Text>
+      </View>
+    </View>
+    
+    <View style={styles.revenueBreakdown}>
+      <View style={styles.revenueItem}>
+        <Ionicons name="gift" size={18} color="rgba(255,255,255,0.8)" />
+        <Text style={styles.revenueItemLabel}>Tips</Text>
+        <Text style={styles.revenueItemValue}>${tips.toFixed(2)}</Text>
+      </View>
+      <View style={styles.revenueDivider} />
+      <View style={styles.revenueItem}>
+        <Ionicons name="cart" size={18} color="rgba(255,255,255,0.8)" />
+        <Text style={styles.revenueItemLabel}>Sales</Text>
+        <Text style={styles.revenueItemValue}>${sales.toFixed(2)}</Text>
+      </View>
+    </View>
+  </LinearGradient>
+);
+
+// Follower Growth Chart
+const FollowerGrowthChart = ({ data }: { data: Array<{ date: string, new_followers: number }> }) => {
+  if (!data || data.length === 0) return null;
   
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  const chartData = data.map(d => d.new_followers);
+  const total = chartData.reduce((a, b) => a + b, 0);
+  const max = Math.max(...chartData, 1);
   
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  
-  return date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  });
+  return (
+    <View style={styles.chartCard}>
+      <View style={styles.chartHeader}>
+        <Text style={styles.chartTitle}>Follower Growth</Text>
+        <View style={styles.chartBadge}>
+          <Ionicons name="arrow-up" size={14} color={Colors.success} />
+          <Text style={styles.chartBadgeText}>+{total} this week</Text>
+        </View>
+      </View>
+      
+      <View style={styles.barChart}>
+        {data.map((item, index) => {
+          const barHeight = Math.max(8, (item.new_followers / max) * 100);
+          const dayName = new Date(item.date).toLocaleDateString('en-US', { weekday: 'short' });
+          
+          return (
+            <View key={index} style={styles.barContainer}>
+              <Text style={styles.barValue}>{item.new_followers}</Text>
+              <View style={styles.barWrapper}>
+                <LinearGradient
+                  colors={[Colors.primary, Colors.secondary]}
+                  style={[styles.bar, { height: barHeight }]}
+                />
+              </View>
+              <Text style={styles.barLabel}>{dayName}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
 };
 
-interface ContentItem {
-  id: string;
-  post_id?: string;
-  content: string;
-  views: number;
-  likes: number;
-  comments: number;
-  shares: number;
-  score: number;
-}
+// Top Post Card
+const TopPostCard = ({ post, rank }: { post: any, rank: number }) => (
+  <TouchableOpacity 
+    style={styles.topPostCard}
+    onPress={() => post.post_id && router.push(`/post/${post.post_id}`)}
+    activeOpacity={0.8}
+  >
+    <View style={[styles.rankBadge, { backgroundColor: rank === 1 ? Colors.warning : rank === 2 ? Colors.textSecondary : '#CD7F32' }]}>
+      <Text style={styles.rankText}>#{rank}</Text>
+    </View>
+    
+    <View style={styles.topPostInfo}>
+      <Text style={styles.topPostContent} numberOfLines={2}>
+        {post.content || 'Media post'}
+      </Text>
+      <View style={styles.topPostStats}>
+        <View style={styles.topPostStat}>
+          <Ionicons name="heart" size={14} color={Colors.secondary} />
+          <Text style={styles.topPostStatText}>{post.likes_count || 0}</Text>
+        </View>
+        <View style={styles.topPostStat}>
+          <Ionicons name="chatbubble" size={14} color={Colors.info} />
+          <Text style={styles.topPostStatText}>{post.comments_count || 0}</Text>
+        </View>
+        <View style={styles.topPostStat}>
+          <Ionicons name="repeat" size={14} color={Colors.success} />
+          <Text style={styles.topPostStatText}>{post.repost_count || 0}</Text>
+        </View>
+      </View>
+    </View>
+    
+    <View style={styles.topPostScore}>
+      <Text style={styles.topPostScoreValue}>{post.engagement_score || 0}</Text>
+      <Text style={styles.topPostScoreLabel}>Score</Text>
+    </View>
+  </TouchableOpacity>
+);
 
-type RawContentItem = any;
-
-/**
- * Normalize content item from different API response formats
- */
-function normalizeContentItem(item: RawContentItem): ContentItem {
-  return {
-    id: item.id ?? item.post_id ?? `item-${Date.now()}-${Math.random()}`,
-    post_id: item.post_id,
-    content: item.content ?? item.caption ?? "",
-    views: item.views ?? item.view_count ?? item.views_count ?? 0,
-    likes: item.likes ?? item.likes_count ?? 0,
-    comments: item.comments ?? item.comments_count ?? 0,
-    shares: item.shares ?? item.shares_count ?? 0,
-    score: item.score ?? 0,
-  };
-}
+// Time Period Selector
+const TimePeriodSelector = ({ selected, onSelect }: { selected: string, onSelect: (period: string) => void }) => {
+  const periods = ['7D', '30D', '90D', 'ALL'];
+  
+  return (
+    <View style={styles.periodSelector}>
+      {periods.map((period) => (
+        <TouchableOpacity
+          key={period}
+          style={[styles.periodButton, selected === period && styles.periodButtonActive]}
+          onPress={() => onSelect(period)}
+        >
+          <Text style={[styles.periodButtonText, selected === period && styles.periodButtonTextActive]}>
+            {period}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
 
 export default function AnalyticsScreen() {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState<any>(null);
-  const [contentPerformance, setContentPerformance] = useState<ContentItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [timePeriod, setTimePeriod] = useState('7D');
+  
+  // Analytics data
+  const [overview, setOverview] = useState<any>(null);
+  const [contentPerformance, setContentPerformance] = useState<any[]>([]);
+  const [revenueData, setRevenueData] = useState({ total: 0, tips: 0, sales: 0 });
+  const [engagementData, setEngagementData] = useState<any>(null);
 
-  // Safe engagement change number parsing
-  const engagementChangeNum = useMemo(() => {
-    const n = Number(overview?.engagement_change);
-    return Number.isFinite(n) ? n : null;
-  }, [overview]);
-
-  const engagementChangePositive = engagementChangeNum !== null && engagementChangeNum >= 0;
-
-  // Load analytics with mounted flag
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      setLoading(true);
-      try {
-        const [overviewData, performanceData] = await Promise.all([
-          api.getAnalyticsOverview(),
-          api.getContentPerformance(),
-        ]);
-
-        if (!mounted) return;
-
-        setOverview(overviewData);
-        setContentPerformance(
-          Array.isArray(performanceData) 
-            ? performanceData.map(normalizeContentItem) 
-            : []
-        );
-        setLastUpdated(new Date());
-      } catch (e) {
-        if (mounted) Alert.alert("Error", "Failed to load analytics");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
+  const formatNumber = useCallback((n: any) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toLocaleString();
   }, []);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
+  const loadAnalytics = useCallback(async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    
     try {
-      const [overviewData, performanceData] = await Promise.all([
+      const [overviewRes, performanceRes, revenueRes, engagementRes] = await Promise.allSettled([
         api.getAnalyticsOverview(),
         api.getContentPerformance(),
+        api.getRevenueAnalytics(),
+        api.getEngagementAnalytics(),
       ]);
-      setOverview(overviewData);
-      setContentPerformance(
-        Array.isArray(performanceData) 
-          ? performanceData.map(normalizeContentItem) 
-          : []
-      );
-      setLastUpdated(new Date());
+      
+      if (overviewRes.status === 'fulfilled') {
+        setOverview(overviewRes.value);
+      }
+      
+      if (performanceRes.status === 'fulfilled' && Array.isArray(performanceRes.value)) {
+        setContentPerformance(performanceRes.value.slice(0, 5));
+      }
+      
+      if (revenueRes.status === 'fulfilled') {
+        const rev = revenueRes.value;
+        setRevenueData({
+          total: rev?.total_revenue || rev?.total || 0,
+          tips: rev?.tips || 0,
+          sales: rev?.sales || 0,
+        });
+      }
+      
+      if (engagementRes.status === 'fulfilled') {
+        setEngagementData(engagementRes.value);
+      }
     } catch (error) {
-      console.error('Refresh analytics error:', error);
+      console.error('Analytics load error:', error);
+      Alert.alert('Error', 'Failed to load analytics');
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  // Safe getter for engagement rate
-  const getEngagementRate = () => {
-    if (overview?.engagement_rate === null || overview?.engagement_rate === undefined) {
-      return '0';
-    }
-    const rate = Number(overview.engagement_rate);
-    return Number.isFinite(rate) ? rate.toFixed(1) : '0';
-  };
+  useEffect(() => {
+    loadAnalytics();
+  }, [loadAnalytics]);
 
-  // Safe getter for engagement change
-  const getEngagementChange = () => {
-    if (engagementChangeNum === null) return '0.0';
-    return engagementChangeNum >= 0 
-      ? `+${engagementChangeNum.toFixed(1)}` 
-      : engagementChangeNum.toFixed(1);
-  };
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadAnalytics(false);
+  }, [loadAnalytics]);
 
-  const renderContentItem = ({ item, index }: { item: ContentItem; index: number }) => {
-    const postId = item.post_id ?? item.id;
-    return (
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={() => {
-          if (!postId) return;
-          router.push(`/post/${postId}`);
-        }}
-        style={styles.contentCard}
-      >
-        <View style={styles.contentRank}>
-          <Text style={styles.contentRankText}>#{index + 1}</Text>
-        </View>
+  // Calculated metrics
+  const engagementRate = useMemo(() => {
+    if (!overview) return 0;
+    const totalInteractions = (overview.total_reactions || 0) + (overview.total_comments || 0);
+    const totalViews = overview.total_views || 1;
+    return ((totalInteractions / totalViews) * 100).toFixed(1);
+  }, [overview]);
 
-        <View style={styles.contentInfo}>
-          <Text style={styles.contentText} numberOfLines={2}>
-            {item.content || 'Media post'}
-          </Text>
-
-          <View style={styles.contentStats}>
-            <View style={styles.contentStat}>
-              <Ionicons name="eye-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.contentStatText}>{formatNumber(item.views)}</Text>
-            </View>
-            <View style={styles.contentStat}>
-              <Ionicons name="heart-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.contentStatText}>{formatNumber(item.likes)}</Text>
-            </View>
-            <View style={styles.contentStat}>
-              <Ionicons name="chatbubble-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.contentStatText}>{formatNumber(item.comments)}</Text>
-            </View>
-            <View style={styles.contentStat}>
-              <Ionicons name="share-social-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.contentStatText}>{formatNumber(item.shares)}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.contentScore}>
-          <Text style={styles.contentScoreText}>{formatNumber(item.score)}</Text>
-          <Text style={styles.contentScoreLabel}>score</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  const renderEmptyContent = () => (
-    <View style={styles.emptyState}>
-      <Ionicons name="bar-chart-outline" size={60} color={Colors.textSecondary} />
-      <Text style={styles.emptyTitle}>No Data Yet</Text>
-      <Text style={styles.emptySubtitle}>Create more content to see your analytics</Text>
-    </View>
-  );
-
-  const renderListHeader = () => (
-    <>
-      {/* Overview Cards */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Overview</Text>
-        <View style={styles.statsGrid}>
-          <View style={[styles.statCard, { backgroundColor: Colors.primary + '20' }]}>
-            <Ionicons name="eye" size={28} color={Colors.primary} />
-            <Text style={styles.statValue}>{formatNumber(overview?.total_views)}</Text>
-            <Text style={styles.statLabel}>Total Views</Text>
-          </View>
-
-          <View style={[styles.statCard, { backgroundColor: Colors.secondary + '20' }]}>
-            <Ionicons name="heart" size={28} color={Colors.secondary} />
-            <Text style={styles.statValue}>{formatNumber(overview?.total_likes)}</Text>
-            <Text style={styles.statLabel}>Total Likes</Text>
-          </View>
-
-          <View style={[styles.statCard, { backgroundColor: Colors.success + '20' }]}>
-            <Ionicons name="people" size={28} color={Colors.success} />
-            <Text style={styles.statValue}>{formatNumber(overview?.total_followers)}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </View>
-
-          <View style={[styles.statCard, { backgroundColor: Colors.warning + '20' }]}>
-            <Ionicons name="chatbubbles" size={28} color={Colors.warning} />
-            <Text style={styles.statValue}>{formatNumber(overview?.total_comments)}</Text>
-            <Text style={styles.statLabel}>Comments</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Engagement Rate */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Engagement</Text>
-        <View style={styles.engagementCard}>
-          <LinearGradient
-            colors={['#8B5CF6', '#EC4899']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.engagementGradient}
-          >
-            <View style={styles.engagementContent}>
-              <Text style={styles.engagementValue}>
-                {getEngagementRate()}%
-              </Text>
-              <Text style={styles.engagementLabel}>Engagement Rate</Text>
-
-              <View style={styles.engagementMeta}>
-                <View style={styles.engagementMetaItem}>
-                  <Ionicons 
-                    name={engagementChangeNum === null ? "remove" : engagementChangePositive ? "arrow-up" : "arrow-down"} 
-                    size={16} 
-                    color={engagementChangeNum === null ? "rgba(255,255,255,0.8)" : engagementChangePositive ? "#10B981" : "#EF4444"} 
-                  />
-                  <Text style={styles.engagementMetaText}>
-                    {engagementChangeNum === null ? "0.0% vs last week" : `${getEngagementChange()}% vs last week`}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
-      </View>
-
-      {/* Title for list section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Top Performing Content</Text>
-      </View>
-    </>
-  );
-
-  const renderListFooter = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Insights</Text>
-
-      <View style={styles.insightCard}>
-        <View style={styles.insightIcon}>
-          <Ionicons name="bulb" size={24} color={Colors.warning} />
-        </View>
-        <View style={styles.insightContent}>
-          <Text style={styles.insightTitle}>Best Time to Post</Text>
-          <Text style={styles.insightText}>{overview?.best_time || 'Weekdays 6-9 PM'}</Text>
-        </View>
-      </View>
-
-      <View style={styles.insightCard}>
-        <View style={styles.insightIcon}>
-          <Ionicons name="trending-up" size={24} color={Colors.success} />
-        </View>
-        <View style={styles.insightContent}>
-          <Text style={styles.insightTitle}>Top Content Type</Text>
-          <Text style={styles.insightText}>
-            {overview?.top_content_type || 'Images with text'}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.insightCard}>
-        <View style={styles.insightIcon}>
-          <Ionicons name="people" size={24} color={Colors.primary} />
-        </View>
-        <View style={styles.insightContent}>
-          <Text style={styles.insightTitle}>Audience Growth</Text>
-          <Text style={styles.insightText}>
-            +{formatNumber(overview?.new_followers)} new followers this week
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
+  const followerGrowth = useMemo(() => {
+    return overview?.follower_growth || [];
+  }, [overview]);
 
   if (loading) {
     return (
       <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading analytics...</Text>
       </View>
     );
   }
@@ -349,138 +332,579 @@ export default function AnalyticsScreen() {
     <View style={styles.container}>
       {/* Header */}
       <LinearGradient
-        colors={['#8B5CF6', '#EC4899', '#0EA5E9']}
+        colors={[Colors.primary, Colors.secondary]}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.header}
+        end={{ x: 1, y: 0 }}
+        style={[styles.header, { paddingTop: insets.top + 16 }]}
       >
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Analytics</Text>
-            {lastUpdated && (
-              <Text style={styles.lastUpdated}>
-                Updated {formatTimestamp(lastUpdated)}
-              </Text>
-            )}
-          </View>
-
-          <TouchableOpacity onPress={onRefresh} style={styles.headerButton}>
-            <Ionicons name="refresh" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Analytics Dashboard</Text>
+        <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
+          <Ionicons name="refresh" size={24} color="#fff" />
+        </TouchableOpacity>
       </LinearGradient>
 
-      {/* Main FlatList with all content */}
-      <FlatList
-        data={contentPerformance}
-        keyExtractor={(item, index) => item?.id ?? item?.post_id ?? `content-${index}`}
-        renderItem={renderContentItem}
-        ListEmptyComponent={renderEmptyContent}
-        ListHeaderComponent={renderListHeader}
-        ListFooterComponent={renderListFooter}
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 24 }}
-        initialNumToRender={6}
-        maxToRenderPerBatch={10}
-        windowSize={7}
-        removeClippedSubviews
-      />
+      >
+        {/* Time Period Selector */}
+        <TimePeriodSelector selected={timePeriod} onSelect={setTimePeriod} />
+
+        {/* Revenue Card */}
+        <View style={styles.section}>
+          <RevenueCard 
+            revenue={revenueData.total} 
+            tips={revenueData.tips} 
+            sales={revenueData.sales} 
+          />
+        </View>
+
+        {/* Quick Stats */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Overview</Text>
+          <View style={styles.statsGrid}>
+            <StatCard
+              icon="document-text"
+              value={formatNumber(overview?.total_posts)}
+              label="Total Posts"
+              color={Colors.primary}
+            />
+            <StatCard
+              icon="people"
+              value={formatNumber(overview?.total_followers)}
+              label="Followers"
+              change={overview?.follower_change}
+              color={Colors.success}
+            />
+            <StatCard
+              icon="heart"
+              value={formatNumber(overview?.total_reactions)}
+              label="Reactions"
+              color={Colors.secondary}
+            />
+            <StatCard
+              icon="pulse"
+              value={`${engagementRate}%`}
+              label="Engagement"
+              color={Colors.info}
+            />
+          </View>
+        </View>
+
+        {/* Follower Growth Chart */}
+        <View style={styles.section}>
+          <FollowerGrowthChart data={followerGrowth} />
+        </View>
+
+        {/* Engagement Breakdown */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Engagement Breakdown</Text>
+          <View style={styles.engagementGrid}>
+            <View style={styles.engagementItem}>
+              <View style={[styles.engagementDot, { backgroundColor: Colors.secondary }]} />
+              <Text style={styles.engagementLabel}>Likes</Text>
+              <Text style={styles.engagementValue}>{formatNumber(engagementData?.likes || overview?.total_reactions || 0)}</Text>
+            </View>
+            <View style={styles.engagementItem}>
+              <View style={[styles.engagementDot, { backgroundColor: Colors.info }]} />
+              <Text style={styles.engagementLabel}>Comments</Text>
+              <Text style={styles.engagementValue}>{formatNumber(engagementData?.comments || 0)}</Text>
+            </View>
+            <View style={styles.engagementItem}>
+              <View style={[styles.engagementDot, { backgroundColor: Colors.success }]} />
+              <Text style={styles.engagementLabel}>Shares</Text>
+              <Text style={styles.engagementValue}>{formatNumber(engagementData?.shares || 0)}</Text>
+            </View>
+            <View style={styles.engagementItem}>
+              <View style={[styles.engagementDot, { backgroundColor: Colors.warning }]} />
+              <Text style={styles.engagementLabel}>Saves</Text>
+              <Text style={styles.engagementValue}>{formatNumber(engagementData?.saves || 0)}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Top Performing Content */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Top Performing Posts</Text>
+            <TouchableOpacity onPress={() => router.push('/profile')}>
+              <Text style={styles.seeAllText}>See All</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {contentPerformance.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="bar-chart-outline" size={48} color={Colors.textSecondary} />
+              <Text style={styles.emptyText}>No posts yet</Text>
+              <Text style={styles.emptySubtext}>Create content to see performance</Text>
+            </View>
+          ) : (
+            contentPerformance.map((post, index) => (
+              <TopPostCard key={post.post_id || index} post={post} rank={index + 1} />
+            ))
+          )}
+        </View>
+
+        {/* Insights */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Insights & Tips</Text>
+          
+          <View style={styles.insightCard}>
+            <LinearGradient
+              colors={[Colors.primary + '30', Colors.secondary + '30']}
+              style={styles.insightGradient}
+            >
+              <Ionicons name="bulb" size={24} color={Colors.warning} />
+              <View style={styles.insightContent}>
+                <Text style={styles.insightTitle}>Best Time to Post</Text>
+                <Text style={styles.insightText}>Your audience is most active on weekdays between 6-9 PM</Text>
+              </View>
+            </LinearGradient>
+          </View>
+
+          <View style={styles.insightCard}>
+            <LinearGradient
+              colors={[Colors.success + '30', Colors.info + '30']}
+              style={styles.insightGradient}
+            >
+              <Ionicons name="trending-up" size={24} color={Colors.success} />
+              <View style={styles.insightContent}>
+                <Text style={styles.insightTitle}>Growing Content</Text>
+                <Text style={styles.insightText}>Videos are getting 2.5x more engagement than photos</Text>
+              </View>
+            </LinearGradient>
+          </View>
+
+          <View style={styles.insightCard}>
+            <LinearGradient
+              colors={[Colors.warning + '30', Colors.danger + '30']}
+              style={styles.insightGradient}
+            >
+              <Ionicons name="people" size={24} color={Colors.info} />
+              <View style={styles.insightContent}>
+                <Text style={styles.insightTitle}>Audience Demographics</Text>
+                <Text style={styles.insightText}>65% of your followers are aged 18-34</Text>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+
+        {/* Bottom Padding */}
+        <View style={{ height: 100 }} />
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  centered: { justifyContent: 'center', alignItems: 'center' },
-
-  header: { paddingTop: 60, paddingBottom: 20, paddingHorizontal: 16 },
-  headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerButton: { width: 40, alignItems: 'center' },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  lastUpdated: { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
-
-  section: { paddingHorizontal: 16, paddingTop: 16 },
-  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: Colors.text, marginBottom: 16 },
-
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Colors.textSecondary,
+  },
+  
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  refreshButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  content: {
+    flex: 1,
+  },
+  
+  // Time Period Selector
+  periodSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  periodButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+  },
+  periodButtonActive: {
+    backgroundColor: Colors.primary,
+  },
+  periodButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  periodButtonTextActive: {
+    color: '#fff',
+  },
+  
+  // Section
+  section: {
+    paddingHorizontal: 16,
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+    marginBottom: 16,
+  },
+  seeAllText: {
+    fontSize: 14,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  
+  // Stats Grid
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
   statCard: {
-    width: (width - 48) / 2,
-    padding: 20,
+    width: (SCREEN_WIDTH - 44) / 2,
+    backgroundColor: Colors.surface,
     borderRadius: 16,
+    padding: 16,
+    borderLeftWidth: 4,
+  },
+  statIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statInfo: {
+    gap: 4,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  statLabel: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  statChange: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statChangeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  
+  // Revenue Card
+  revenueCard: {
+    borderRadius: 20,
+    padding: 20,
+  },
+  revenueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 20,
+  },
+  revenueIconBg: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  revenueLabel: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  revenueValue: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  revenueBreakdown: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    padding: 16,
+  },
+  revenueItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  revenueDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  revenueItemLabel: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  revenueItemValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  
+  // Chart Card
+  chartCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 20,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  chartBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.success + '20',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  chartBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.success,
+  },
+  
+  // Bar Chart
+  barChart: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 140,
+  },
+  barContainer: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  barValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 8,
+  },
+  barWrapper: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    width: '100%',
+    paddingHorizontal: 4,
+  },
+  bar: {
+    width: '100%',
+    borderRadius: 4,
+    minHeight: 8,
+  },
+  barLabel: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginTop: 8,
+  },
+  
+  // Mini Chart
+  miniChart: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  miniChartBar: {
+    borderRadius: 2,
+  },
+  
+  // Engagement Grid
+  engagementGrid: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+  },
+  engagementItem: {
+    flex: 1,
     alignItems: 'center',
     gap: 8,
   },
-  statValue: { fontSize: 28, fontWeight: 'bold', color: Colors.text },
-  statLabel: { fontSize: 14, color: Colors.textSecondary },
-
-  engagementCard: { borderRadius: 16, overflow: 'hidden' },
-  engagementGradient: { padding: 24 },
-  engagementContent: { alignItems: 'center' },
-  engagementValue: { fontSize: 48, fontWeight: 'bold', color: '#fff' },
-  engagementLabel: { fontSize: 18, color: 'rgba(255,255,255,0.9)', marginTop: 8 },
-  engagementMeta: { marginTop: 16 },
-  engagementMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  engagementMetaText: { fontSize: 14, color: 'rgba(255,255,255,0.8)' },
-
-  contentCard: {
+  engagementDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  engagementLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  engagementValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  
+  // Top Post Card
+  topPostCard: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: 16,
-    marginHorizontal: 16,
     marginBottom: 12,
-    alignItems: 'center',
     gap: 12,
   },
-  contentRank: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primary + '20',
+  rankBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  contentRankText: { fontSize: 16, fontWeight: 'bold', color: Colors.primary },
-  contentInfo: { flex: 1, gap: 8 },
-  contentText: { fontSize: 14, color: Colors.text, lineHeight: 20 },
-  contentStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  contentStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  contentStatText: { fontSize: 12, color: Colors.textSecondary },
-
-  contentScore: { alignItems: 'center' },
-  contentScoreText: { fontSize: 20, fontWeight: 'bold', color: Colors.success },
-  contentScoreLabel: { fontSize: 10, color: Colors.textSecondary },
-
-  insightCard: {
+  rankText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  topPostInfo: {
+    flex: 1,
+    gap: 8,
+  },
+  topPostContent: {
+    fontSize: 14,
+    color: Colors.text,
+    lineHeight: 20,
+  },
+  topPostStats: {
     flexDirection: 'row',
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    alignItems: 'center',
     gap: 16,
   },
-  insightIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
+  topPostStat: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
-  insightContent: { flex: 1 },
-  insightTitle: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 4 },
-  insightText: { fontSize: 14, color: Colors.textSecondary },
-
-  emptyState: { alignItems: 'center', paddingVertical: 40 },
-  emptyTitle: { fontSize: 18, fontWeight: 'bold', color: Colors.text, marginTop: 16 },
-  emptySubtitle: { fontSize: 14, color: Colors.textSecondary, marginTop: 8, textAlign: 'center' },
+  topPostStatText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  topPostScore: {
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  topPostScoreValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.success,
+  },
+  topPostScoreLabel: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+  },
+  
+  // Insight Card
+  insightCard: {
+    marginBottom: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  insightGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 16,
+  },
+  insightContent: {
+    flex: 1,
+  },
+  insightTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  insightText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  
+  // Empty State
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 8,
+  },
 });
