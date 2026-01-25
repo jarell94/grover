@@ -5250,6 +5250,9 @@ async def send_super_chat(
     if not stream.get("enable_super_chat"):
         raise HTTPException(status_code=400, detail="Super chat not enabled")
     
+    # Check if streamer has monetization enabled
+    await check_monetization_enabled(stream["user_id"], "super chat")
+    
     # Calculate revenue split (10% platform, 90% creator)
     split = calculate_revenue_split(amount, "super_chat")
     
