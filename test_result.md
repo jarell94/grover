@@ -659,14 +659,15 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Optional Monetization Toggle Feature"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
   - agent: "main"
-    message: "Implemented Marketplace screen with full product CRUD, discount codes support. Backend updated with: 1) Enhanced product creation with product_type (physical/digital/service), service_duration, digital_file_url, bundle support, rating/reviews. 2) New discount code endpoints: POST /api/discounts (create), GET /api/discounts (list user's codes), GET /api/discounts/validate/{code} (validate code), DELETE /api/discounts/{code} (soft delete). Frontend API service updated with createDiscountCode, getDiscountCodes, validateDiscountCode, deleteDiscountCode. Please test new marketplace and discount endpoints."
+    message: "Implemented Optional Monetization Feature: Creators can now toggle monetization ON/OFF in their profile settings. When OFF (default), monetization features are disabled. When ON, creators can receive tips, create subscription tiers, and sell paid content. BACKEND CHANGES: 1) Added monetization_enabled field to User model (default: false), 2) Added monetization_enabled parameter to PUT /users/me endpoint, 3) Created check_monetization_enabled() helper function, 4) Added monetization check to POST /users/{user_id}/tip, POST /creators/{user_id}/subscription-tiers, POST /creators/{user_id}/subscribe/{tier_id}, POST /posts/{post_id}/set-paid, POST /streams/{stream_id}/super-chat. All endpoints now return 403 if creator has not enabled monetization. FRONTEND CHANGES: Added monetization toggle switch in profile Account section with subtext description. Please test the monetization toggle feature by: 1) Testing PUT /users/me with monetization_enabled=true/false, 2) Testing that tip endpoint returns 403 when creator has monetization disabled, 3) Testing that subscription tier creation returns 403 when monetization disabled."
   - agent: "testing"
     message: "✅ MARKETPLACE AND DISCOUNT CODE BACKEND TESTING COMPLETE (7/7 tests passed - 100% success rate): All new marketplace and discount code endpoints are fully functional and production-ready. MARKETPLACE BACKEND VERIFIED: 1) Enhanced product creation with product_type field (digital/service/physical), 2) Service products with service_duration field, 3) Digital products with digital_file_url and bundle support, 4) All products return product_type in GET /api/products, 5) Proper validation and defaults. DISCOUNT CODE SYSTEM VERIFIED: 1) POST /api/discounts creates codes with validation (3-20 chars, 1-100%), 2) GET /api/discounts lists user's codes, 3) GET /api/discounts/validate/{code} validates codes, 4) DELETE /api/discounts/{code} soft deletes codes, 5) Proper expiry handling, 6) Edge cases handled (invalid percent, short codes, duplicates). Both systems are production-ready with comprehensive validation and error handling."
 
