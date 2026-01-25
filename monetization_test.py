@@ -247,9 +247,8 @@ class MonetizationTester:
                     if not monetization_status:
                         print("   DEBUG: Trying alternative PUT format...")
                         put_response2 = await client.put(
-                            f"{API_BASE}/users/me", 
-                            headers=headers,
-                            json={"monetization_enabled": True}
+                            f"{API_BASE}/users/me?monetization_enabled=true", 
+                            headers=headers
                         )
                         print(f"   DEBUG: Alternative PUT response status: {put_response2.status_code}")
                         
