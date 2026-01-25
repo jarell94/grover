@@ -59,8 +59,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#000"
         }
-      ],
-      "@sentry/react-native"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
