@@ -2,6 +2,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
+import { captureError, addBreadcrumb } from '../utils/sentry';
 
 interface Props {
   children: ReactNode;
@@ -29,6 +30,18 @@ export class ErrorBoundary extends Component<Props, State> {
     if (__DEV__) {
       console.error('ErrorBoundary caught:', error, errorInfo);
     }
+    
+    // Report to Sentry
+    captureError(error, {
+      componentStack: errorInfo.componentStack,
+      boundary: 'ErrorBoundary',
+    });
+    
+    // Add breadcrumb for debugging
+    addBreadcrumb('Error caught by ErrorBoundary', 'error', {
+      errorMessage: error.message,
+    });
+    
     this.props.onError?.(error, errorInfo);
   }
 
@@ -39,6 +52,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   handleRetry = () => {
+    addBreadcrumb('User tapped retry in ErrorBoundary', 'user');
     this.setState({ hasError: false, error: null });
   };
 
