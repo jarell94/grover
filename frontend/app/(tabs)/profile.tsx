@@ -134,6 +134,25 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleToggleMonetization = async (value: boolean) => {
+    const prev = monetizationEnabled;
+    setMonetizationEnabled(value);
+
+    try {
+      await api.updateProfile({ monetization_enabled: value });
+      await refreshUser();
+      if (value) {
+        Alert.alert(
+          "Monetization Enabled",
+          "You can now receive tips, create subscription tiers, and sell paid content. Make sure to add your PayPal email to receive payments!"
+        );
+      }
+    } catch (e) {
+      setMonetizationEnabled(prev);
+      Alert.alert("Error", "Failed to update monetization settings");
+    }
+  };
+
   const handlePremiumSubscribe = async () => {
     if (subscribing) return;
     setSubscribing(true);
