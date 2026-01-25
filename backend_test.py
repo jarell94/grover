@@ -12,7 +12,7 @@ import os
 import sys
 
 # Configuration
-BACKEND_URL = "https://social-maker-4.preview.emergentagent.com/api"
+BACKEND_URL = "https://mediashare-370.preview.emergentagent.com/api"
 TEST_USER_EMAIL = f"testuser_{uuid.uuid4().hex[:8]}@example.com"
 TEST_USER_NAME = "Test User Marketplace"
 
