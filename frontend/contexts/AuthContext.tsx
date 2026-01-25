@@ -304,6 +304,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAuthToken(null);
       setUser(null);
       socketService.disconnect();
+      
+      // Clear Sentry user context
+      setSentryUser(null);
+      addBreadcrumb('User logged out', 'auth');
     }
   };
 
