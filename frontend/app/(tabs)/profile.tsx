@@ -349,6 +349,23 @@ export default function ProfileScreen() {
           <Switch value={isPrivate} onValueChange={handleTogglePrivacy} />
         </TouchableOpacity>
 
+        <TouchableOpacity style={styles.menuItem}>
+          <View style={styles.menuItemLeft}>
+            <Ionicons name="cash" size={24} color={Colors.accent} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.menuItemText}>Monetization</Text>
+              <Text style={styles.menuItemSubtext}>
+                Enable tips, subscriptions & paid content
+              </Text>
+            </View>
+          </View>
+          <Switch 
+            value={monetizationEnabled} 
+            onValueChange={handleToggleMonetization}
+            trackColor={{ false: Colors.border, true: Colors.accent }}
+          />
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
           <View style={styles.menuItemLeft}>
             <Ionicons name="log-out" size={24} color={Colors.error} />
