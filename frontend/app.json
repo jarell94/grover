@@ -8,6 +8,13 @@
     "scheme": "grover",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "owner": "emergent",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": false
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.grover.app",
