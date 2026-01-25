@@ -398,6 +398,7 @@ class User(BaseModel):
     bio: Optional[str] = ""
     is_premium: bool = False
     is_private: bool = False
+    monetization_enabled: bool = False  # Creator monetization toggle (tips, subscriptions, paid content)
     website: Optional[str] = None
     twitter: Optional[str] = None
     instagram: Optional[str] = None
@@ -591,6 +592,7 @@ async def create_session(session_id: str):
                     "bio": "",
                     "is_premium": False,
                     "is_private": False,
+                    "monetization_enabled": False,  # Monetization OFF by default
                     "created_at": datetime.now(timezone.utc)
                 })
             else:
