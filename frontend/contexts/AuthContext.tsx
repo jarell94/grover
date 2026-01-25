@@ -124,6 +124,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userData = await api.getMe();
         setUser(userData);
         
+        // Set user in Sentry for error tracking
+        setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
+        
         // Connect socket
         try {
           await socketService.connect(userData.user_id);
