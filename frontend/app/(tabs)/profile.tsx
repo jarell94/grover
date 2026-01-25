@@ -70,6 +70,7 @@ export default function ProfileScreen() {
       setInstagram(user.instagram || '');
       setLinkedin(user.linkedin || '');
       setPaypalEmail(user.paypal_email || '');
+      setMonetizationEnabled(user.monetization_enabled || false);
     }
   }, [user]);
 
