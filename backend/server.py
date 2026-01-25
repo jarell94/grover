@@ -713,6 +713,7 @@ async def update_profile(
     name: Optional[str] = None, 
     bio: Optional[str] = None, 
     is_private: Optional[bool] = None,
+    monetization_enabled: Optional[bool] = None,  # Creator monetization toggle
     website: Optional[str] = None,
     twitter: Optional[str] = None,
     instagram: Optional[str] = None,
@@ -729,6 +730,8 @@ async def update_profile(
         update_data["bio"] = sanitize_string(bio, MAX_BIO_LENGTH, "bio")
     if is_private is not None:
         update_data["is_private"] = bool(is_private)
+    if monetization_enabled is not None:
+        update_data["monetization_enabled"] = bool(monetization_enabled)
     if website is not None:
         website = sanitize_string(website, 200, "website")
         # Basic URL validation
