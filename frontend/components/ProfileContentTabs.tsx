@@ -66,7 +66,7 @@ function cloudinaryVideoPoster(url?: string): string {
   return u; // fallback
 }
 
-export default function ProfileContentTabs({ userId, api, stickyHeader }: Props) {
+export default function ProfileContentTabs({ userId, api, stickyHeader, scrollEnabled = true, onRefresh: parentRefresh, refreshing: parentRefreshing }: Props) {
   const tabs = useMemo(
     () => [
       { key: "posts" as const, label: "Posts", icon: "apps" },
