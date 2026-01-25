@@ -172,7 +172,7 @@ class MonetizationTester:
                 await client.put(
                     f"{API_BASE}/users/me", 
                     headers=headers,
-                    data={"monetization_enabled": "false"}
+                    params={"monetization_enabled": "false"}
                 )
                 
                 # Create a test user to tip (or use current user for testing)
@@ -311,7 +311,7 @@ class MonetizationTester:
                 await client.put(
                     f"{API_BASE}/users/me", 
                     headers=headers,
-                    data={"monetization_enabled": "false"}
+                    params={"monetization_enabled": "false"}
                 )
                 
                 target_user_id = self.user_id or "test_user_123"
@@ -369,7 +369,7 @@ class MonetizationTester:
                 await client.put(
                     f"{API_BASE}/users/me", 
                     headers=headers,
-                    data={"monetization_enabled": "false"}
+                    params={"monetization_enabled": "false"}
                 )
                 
                 # First create a test post
