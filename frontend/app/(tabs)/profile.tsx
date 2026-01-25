@@ -663,6 +663,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text,
   },
+  menuItemSubtext: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
