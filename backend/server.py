@@ -3540,6 +3540,121 @@ async def delete_scheduled_post(scheduled_post_id: str, current_user: User = Dep
     await db.scheduled_posts.delete_one({"scheduled_post_id": scheduled_post_id})
     return {"message": "Scheduled post cancelled"}
 
+
+# ============ SCHEDULED POST PROCESSING ============
+
+async def process_scheduled_posts():
+    """
+    Background task to publish scheduled posts when their time arrives.
+    This should be called periodically (e.g., every minute via a cron job or scheduler)
+    """
+    now = datetime.now(timezone.utc)
+    
+    # Find all scheduled posts that are due
+    due_posts = await db.scheduled_posts.find({
+        "status": "scheduled",
+        "scheduled_time": {"$lte": now}
+    }).to_list(100)
+    
+    published_count = 0
+    
+    for scheduled_post in due_posts:
+        try:
+            # Create the actual post
+            post_id = f"post_{uuid.uuid4().hex[:12]}"
+            
+            post_data = {
+                "post_id": post_id,
+                "user_id": scheduled_post["user_id"],
+                "content": scheduled_post["content"],
+                "media_url": scheduled_post.get("media_url"),
+                "media_type": scheduled_post.get("media_type"),
+                "likes_count": 0,
+                "dislikes_count": 0,
+                "comments_count": 0,
+                "repost_count": 0,
+                "tagged_users": scheduled_post.get("tagged_users", []),
+                "location": scheduled_post.get("location"),
+                "created_at": now,  # Use current time as creation time
+            }
+            
+            # Handle poll if present
+            if scheduled_post.get("has_poll"):
+                post_data["has_poll"] = True
+                post_data["poll_question"] = scheduled_post.get("poll_question")
+                post_data["poll_options"] = scheduled_post.get("poll_options")
+                post_data["poll_votes"] = {str(i): 0 for i in range(len(scheduled_post.get("poll_options", [])))}
+                
+                poll_hours = scheduled_post.get("poll_duration_hours", 24)
+                post_data["poll_expires_at"] = now + timedelta(hours=poll_hours)
+            
+            # Insert the post
+            await db.posts.insert_one(post_data)
+            
+            # Update scheduled post status
+            await db.scheduled_posts.update_one(
+                {"scheduled_post_id": scheduled_post["scheduled_post_id"]},
+                {
+                    "$set": {
+                        "status": "published",
+                        "published_post_id": post_id,
+                        "published_at": now
+                    }
+                }
+            )
+            
+            published_count += 1
+            logger.info(f"Published scheduled post {scheduled_post['scheduled_post_id']} as {post_id}")
+            
+            # Send push notification to the user
+            await send_push_notification(
+                user_id=scheduled_post["user_id"],
+                title="Post Published",
+                body="Your scheduled post has been published!",
+                data={"type": "scheduled_post_published", "post_id": post_id}
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to publish scheduled post {scheduled_post['scheduled_post_id']}: {e}")
+            await db.scheduled_posts.update_one(
+                {"scheduled_post_id": scheduled_post["scheduled_post_id"]},
+                {"$set": {"status": "failed", "error": str(e)}}
+            )
+    
+    return {"published": published_count}
+
+
+@api_router.post("/admin/process-scheduled-posts")
+async def trigger_scheduled_posts_processing(current_user: User = Depends(require_auth)):
+    """
+    Manually trigger processing of scheduled posts.
+    In production, this should be called by a cron job every minute.
+    """
+    result = await process_scheduled_posts()
+    return result
+
+
+# Add to startup to process scheduled posts periodically
+import asyncio
+
+async def scheduled_posts_worker():
+    """Background worker to process scheduled posts every minute"""
+    while True:
+        try:
+            await process_scheduled_posts()
+        except Exception as e:
+            logger.error(f"Scheduled posts worker error: {e}")
+        await asyncio.sleep(60)  # Check every minute
+
+
+# Start the worker on app startup
+@app.on_event("startup")
+async def start_scheduled_posts_worker():
+    """Start the scheduled posts background worker"""
+    asyncio.create_task(scheduled_posts_worker())
+    logger.info("Scheduled posts worker started")
+
+
 # ============ TIPS/DONATIONS ENDPOINTS ============
 
 @api_router.post("/users/{user_id}/tip")
