@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Image,
   Modal,
@@ -11,7 +10,6 @@ import {
   Alert,
   Switch,
   Linking,
-  RefreshControl,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -164,17 +162,7 @@ export default function ProfileScreen() {
   if (!user) return null;
 
   return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={Colors.primary}
-          colors={[Colors.primary]}
-        />
-      }
-    >
+    <View style={styles.container}>
       <LinearGradient
         colors={[Colors.gradient.start, Colors.gradient.middle]}
         style={[styles.header, { paddingTop: 24 + insets.top }]}
@@ -489,7 +477,7 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
