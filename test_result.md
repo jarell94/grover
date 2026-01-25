@@ -652,6 +652,18 @@ frontend:
         agent: "testing"
         comment: "✅ STORIES VIEWERS ENDPOINT FULLY TESTED (13/13 tests passed - 100% success rate): GET /api/stories/{story_id}/viewers working perfectly. VERIFIED: Story creation with media upload, story viewing by different users, viewers list retrieval with proper user info (user_id, name, picture) and viewed_at timestamps, authorization (only story owner can access - 403 for non-owners), pagination parameters (limit/skip), error handling (404 for invalid story ID, 401 for no auth), proper response structure with viewers array and total_count. All security and functionality requirements met."
 
+  - task: "Optional Monetization Toggle Feature"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented optional monetization feature. Added monetization_enabled field to User model (default: false). Updated PUT /users/me endpoint to accept monetization_enabled parameter. Created check_monetization_enabled() helper function. Added monetization check to: POST /users/{user_id}/tip, POST /creators/{user_id}/subscription-tiers, POST /creators/{user_id}/subscribe/{tier_id}, POST /posts/{post_id}/set-paid, POST /streams/{stream_id}/super-chat. All monetization endpoints now return 403 if creator has not enabled monetization."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
