@@ -3657,6 +3657,77 @@ async def start_scheduled_posts_worker():
 
 # ============ TIPS/DONATIONS ENDPOINTS ============
 
+# Revenue Share Configuration
+# Platform takes a percentage, creator receives the rest
+REVENUE_SHARE = {
+    "tips": {"platform": 0.05, "creator": 0.95},           # 5% Grover, 95% Creator
+    "super_chat": {"platform": 0.10, "creator": 0.90},     # 10% Grover, 90% Creator
+    "subscriptions": {"platform": 0.15, "creator": 0.85}, # 15% Grover, 85% Creator
+    "products": {"platform": 0.05, "creator": 0.95},       # 5% Grover, 95% Creator
+    "paid_content": {"platform": 0.10, "creator": 0.90},  # 10% Grover, 90% Creator
+}
+
+def calculate_revenue_split(amount: float, revenue_type: str) -> dict:
+    """Calculate the platform fee and creator payout"""
+    share = REVENUE_SHARE.get(revenue_type, {"platform": 0.10, "creator": 0.90})
+    platform_fee = round(amount * share["platform"], 2)
+    creator_payout = round(amount * share["creator"], 2)
+    
+    # Ensure amounts add up correctly
+    if platform_fee + creator_payout != amount:
+        creator_payout = round(amount - platform_fee, 2)
+    
+    return {
+        "gross_amount": amount,
+        "platform_fee": platform_fee,
+        "platform_rate": share["platform"],
+        "creator_payout": creator_payout,
+        "creator_rate": share["creator"],
+    }
+
+
+async def record_transaction(
+    transaction_type: str,
+    amount: float,
+    from_user_id: str,
+    to_user_id: str,
+    related_id: str = None,
+    metadata: dict = None
+):
+    """Record a financial transaction with revenue split"""
+    split = calculate_revenue_split(amount, transaction_type)
+    
+    transaction = {
+        "transaction_id": f"txn_{uuid.uuid4().hex[:12]}",
+        "type": transaction_type,
+        "from_user_id": from_user_id,
+        "to_user_id": to_user_id,
+        "related_id": related_id,
+        "gross_amount": split["gross_amount"],
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "platform_rate": split["platform_rate"],
+        "status": "completed",
+        "metadata": metadata or {},
+        "created_at": datetime.now(timezone.utc),
+    }
+    
+    await db.transactions.insert_one(transaction)
+    
+    # Update creator's earnings balance
+    await db.users.update_one(
+        {"user_id": to_user_id},
+        {
+            "$inc": {
+                "earnings_balance": split["creator_payout"],
+                "total_earnings": split["creator_payout"],
+            }
+        }
+    )
+    
+    return transaction
+
+
 @api_router.post("/users/{user_id}/tip")
 async def send_tip(
     user_id: str,
@@ -3664,13 +3735,16 @@ async def send_tip(
     message: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
-    """Send a tip/donation to a creator"""
+    """Send a tip/donation to a creator (5% platform fee)"""
     if amount < 1:
         raise HTTPException(status_code=400, detail="Minimum tip is $1")
     
     recipient = await db.users.find_one({"user_id": user_id})
     if not recipient:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Calculate revenue split
+    split = calculate_revenue_split(amount, "tips")
     
     # In production, process PayPal payment here
     tip_id = f"tip_{uuid.uuid4().hex[:12]}"
@@ -3680,20 +3754,39 @@ async def send_tip(
         "from_user_id": current_user.user_id,
         "to_user_id": user_id,
         "amount": amount,
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
         "message": message,
         "status": "completed",
         "created_at": datetime.now(timezone.utc)
     })
     
-    # Notify recipient
-    await create_notification(
+    # Record transaction
+    await record_transaction(
+        "tips",
+        amount,
+        current_user.user_id,
         user_id,
-        "tip",
-        f"{current_user.name} sent you ${amount}!" + (f" '{message}'" if message else ""),
-        tip_id
+        tip_id,
+        {"message": message}
     )
     
-    return {"tip_id": tip_id, "message": "Tip sent successfully"}
+    # Notify recipient
+    await create_and_send_notification(
+        user_id,
+        "tip",
+        f"{current_user.name} sent you ${split['creator_payout']:.2f}!" + (f" '{message}'" if message else ""),
+        tip_id,
+        current_user.user_id
+    )
+    
+    return {
+        "tip_id": tip_id,
+        "message": "Tip sent successfully",
+        "amount": amount,
+        "platform_fee": split["platform_fee"],
+        "creator_receives": split["creator_payout"],
+    }
 
 @api_router.get("/users/{user_id}/tips/leaderboard")
 async def get_top_supporters(user_id: str, current_user: User = Depends(require_auth)):
