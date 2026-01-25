@@ -163,18 +163,9 @@ export default function ProfileScreen() {
 
   if (!user) return null;
 
-  return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={Colors.primary}
-          colors={[Colors.primary]}
-        />
-      }
-    >
+  // Profile Header Component (for FlatList ListHeaderComponent)
+  const ProfileHeader = useMemo(() => (
+    <>
       <LinearGradient
         colors={[Colors.gradient.start, Colors.gradient.middle]}
         style={[styles.header, { paddingTop: 24 + insets.top }]}
@@ -247,15 +238,21 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </LinearGradient>
 
-      {/* Profile Content Tabs */}
+      {/* Profile Content Tabs - scrollEnabled=false so parent FlatList handles scroll */}
       <ProfileContentTabs
         userId={user.user_id}
         api={{
           getUserPosts: api.getUserPosts,
           getUserMedia: api.getUserMedia,
         }}
+        scrollEnabled={false}
       />
+    </>
+  ), [user, stats, insets.top]);
 
+  // Profile Footer Component (Quick Actions + Account)
+  const ProfileFooter = useMemo(() => (
+    <>
       {/* Quick Actions */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -338,6 +335,28 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
       </View>
+    </>
+  ), [user.is_premium, isPrivate]);
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={[]}
+        keyExtractor={() => 'profile-root'}
+        renderItem={null}
+        ListHeaderComponent={ProfileHeader}
+        ListFooterComponent={ProfileFooter}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
+      />
 
       <Modal
         visible={editModalVisible}
