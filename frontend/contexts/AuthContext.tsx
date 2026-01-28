@@ -40,17 +40,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const appState = useRef(AppState.currentState);
 
   // Process redirect URL to extract session and authenticate
-  const processRedirectUrl = useCallback(async (url: string) => {
+  const processRedirectUrl = useCallback(async (url: string): Promise<boolean> => {
     // Prevent duplicate processing
     if (isProcessingAuth.current) {
       console.log('Already processing auth, skipping...');
-      return;
-    }
-    
-    // Skip if user is already logged in
-    if (user) {
-      console.log('User already logged in, skipping auth processing');
-      return;
+      return false;
     }
     
     try {
@@ -94,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (sessionId) {
         console.log('Calling API to create session...');
         const response = await api.createSession(sessionId);
-        console.log('Session created successfully');
+        console.log('Session created successfully, response:', JSON.stringify(response));
         const { session_token, ...userData } = response;
         
         // Store token FIRST
@@ -102,6 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthToken(session_token);
         
         // Then set user state - this will trigger navigation
+        console.log('Setting user state:', userData.email);
         setUser(userData);
         
         // Set user in Sentry for error tracking
@@ -116,18 +111,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error) {
           console.error('Socket connection failed:', error);
         }
+        
+        return true;
       } else {
         console.warn('No session_id found in redirect URL');
+        return false;
       }
     } catch (error) {
       console.error('Process redirect error:', error);
       // Clear any partial state
       await AsyncStorage.removeItem('session_token');
       setAuthToken(null);
+      return false;
     } finally {
       isProcessingAuth.current = false;
     }
-  }, [user]);
+  }, []);
 
   const checkAuth = useCallback(async () => {
     try {
