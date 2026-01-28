@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,17 +10,23 @@ export default function Index() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
   const [loggingIn, setLoggingIn] = React.useState(false);
+  const hasNavigated = useRef(false);
 
   useEffect(() => {
-    if (!loading && user) {
+    console.log('Index useEffect - loading:', loading, 'user:', user?.email || 'null', 'hasNavigated:', hasNavigated.current);
+    if (!loading && user && !hasNavigated.current) {
+      console.log('Navigating to tabs...');
+      hasNavigated.current = true;
       router.replace('/(tabs)');
     }
-  }, [user, loading]);
+  }, [user, loading, router]);
 
   const handleGoogleSignUp = async () => {
     try {
       setLoggingIn(true);
+      console.log('Starting signup...');
       await login({ mode: 'signup' });
+      console.log('Signup completed');
     } catch (error) {
       console.error('Signup failed:', error);
       Alert.alert('Sign up failed', 'Please try again.');
@@ -32,7 +38,9 @@ export default function Index() {
   const handleGoogleSignIn = async () => {
     try {
       setLoggingIn(true);
+      console.log('Starting signin...');
       await login({ mode: 'signin' });
+      console.log('Signin completed');
     } catch (error) {
       console.error('Signin failed:', error);
       Alert.alert('Sign in failed', 'Please try again.');
