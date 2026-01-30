@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.grover.app",
+      "buildNumber": "1",
       "infoPlist": {
         "CFBundleURLTypes": [
           {
@@ -18,21 +19,57 @@
               "grover"
             ]
           }
-        ]
-      }
+        ],
+        "NSCameraUsageDescription": "Grover needs access to your camera to take photos and videos for your posts and live streams.",
+        "NSPhotoLibraryUsageDescription": "Grover needs access to your photo library to let you choose photos and videos to share.",
+        "NSPhotoLibraryAddUsageDescription": "Grover needs permission to save photos and videos to your library.",
+        "NSMicrophoneUsageDescription": "Grover needs access to your microphone to record videos with audio and voice messages.",
+        "NSLocationWhenInUseUsageDescription": "Grover uses your location to tag posts with your current location (optional).",
+        "NSUserTrackingUsageDescription": "This allows Grover to provide you with personalized content and improve your experience.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false
+        }
+      },
+      "usesAppleSignIn": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "associatedDomains": [
+        "applinks:grover.app",
+        "applinks:www.grover.app"
+      ]
     },
     "android": {
       "package": "com.grover.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000"
       },
       "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "RECORD_AUDIO",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "VIBRATE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
           "data": [
+            {
+              "scheme": "https",
+              "host": "grover.app",
+              "pathPrefix": "/"
+            },
             {
               "scheme": "grover"
             }
@@ -60,7 +97,37 @@
           "backgroundColor": "#000"
         }
       ],
-      "@sentry/react-native"
+      [
+        "@sentry/react-native",
+        {
+          "organization": "your-sentry-org",
+          "project": "grover"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Grover needs access to your camera to take photos and videos."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Grover needs access to your photos to let you share them.",
+          "savePhotosPermission": "Grover needs permission to save photos to your library.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#ffffff",
+          "sounds": [
+            "./assets/sounds/notification.wav"
+          ]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -69,6 +136,24 @@
       "eas": {
         "projectId": "your-project-id"
       }
-    }
+    },
+    "owner": "your-expo-username",
+    "privacy": "public",
+    "primaryColor": "#007AFF",
+    "notification": {
+      "icon": "./assets/images/notification-icon.png",
+      "color": "#007AFF",
+      "androidMode": "default",
+      "androidCollapsedTitle": "#{unread_notifications} new notifications"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/your-project-id"
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "description": "Grover is a social media platform for creators featuring live streaming, marketplace, and monetization tools. Connect with your community, share content, and grow your creative business.",
+    "githubUrl": "https://github.com/jarell94/grover"
   }
 }
