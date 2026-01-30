@@ -29,6 +29,12 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 # Prometheus metrics
 from metrics import setup_metrics, track_post_created, track_auth_attempt, track_message_sent, track_transaction
 
+# Redis Cache Service
+from cache_service import (
+    cache, init_cache, close_cache, 
+    batch_fetch_users, enrich_posts_with_users, enrich_comments_with_users
+)
+
 # Load environment variables first
 load_dotenv()
 
