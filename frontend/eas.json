@@ -1,36 +1,73 @@
 {
   "cli": {
-    "version": ">= 5.0.0"
+    "version": ">= 5.9.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "buildConfiguration": "Debug"
       },
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
       }
     },
     "development-simulator": {
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "simulator": true
+        "simulator": true,
+        "buildConfiguration": "Debug"
       }
     },
     "preview": {
       "distribution": "internal",
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release",
+        "config": "production"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.grover.app",
+        "EXPO_PUBLIC_WS_URL": "https://api.grover.app"
+      }
+    },
+    "production-simulator": {
+      "extends": "production",
+      "ios": {
+        "simulator": true
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "your-apple-id@example.com",
+        "ascAppId": "your-asc-app-id",
+        "appleTeamId": "your-team-id",
+        "sku": "grover-app-001"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "production",
+        "releaseStatus": "completed"
+      }
+    }
   }
 }
