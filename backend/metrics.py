@@ -112,7 +112,7 @@ def setup_metrics(app):
     )
     
     # Instrument and expose metrics endpoint
-    instrumentator.instrument(app).expose(app, endpoint="/metrics")
+    instrumentator.instrument(app).expose(app, endpoint="/api/metrics", include_in_schema=True)
     
     return instrumentator
 
