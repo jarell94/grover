@@ -78,3 +78,19 @@ class CommentCreate(BaseModel):
     """Schema for creating a comment"""
     content: str
     parent_comment_id: Optional[str] = None
+
+
+class PostCreate(BaseModel):
+    """Schema for creating a post"""
+    content: str
+    media_url: Optional[str] = None
+    media_type: Optional[str] = None
+    location: Optional[str] = None
+    tagged_users: List[str] = []
+
+
+class PostUpdate(BaseModel):
+    """Schema for updating a post"""
+    content: Optional[str] = None
+    location: Optional[str] = None
+    tagged_users: Optional[List[str]] = None

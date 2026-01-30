@@ -135,6 +135,6 @@ async def test_update_notification_settings(test_db, test_user):
     
     # Verify changes were saved
     updated_user = await user_service.get_user(test_user["user_id"])
-    assert updated_user.notify_followers == False
-    assert updated_user.notify_likes == False
-    assert updated_user.notify_comments == True
+    assert updated_user.notify_followers is False
+    assert updated_user.notify_likes is False
+    assert updated_user.notify_comments is True

@@ -29,8 +29,8 @@ async def get_user(user_id: str, current_user: User = Depends(require_auth)):
 async def get_user_stats(user_id: str, current_user: User = Depends(require_auth)):
     """Get user statistics"""
     posts_count = await db.posts.count_documents({"user_id": user_id})
-    followers_count = await db.follows.count_documents({"following_id": user_id})
-    following_count = await db.follows.count_documents({"follower_id": user_id})
+    followers_count = await db.followers.count_documents({"following_id": user_id})
+    following_count = await db.followers.count_documents({"follower_id": user_id})
     
     return {
         "posts": posts_count,

@@ -13,6 +13,7 @@ class Notification(BaseModel):
     type: str  # like/follow/purchase
     content: str
     read: bool = False
+    related_id: Optional[str] = None  # Optional reference to related object
     created_at: datetime
 
 

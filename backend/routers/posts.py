@@ -9,6 +9,7 @@ from core.database import db
 from core.dependencies import require_auth
 from core.security import validate_id
 from schemas.users import User
+from schemas.posts import PostCreate, PostUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +46,7 @@ async def get_post_by_id(post_id: str, current_user: User = Depends(require_auth
 
 @router.post("")
 async def create_post(
-    content: str,
-    media_url: Optional[str] = None,
-    media_type: Optional[str] = None,
+    post_data: PostCreate,
     current_user: User = Depends(require_auth)
 ):
     """Create a new post"""
@@ -55,30 +54,31 @@ async def create_post(
     from datetime import datetime, timezone
     
     post_id = str(uuid.uuid4())
-    post_data = {
+    post_dict = {
         "post_id": post_id,
         "user_id": current_user.user_id,
-        "content": content,
-        "media_url": media_url,
-        "media_type": media_type,
+        "content": post_data.content,
+        "media_url": post_data.media_url,
+        "media_type": post_data.media_type,
+        "location": post_data.location,
+        "tagged_users": post_data.tagged_users,
         "likes_count": 0,
         "dislikes_count": 0,
         "shares_count": 0,
         "comments_count": 0,
         "repost_count": 0,
         "reaction_counts": {},
-        "tagged_users": [],
         "created_at": datetime.now(timezone.utc)
     }
     
-    await db.posts.insert_one(post_data)
-    return post_data
+    await db.posts.insert_one(post_dict)
+    return post_dict
 
 
 @router.put("/{post_id}")
 async def update_post(
     post_id: str,
-    content: Optional[str] = None,
+    post_data: PostUpdate,
     current_user: User = Depends(require_auth)
 ):
     """Update a post"""
@@ -91,14 +91,19 @@ async def update_post(
     if post["user_id"] != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    update_data = {}
-    if content is not None:
-        update_data["content"] = content
+    # Build update dict from provided fields
+    update_dict = {}
+    if post_data.content is not None:
+        update_dict["content"] = post_data.content
+    if post_data.location is not None:
+        update_dict["location"] = post_data.location
+    if post_data.tagged_users is not None:
+        update_dict["tagged_users"] = post_data.tagged_users
     
-    if update_data:
+    if update_dict:
         await db.posts.update_one(
             {"post_id": post_id},
-            {"$set": update_data}
+            {"$set": update_dict}
         )
     
     return {"message": "Post updated"}
