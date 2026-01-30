@@ -1,10 +1,20 @@
 # Grover - Social Media Creator Platform
 
-A modern social media platform built with FastAPI and MongoDB, featuring a clean modular architecture.
+A modern social media platform built with FastAPI and MongoDB, featuring both a modular monolith and microservices architecture.
 
-## 🎉 Recent Refactoring
+## 🎉 Recent Updates
 
-The backend has been successfully refactored from a monolithic structure (~5,900 lines) into a clean, modular, layered architecture. 
+### Microservices Architecture (Latest) 🚀
+The application now includes a complete microservices implementation with:
+- **API Gateway** - Single entry point for all requests
+- **User Service** - Authentication and profile management
+- **Post Service** - Posts, feed, and social interactions
+- **Docker Support** - Full containerization with docker-compose
+
+**See [microservices/README.md](./microservices/README.md) for quick start and [microservices/ARCHITECTURE.md](./microservices/ARCHITECTURE.md) for details.**
+
+### Modular Monolith Refactoring
+The backend was refactored from a monolithic structure (~5,900 lines) into a clean, modular, layered architecture. 
 
 **See [REFACTORING_SUMMARY.md](./REFACTORING_SUMMARY.md) for complete details.**
 
@@ -12,7 +22,16 @@ The backend has been successfully refactored from a monolithic structure (~5,900
 
 ```
 grover/
-├── backend/              # FastAPI backend (refactored)
+├── microservices/        # Microservices architecture (NEW)
+│   ├── gateway/         # API Gateway (Port 8000)
+│   ├── user-service/    # User management (Port 8001)
+│   ├── post-service/    # Post management (Port 8002)
+│   ├── shared/          # Common utilities
+│   ├── ARCHITECTURE.md  # Microservices documentation
+│   ├── README.md        # Quick start guide
+│   └── MIGRATION_GUIDE.md # Migration strategies
+│
+├── backend/              # Modular monolith (refactored)
 │   ├── core/            # Configuration, database, security
 │   ├── schemas/         # Pydantic data models
 │   ├── repositories/    # Database access layer
@@ -25,13 +44,31 @@ grover/
 │
 ├── frontend/            # Frontend application
 ├── tests/               # Project-level tests
+├── docker-compose.yml   # Microservices orchestration
 └── REFACTORING_SUMMARY.md  # Refactoring details
-
 ```
 
 ## 🚀 Quick Start
 
-### Backend Setup
+### Option 1: Microservices with Docker (Recommended)
+
+```bash
+# Start all services with one command
+docker-compose up -d
+
+# Check service health
+curl http://localhost:8000/health/services
+
+# Access API Gateway
+# - API: http://localhost:8000/api
+# - Docs: http://localhost:8000/docs
+# - Health: http://localhost:8000/health
+
+# Stop services
+docker-compose down
+```
+
+### Option 2: Modular Monolith
 
 ```bash
 cd backend
@@ -45,9 +82,6 @@ DB_NAME=grover_db
 
 # Run the new modular server
 uvicorn server_new:socket_app --reload --port 8000
-
-# Or run the old monolithic server
-uvicorn server_old:socket_app --reload --port 8001
 ```
 
 ### Running Tests
@@ -69,11 +103,56 @@ pytest -m integration   # Integration tests
 
 ## 📚 Documentation
 
-- **[ARCHITECTURE.md](./backend/ARCHITECTURE.md)** - Complete architecture documentation
+### Microservices
+- **[microservices/README.md](./microservices/README.md)** - Quick start guide for microservices
+- **[microservices/ARCHITECTURE.md](./microservices/ARCHITECTURE.md)** - Microservices architecture details
+- **[microservices/MIGRATION_GUIDE.md](./microservices/MIGRATION_GUIDE.md)** - Migration strategies
+
+### Modular Monolith
+- **[backend/ARCHITECTURE.md](./backend/ARCHITECTURE.md)** - Monolith architecture documentation
 - **[REFACTORING_SUMMARY.md](./REFACTORING_SUMMARY.md)** - Refactoring details and metrics
-- **API Docs**: http://localhost:8000/docs (when server is running)
+
+### API Documentation
+- **Gateway**: http://localhost:8000/docs (microservices)
+- **Monolith**: http://localhost:8000/docs (modular monolith)
 
 ## 🏗️ Architecture
+
+### Microservices Architecture (Latest)
+
+The platform now supports a microservices architecture with independent services:
+
+```
+                    ┌─────────────┐
+                    │   Clients   │
+                    └──────┬──────┘
+                           │
+                    ┌──────▼──────┐
+                    │ API Gateway │  Port 8000
+                    │  (Routing)  │
+                    └──────┬──────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         │                 │                 │
+    ┌────▼────┐      ┌────▼────┐      ┌────▼────┐
+    │  User   │      │  Post   │      │  Media  │
+    │ Service │      │ Service │      │ Service │
+    │  :8001  │      │  :8002  │      │  :8003  │
+    └────┬────┘      └────┬────┘      └─────────┘
+         │                │
+    ┌────▼────┐      ┌────▼────┐
+    │MongoDB  │      │MongoDB  │
+    │ (users) │      │ (posts) │
+    └─────────┘      └─────────┘
+```
+
+**Benefits**:
+- Independent deployment and scaling
+- Technology flexibility per service
+- Team autonomy
+- Fault isolation
+
+### Modular Monolith Architecture
 
 The backend follows a clean layered architecture:
 
