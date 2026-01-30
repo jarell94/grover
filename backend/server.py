@@ -1671,43 +1671,65 @@ async def delete_post(post_id: str, current_user: User = Depends(require_auth)):
 
 @api_router.get("/posts/{post_id}/comments")
 async def get_comments(post_id: str, current_user: User = Depends(require_auth)):
-    """Get all comments for a post (only top-level, not replies)"""
+    """Get all comments for a post (only top-level, not replies) - OPTIMIZED"""
     comments = await db.comments.find(
         {"post_id": post_id, "parent_comment_id": None},
         {"_id": 0}
     ).sort("created_at", -1).to_list(1000)
     
-    # Add user data and liked status
+    if not comments:
+        return comments
+    
+    # BATCH OPTIMIZATION: Collect all needed IDs
+    comment_ids = [c["comment_id"] for c in comments]
+    user_ids = list(set(c["user_id"] for c in comments))
+    
+    # Batch fetch users
+    users_map = await batch_fetch_users(db, user_ids)
+    
+    # Batch fetch likes
+    likes = await db.comment_likes.find({
+        "user_id": current_user.user_id,
+        "comment_id": {"$in": comment_ids}
+    }).to_list(len(comment_ids))
+    liked_set = {l["comment_id"] for l in likes}
+    
+    # Enrich comments
     for comment in comments:
-        user = await db.users.find_one({"user_id": comment["user_id"]}, {"_id": 0})
-        comment["user"] = user
-        
-        liked = await db.comment_likes.find_one({
-            "user_id": current_user.user_id,
-            "comment_id": comment["comment_id"]
-        })
-        comment["liked"] = liked is not None
+        comment["user"] = users_map.get(comment["user_id"])
+        comment["liked"] = comment["comment_id"] in liked_set
     
     return comments
 
 @api_router.get("/comments/{comment_id}/replies")
 async def get_comment_replies(comment_id: str, current_user: User = Depends(require_auth)):
-    """Get all replies to a comment"""
+    """Get all replies to a comment - OPTIMIZED"""
     replies = await db.comments.find(
         {"parent_comment_id": comment_id},
         {"_id": 0}
     ).sort("created_at", 1).to_list(1000)
     
-    # Add user data and liked status
+    if not replies:
+        return replies
+    
+    # BATCH OPTIMIZATION: Collect all needed IDs
+    reply_ids = [r["comment_id"] for r in replies]
+    user_ids = list(set(r["user_id"] for r in replies))
+    
+    # Batch fetch users
+    users_map = await batch_fetch_users(db, user_ids)
+    
+    # Batch fetch likes
+    likes = await db.comment_likes.find({
+        "user_id": current_user.user_id,
+        "comment_id": {"$in": reply_ids}
+    }).to_list(len(reply_ids))
+    liked_set = {l["comment_id"] for l in likes}
+    
+    # Enrich replies
     for reply in replies:
-        user = await db.users.find_one({"user_id": reply["user_id"]}, {"_id": 0})
-        reply["user"] = user
-        
-        liked = await db.comment_likes.find_one({
-            "user_id": current_user.user_id,
-            "comment_id": reply["comment_id"]
-        })
-        reply["liked"] = liked is not None
+        reply["user"] = users_map.get(reply["user_id"])
+        reply["liked"] = reply["comment_id"] in liked_set
     
     return replies
 
