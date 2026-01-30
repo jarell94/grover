@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # API Gateway
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8000']
+        labels:
+          service: 'gateway'
+
+  # User Service
+  - job_name: 'user-service'
+    static_configs:
+      - targets: ['user-service:8001']
+        labels:
+          service: 'user-service'
+
+  # Post Service
+  - job_name: 'post-service'
+    static_configs:
+      - targets: ['post-service:8002']
+        labels:
+          service: 'post-service'
+
+  # Media Service
+  - job_name: 'media-service'
+    static_configs:
+      - targets: ['media-service:8003']
+        labels:
+          service: 'media-service'
+
+  # Payment Service
+  - job_name: 'payment-service'
+    static_configs:
+      - targets: ['payment-service:8004']
+        labels:
+          service: 'payment-service'

@@ -1,0 +1,220 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:6.0
+    container_name: grover-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=grover_db
+    networks:
+      - grover-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: grover-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=grover
+      - RABBITMQ_DEFAULT_PASS=grover123
+    networks:
+      - grover-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: grover-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./microservices/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - grover-network
+
+  # Grafana Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grover-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./microservices/monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+    networks:
+      - grover-network
+    depends_on:
+      - prometheus
+
+  # Jaeger Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: grover-jaeger
+    ports:
+      - "16686:16686"    # Jaeger UI
+      - "14268:14268"
+      - "6831:6831/udp"
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - grover-network
+
+  # API Gateway
+  gateway:
+    build:
+      context: .
+      dockerfile: microservices/gateway/Dockerfile
+    container_name: grover-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8000
+      - USER_SERVICE_URL=http://user-service:8001
+      - POST_SERVICE_URL=http://post-service:8002
+      - MEDIA_SERVICE_URL=http://media-service:8003
+      - PAYMENT_SERVICE_URL=http://payment-service:8004
+    depends_on:
+      - user-service
+      - post-service
+      - media-service
+      - payment-service
+    networks:
+      - grover-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # User Service
+  user-service:
+    build:
+      context: .
+      dockerfile: microservices/user-service/Dockerfile
+    container_name: grover-user-service
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8001
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=grover_users
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - grover-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Post Service
+  post-service:
+    build:
+      context: .
+      dockerfile: microservices/post-service/Dockerfile
+    container_name: grover-post-service
+    ports:
+      - "8002:8002"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8002
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=grover_posts
+      - USER_SERVICE_URL=http://user-service:8001
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    networks:
+      - grover-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Media Service
+  media-service:
+    build:
+      context: .
+      dockerfile: microservices/media-service/Dockerfile
+    container_name: grover-media-service
+    ports:
+      - "8003:8003"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8003
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
+    networks:
+      - grover-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Payment Service
+  payment-service:
+    build:
+      context: .
+      dockerfile: microservices/payment-service/Dockerfile
+    container_name: grover-payment-service
+    ports:
+      - "8004:8004"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8004
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=grover_payments
+      - PAYPAL_MODE=${PAYPAL_MODE:-sandbox}
+      - PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID:-}
+      - PAYPAL_CLIENT_SECRET=${PAYPAL_CLIENT_SECRET:-}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - grover-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  grover-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  prometheus_data:
+  grafana_data:

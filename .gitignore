@@ -205,3 +205,26 @@ android-sdk/ -e
 # Environment files
 *.env
 *.env.*
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Python eggs
+*.egg-info/
+*.egg
+
+# Jupyter Notebook
+*.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
