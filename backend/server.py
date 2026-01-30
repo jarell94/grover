@@ -1544,6 +1544,7 @@ async def get_post_reposts(post_id: str, current_user: User = Depends(require_au
 
 @api_router.get("/posts/saved")
 async def get_saved_posts(current_user: User = Depends(require_auth)):
+    """Get saved posts - OPTIMIZED"""
     saved = await db.saved_posts.find(
         {"user_id": current_user.user_id},
         {"_id": 0}
@@ -1555,52 +1556,70 @@ async def get_saved_posts(current_user: User = Depends(require_auth)):
         {"_id": 0}
     ).to_list(100)
     
-    # Add user data and liked status
+    if not posts:
+        return posts
+    
+    # BATCH OPTIMIZATION
+    user_ids = list(set(p["user_id"] for p in posts))
+    
+    # Batch fetch users
+    users_map = await batch_fetch_users(db, user_ids)
+    
+    # Batch fetch reactions
+    reactions = await db.reactions.find({
+        "user_id": current_user.user_id,
+        "post_id": {"$in": post_ids}
+    }).to_list(len(post_ids))
+    reactions_map = {r["post_id"]: r["reaction_type"] for r in reactions}
+    
+    # Batch fetch dislikes
+    dislikes = await db.dislikes.find({
+        "user_id": current_user.user_id,
+        "post_id": {"$in": post_ids}
+    }).to_list(len(post_ids))
+    dislikes_set = {d["post_id"] for d in dislikes}
+    
+    # Enrich posts
     for post in posts:
-        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
-        post["user"] = user
-        
-        # Check if current user reacted
-        user_reaction = await db.reactions.find_one({
-            "user_id": current_user.user_id,
-            "post_id": post["post_id"]
-        })
-        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
-        
-        # Keep backward compatibility
-        post["liked"] = user_reaction and user_reaction["reaction_type"] == "like"
-        
-        disliked = await db.dislikes.find_one({
-            "user_id": current_user.user_id,
-            "post_id": post["post_id"]
-        })
-        post["disliked"] = disliked is not None
+        post["user"] = users_map.get(post["user_id"])
+        post["user_reaction"] = reactions_map.get(post["post_id"])
+        post["liked"] = reactions_map.get(post["post_id"]) == "like"
+        post["disliked"] = post["post_id"] in dislikes_set
         post["saved"] = True
     
     return posts
 
 @api_router.get("/mentions")
 async def get_mentions(current_user: User = Depends(require_auth)):
-    """Get posts where the current user has been mentioned/tagged"""
-    # Find posts where current user is in tagged_users array
+    """Get posts where the current user has been mentioned/tagged - OPTIMIZED"""
     posts = await db.posts.find(
         {"tagged_users": current_user.user_id},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     
-    # Add user data and liked status for each post
+    if not posts:
+        return posts
+    
+    # BATCH OPTIMIZATION
+    post_ids = [p["post_id"] for p in posts]
+    user_ids = list(set(p["user_id"] for p in posts))
+    
+    # Batch fetch users
+    users_map = await batch_fetch_users(db, user_ids)
+    
+    # Batch fetch reactions
+    reactions = await db.reactions.find({
+        "user_id": current_user.user_id,
+        "post_id": {"$in": post_ids}
+    }).to_list(len(post_ids))
+    reactions_map = {r["post_id"]: r["reaction_type"] for r in reactions}
+    
+    # Enrich posts
     for post in posts:
-        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
-        post["user"] = user
-        
-        # Check if current user reacted/liked this post
-        user_reaction = await db.reactions.find_one({
-            "user_id": current_user.user_id,
-            "post_id": post["post_id"]
-        })
-        post["user_reaction"] = user_reaction["reaction_type"] if user_reaction else None
-        post["is_liked"] = user_reaction and user_reaction["reaction_type"] == "like"
-        post["liked"] = post["is_liked"]  # backward compatibility
+        post["user"] = users_map.get(post["user_id"])
+        post["user_reaction"] = reactions_map.get(post["post_id"])
+        post["is_liked"] = reactions_map.get(post["post_id"]) == "like"
+        post["liked"] = post["is_liked"]
     
     return posts
 
