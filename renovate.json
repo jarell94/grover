@@ -1,0 +1,53 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":preserveSemverRanges"
+  ],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "matchPackagePatterns": ["*"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch"
+    },
+    {
+      "matchPackagePatterns": ["expo*", "react-native*"],
+      "groupName": "Expo & React Native",
+      "groupSlug": "expo-react-native"
+    },
+    {
+      "matchPackagePatterns": ["@types/*"],
+      "groupName": "TypeScript type definitions",
+      "groupSlug": "types"
+    },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "matchPackagePatterns": ["eslint*", "prettier*", "jest*", "@testing-library/*"],
+      "groupName": "Development tooling",
+      "groupSlug": "dev-tools"
+    },
+    {
+      "matchManagers": ["pip_requirements"],
+      "groupName": "Python dependencies",
+      "groupSlug": "python"
+    }
+  ],
+  "schedule": ["before 5am on Monday"],
+  "timezone": "UTC",
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 10,
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/__pycache__/**"
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  },
+  "pip_requirements": {
+    "fileMatch": ["backend/requirements.txt"]
+  }
+}

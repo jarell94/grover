@@ -1,0 +1,31 @@
+# Prometheus Configuration for Grover
+# This file is for local development and reference
+# In production, Prometheus is typically configured separately
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    app: grover
+    environment: development
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Scrape the Grover backend metrics
+  - job_name: 'grover-backend'
+    static_configs:
+      - targets: ['localhost:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
