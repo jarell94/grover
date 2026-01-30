@@ -205,3 +205,13 @@ android-sdk/ -e
 # Environment files
 *.env
 *.env.*
+
+# Python test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+*.cover
+
+# Backup files
+*_old.py
+*.bak
