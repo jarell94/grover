@@ -167,6 +167,9 @@ app = FastAPI(
 )
 api_router = APIRouter(prefix="/api")
 
+# Setup Prometheus metrics
+setup_metrics(app)
+
 # Add GZip compression middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
