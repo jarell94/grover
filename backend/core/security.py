@@ -74,8 +74,10 @@ def sanitize_string(
     value = value.strip()[:max_length]
     
     # Remove potential script tags and dangerous characters
+    # Improved regex to handle whitespace and attributes in closing tags
+    # Matches: </script>, </script >, </script\t>, </script foo="bar">, etc.
     value = re.sub(
-        r'<script[^>]*>.*?</script>', '', 
+        r'<script[^>]*>.*?</script(?:\s+[^>]*)?\s*>', '', 
         value, 
         flags=re.IGNORECASE | re.DOTALL
     )
