@@ -354,6 +354,11 @@ async def health_check():
         "status": "configured" if paypal_configured else "not_configured"
     }
     
+    # Check Redis cache status
+    health_status["services"]["redis"] = {
+        "status": "connected" if cache.connected else "not_connected"
+    }
+    
     return health_status
 
 @api_router.get("/ready")
