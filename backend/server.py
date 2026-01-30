@@ -26,6 +26,9 @@ import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 
+# Prometheus metrics
+from metrics import setup_metrics, track_post_created, track_auth_attempt, track_message_sent, track_transaction
+
 # Load environment variables first
 load_dotenv()
 
