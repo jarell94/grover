@@ -5993,6 +5993,7 @@ app_with_socketio = socketio.ASGIApp(sio, app)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    await close_cache()
     client.close()
 
 if __name__ == "__main__":
