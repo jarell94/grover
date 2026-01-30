@@ -19,6 +19,68 @@ services:
       timeout: 5s
       retries: 5
 
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: grover-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=grover
+      - RABBITMQ_DEFAULT_PASS=grover123
+    networks:
+      - grover-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: grover-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./microservices/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - grover-network
+
+  # Grafana Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grover-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./microservices/monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+    networks:
+      - grover-network
+    depends_on:
+      - prometheus
+
+  # Jaeger Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: grover-jaeger
+    ports:
+      - "16686:16686"    # Jaeger UI
+      - "14268:14268"
+      - "6831:6831/udp"
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - grover-network
+
   # API Gateway
   gateway:
     build:
@@ -37,6 +99,8 @@ services:
     depends_on:
       - user-service
       - post-service
+      - media-service
+      - payment-service
     networks:
       - grover-network
     healthcheck:
@@ -97,40 +161,54 @@ services:
       timeout: 5s
       retries: 3
 
-  # Media Service (Future)
-  # media-service:
-  #   build:
-  #     context: .
-  #     dockerfile: microservices/media-service/Dockerfile
-  #   container_name: grover-media-service
-  #   ports:
-  #     - "8003:8003"
-  #   environment:
-  #     - ENVIRONMENT=development
-  #     - PORT=8003
-  #     - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
-  #     - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
-  #     - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
-  #   networks:
-  #     - grover-network
+  # Media Service
+  media-service:
+    build:
+      context: .
+      dockerfile: microservices/media-service/Dockerfile
+    container_name: grover-media-service
+    ports:
+      - "8003:8003"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8003
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
+    networks:
+      - grover-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-  # Payment Service (Future)
-  # payment-service:
-  #   build:
-  #     context: .
-  #     dockerfile: microservices/payment-service/Dockerfile
-  #   container_name: grover-payment-service
-  #   ports:
-  #     - "8004:8004"
-  #   environment:
-  #     - ENVIRONMENT=development
-  #     - PORT=8004
-  #     - MONGO_URL=mongodb://mongodb:27017
-  #     - DB_NAME=grover_payments
-  #     - PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID}
-  #     - PAYPAL_CLIENT_SECRET=${PAYPAL_CLIENT_SECRET}
-  #   networks:
-  #     - grover-network
+  # Payment Service
+  payment-service:
+    build:
+      context: .
+      dockerfile: microservices/payment-service/Dockerfile
+    container_name: grover-payment-service
+    ports:
+      - "8004:8004"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8004
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=grover_payments
+      - PAYPAL_MODE=${PAYPAL_MODE:-sandbox}
+      - PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID:-}
+      - PAYPAL_CLIENT_SECRET=${PAYPAL_CLIENT_SECRET:-}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - grover-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 networks:
   grover-network:
@@ -138,3 +216,5 @@ networks:
 
 volumes:
   mongodb_data:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grover-config
+  namespace: grover
+data:
+  ENVIRONMENT: "production"
+  MONGO_URL: "mongodb://mongodb-service:27017"
+  RABBITMQ_URL: "amqp://grover:grover123@rabbitmq-service:5672/"
+  USER_SERVICE_URL: "http://user-service:8001"
+  POST_SERVICE_URL: "http://post-service:8002"
+  MEDIA_SERVICE_URL: "http://media-service:8003"
+  PAYMENT_SERVICE_URL: "http://payment-service:8004"
+  JAEGER_AGENT_HOST: "jaeger-service"
+  JAEGER_AGENT_PORT: "6831"
