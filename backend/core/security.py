@@ -30,7 +30,8 @@ def sanitize_string(value: str, max_length: int = MAX_INPUT_LENGTH, field_name: 
     # Trim whitespace and limit length
     value = value.strip()[:max_length]
     # Remove potential script tags and dangerous characters
-    value = re.sub(r'<script[^>]*>.*?</script>', '', value, flags=re.IGNORECASE | re.DOTALL)
+    # Match script tags with any whitespace in the closing tag
+    value = re.sub(r'<script[^>]*>.*?</\s*script\s*>', '', value, flags=re.IGNORECASE | re.DOTALL)
     value = re.sub(r'javascript:', '', value, flags=re.IGNORECASE)
     return value
 
