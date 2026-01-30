@@ -3,7 +3,7 @@ Security utilities and input validation helpers
 """
 
 import re
-from typing import Optional
+from typing import Optional, List
 from fastapi import HTTPException
 
 # Security constants
@@ -79,7 +79,7 @@ def sanitize_string(text: str, max_length: int = MAX_INPUT_LENGTH) -> str:
     return sanitized.strip()
 
 
-def validate_pagination(skip: int, limit: int) -> tuple[int, int]:
+def validate_pagination(skip: int, limit: int) -> tuple:
     """
     Validate and enforce pagination limits
     
@@ -88,7 +88,7 @@ def validate_pagination(skip: int, limit: int) -> tuple[int, int]:
         limit: Number of items to return
         
     Returns:
-        Tuple of (validated_skip, validated_limit)
+        Tuple of (validated_skip, validated_limit) as (int, int)
         
     Raises:
         HTTPException: If values are out of acceptable range
@@ -105,7 +105,7 @@ def validate_pagination(skip: int, limit: int) -> tuple[int, int]:
     return skip, limit
 
 
-def validate_media_file(content_type: str, file_size: int, allowed_types: list[str], max_size: int) -> None:
+def validate_media_file(content_type: str, file_size: int, allowed_types: List[str], max_size: int) -> None:
     """
     Validate uploaded media files
     
