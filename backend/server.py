@@ -5964,6 +5964,15 @@ async def typing(sid, data):
 async def health():
     return {"status": "ok"}
 
+# Manual metrics endpoint (Prometheus)
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from starlette.responses import Response
+
+@api_router.get("/metrics", include_in_schema=True, tags=["Monitoring"])
+async def metrics_endpoint():
+    """Prometheus metrics endpoint for monitoring."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 # Include router
 app.include_router(api_router)
 
