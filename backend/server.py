@@ -307,6 +307,12 @@ async def create_indexes():
 async def startup_event():
     """Run on application startup"""
     await create_indexes()
+    # Initialize Redis cache
+    cache_connected = await init_cache()
+    if cache_connected:
+        logger.info("Redis cache connected")
+    else:
+        logger.warning("Redis cache not available - running without caching")
     logger.info("Application startup complete")
 
 # ============ HEALTH CHECK ENDPOINT ============
