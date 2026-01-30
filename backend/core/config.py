@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     
     # MongoDB
-    MONGO_URL: str = os.environ['MONGO_URL']
-    DB_NAME: str = os.environ['DB_NAME']
+    MONGO_URL: str = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+    DB_NAME: str = os.getenv("DB_NAME", "grover_db")
     
     # CORS
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
