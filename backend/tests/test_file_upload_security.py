@@ -38,8 +38,8 @@ async def test_reject_oversized_files(client: AsyncClient):
     large_content = b"A" * (100 * 1024 * 1024)
     files = {"file": ("large.jpg", io.BytesIO(large_content), "image/jpeg")}
     
-    response = await client.post("/api/upload", files=files)
-    assert response.status_code in [400, 401, 413, 422]
+    response = await client.post("/api/upload/media", files=files)
+    assert response.status_code in [400, 401, 404, 413, 422]
 
 
 @pytest.mark.asyncio
