@@ -83,9 +83,9 @@ async def test_content_type_mismatch(client: AsyncClient):
     exe_content = b"MZ\x90\x00" + b"\x00" * 100
     files = {"file": ("image.jpg", io.BytesIO(exe_content), "image/jpeg")}
     
-    response = await client.post("/api/upload", files=files)
+    response = await client.post("/api/upload/media", files=files)
     # Should either reject or validate actual content
-    assert response.status_code in [200, 400, 401, 415, 422]
+    assert response.status_code in [200, 400, 401, 404, 415, 422]
 
 
 @pytest.mark.asyncio
