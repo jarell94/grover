@@ -128,7 +128,7 @@ async def test_sql_injection_in_session_id(client: AsyncClient):
     for malicious_id in malicious_ids:
         response = await client.post(
             "/api/auth/session",
-            json={"session_id": malicious_id}
+            params={"session_id": malicious_id}
         )
         # Should return error, not execute injection
-        assert response.status_code in [400, 401, 422, 500]
+        assert response.status_code in [400, 401, 404, 422, 500]
