@@ -7,6 +7,7 @@ import { Platform, AppState } from 'react-native';
 import { api, setAuthToken } from '../services/api';
 import socketService from '../services/socket';
 import { setUser as setSentryUser, addBreadcrumb } from '../utils/sentry';
+import { logger } from '../utils/logger';
 
 // Ensure any incomplete auth sessions are dismissed
 WebBrowser.maybeCompleteAuthSession();
@@ -43,16 +44,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const processRedirectUrl = useCallback(async (url: string) => {
     // Prevent duplicate processing
     if (isProcessingAuth.current) {
-      console.log('Already processing auth, skipping...');
+      logger.log('Already processing auth, skipping...');
       return;
     }
     
     try {
-      console.log('Processing redirect URL:', url);
+      logger.log('Processing redirect URL:', url);
       isProcessingAuth.current = true;
       
       const parsed = Linking.parse(url);
-      console.log('Parsed URL:', JSON.stringify(parsed, null, 2));
+      logger.log('Parsed URL:', JSON.stringify(parsed, null, 2));
       
       // Try multiple ways to extract session_id
       let sessionId: string | null = parsed.queryParams?.session_id as string || null;
@@ -83,10 +84,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      console.log('Extracted session_id:', sessionId ? sessionId.substring(0, 10) + '...' : 'null');
+      logger.log('Extracted session_id:', sessionId ? sessionId.substring(0, 10) + '...' : 'null');
 
       if (sessionId) {
-        console.log('Calling API to create session...');
+        logger.log('Calling API to create session...');
         const response = await api.createSession(sessionId);
         const { session_token, ...userData } = response;
         
@@ -98,19 +99,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
         addBreadcrumb('User logged in', 'auth', { userId: userData.user_id });
         
-        console.log('Login successful for user:', userData.email);
+        logger.log('Login successful for user:', userData.email);
         
         // Connect socket
         try {
           await socketService.connect(userData.user_id);
         } catch (error) {
-          console.error('Socket connection failed:', error);
+          logger.error('Socket connection failed:', error);
         }
       } else {
-        console.warn('No session_id found in redirect URL');
+        logger.warn('No session_id found in redirect URL');
       }
     } catch (error) {
-      console.error('Process redirect error:', error);
+      logger.error('Process redirect error:', error);
     } finally {
       isProcessingAuth.current = false;
     }
@@ -131,11 +132,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           await socketService.connect(userData.user_id);
         } catch (error) {
-          console.error('Socket connection failed:', error);
+          logger.error('Socket connection failed:', error);
         }
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      logger.error('Auth check failed:', error);
       await AsyncStorage.removeItem('session_token');
     } finally {
       setLoading(false);
@@ -165,14 +166,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (!redirectUrl) {
-        console.error('Unable to determine redirect URL');
+        logger.error('Unable to determine redirect URL');
         throw new Error('Unable to determine redirect URL');
       }
 
-      console.log('Login - Mode:', mode, 'Redirect URL:', redirectUrl);
+      logger.log('Login - Mode:', mode, 'Redirect URL:', redirectUrl);
       // Include mode in auth URL for Emergent Auth to differentiate sign up vs sign in
       const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}&mode=${mode}`;
-      console.log('Login - Auth URL:', authUrl);
+      logger.log('Login - Auth URL:', authUrl);
 
       if (Platform.OS === 'web') {
         if (typeof window !== 'undefined') {
@@ -190,15 +191,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             preferEphemeralSession: false,
           }
         );
-        console.log('Login - WebBrowser result:', JSON.stringify(result));
+        logger.log('Login - WebBrowser result:', JSON.stringify(result));
         
         if (result.type === 'success' && result.url) {
-          console.log('Auth success - processing URL:', result.url);
+          logger.log('Auth success - processing URL:', result.url);
           await processRedirectUrl(result.url);
         } else {
           // For mobile, when browser closes (dismiss/cancel), the web page has the session
           // We need to check if the web page processed the auth and get the session
-          console.log('Browser closed, checking if web processed auth...');
+          logger.log('Browser closed, checking if web processed auth...');
           
           // Wait a moment for any async processes
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -208,22 +209,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Check if we now have a valid session by trying to get user data
             const userData = await api.getMe();
             if (userData && userData.user_id) {
-              console.log('Found authenticated session after browser close:', userData.email);
+              logger.log('Found authenticated session after browser close:', userData.email);
               setUser(userData);
               // Connect socket
               try {
                 await socketService.connect(userData.user_id);
               } catch (error) {
-                console.error('Socket connection failed:', error);
+                logger.error('Socket connection failed:', error);
               }
             }
           } catch (e) {
-            console.log('No session found after browser close, user may need to try again');
+            logger.log('No session found after browser close, user may need to try again');
           }
         }
       }
     } catch (error) {
-      console.error('Login error:', error);
+      logger.error('Login error:', error);
       throw error;
     }
   };
@@ -234,11 +235,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const handleAppStateChange = async (nextAppState: string) => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('App came to foreground, checking for pending auth...');
+        logger.log('App came to foreground, checking for pending auth...');
         // Check if we have a pending auth URL
         const url = await Linking.getInitialURL();
         if (url && url.includes('session_id') && !user) {
-          console.log('Found pending auth URL on foreground:', url);
+          logger.log('Found pending auth URL on foreground:', url);
           await processRedirectUrl(url);
         }
       }
@@ -269,7 +270,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (Platform.OS === 'web') return;
     
     const handleUrl = async (event: { url: string }) => {
-      console.log('Deep link received:', event.url);
+      logger.log('Deep link received:', event.url);
       // Check for session_id in the URL (could be in query params or hash)
       if (event.url.includes('session_id') || event.url.includes('auth-callback')) {
         await processRedirectUrl(event.url);
@@ -282,7 +283,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check for initial URL (when app was opened via deep link)
     Linking.getInitialURL().then((url) => {
       if (url) {
-        console.log('Initial URL found:', url);
+        logger.log('Initial URL found:', url);
         if (url.includes('session_id') || url.includes('auth-callback')) {
           handleUrl({ url });
         }
@@ -298,7 +299,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await api.logout();
     } catch (error) {
-      console.error('Logout API error:', error);
+      logger.error('Logout API error:', error);
     } finally {
       await AsyncStorage.removeItem('session_token');
       setAuthToken(null);
@@ -316,7 +317,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userData = await api.getMe();
       setUser(userData);
     } catch (error) {
-      console.error('Refresh user error:', error);
+      logger.error('Refresh user error:', error);
     }
   };
 
