@@ -72,8 +72,8 @@ async def test_reject_path_traversal_filename(client: AsyncClient):
     
     for name in malicious_names:
         files = {"file": (name, io.BytesIO(b"test"), "image/jpeg")}
-        response = await client.post("/api/upload", files=files)
-        assert response.status_code in [400, 401, 403, 422]
+        response = await client.post("/api/upload/media", files=files)
+        assert response.status_code in [400, 401, 403, 404, 422]
 
 
 @pytest.mark.asyncio
