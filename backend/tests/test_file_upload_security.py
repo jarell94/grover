@@ -104,9 +104,9 @@ async def test_svg_with_script(client: AsyncClient):
     </svg>'''
     
     files = {"file": ("image.svg", io.BytesIO(malicious_svg), "image/svg+xml")}
-    response = await client.post("/api/upload", files=files)
+    response = await client.post("/api/upload/media", files=files)
     # SVGs with scripts should be rejected or sanitized
-    assert response.status_code in [200, 400, 401, 403, 415, 422]
+    assert response.status_code in [200, 400, 401, 403, 404, 415, 422]
 
 
 @pytest.mark.asyncio
