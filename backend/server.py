@@ -3046,11 +3046,41 @@ async def get_notifications(
     limit: int = 50,
     skip: int = 0,
     unread_only: bool = False,
+    type_filter: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
+    """
+    Get notifications with optional filtering.
+    
+    type_filter options:
+    - likes: like notifications
+    - comments: comment and reply notifications
+    - follows: follow notifications
+    - mentions: mention notifications
+    - messages: message notifications
+    - sales: sales and transaction notifications
+    - streams: live stream notifications
+    - all: all notifications (default)
+    """
     query = {"user_id": current_user.user_id}
+    
     if unread_only:
         query["read"] = False
+    
+    # Apply type filter
+    if type_filter and type_filter != "all":
+        type_mapping = {
+            "likes": ["like", "reaction"],
+            "comments": ["comment", "reply", "comment_like"],
+            "follows": ["follow", "follow_request"],
+            "mentions": ["mention", "tag"],
+            "messages": ["message", "dm"],
+            "sales": ["sale", "purchase", "tip", "subscription", "payout"],
+            "streams": ["stream_live", "scheduled_stream", "super_chat"],
+        }
+        
+        notification_types = type_mapping.get(type_filter, [type_filter])
+        query["type"] = {"$in": notification_types}
     
     notifications = await db.notifications.find(
         query,
@@ -3060,11 +3090,60 @@ async def get_notifications(
     # Get total count for pagination
     total = await db.notifications.count_documents(query)
     
+    # Get unread count
+    unread_count = await db.notifications.count_documents({
+        "user_id": current_user.user_id,
+        "read": False
+    })
+    
     return {
         "notifications": notifications,
         "total": total,
+        "unread_count": unread_count,
         "has_more": skip + len(notifications) < total
     }
+
+@api_router.get("/notifications/count")
+async def get_notifications_count(current_user: User = Depends(require_auth)):
+    """Get unread notification counts by type"""
+    pipeline = [
+        {"$match": {"user_id": current_user.user_id, "read": False}},
+        {"$group": {"_id": "$type", "count": {"$sum": 1}}},
+    ]
+    
+    results = await db.notifications.aggregate(pipeline).to_list(100)
+    
+    # Build count by category
+    counts = {
+        "total": 0,
+        "likes": 0,
+        "comments": 0,
+        "follows": 0,
+        "mentions": 0,
+        "messages": 0,
+        "sales": 0,
+        "streams": 0,
+        "other": 0,
+    }
+    
+    type_to_category = {
+        "like": "likes", "reaction": "likes",
+        "comment": "comments", "reply": "comments", "comment_like": "comments",
+        "follow": "follows", "follow_request": "follows",
+        "mention": "mentions", "tag": "mentions",
+        "message": "messages", "dm": "messages",
+        "sale": "sales", "purchase": "sales", "tip": "sales", "subscription": "sales", "payout": "sales",
+        "stream_live": "streams", "scheduled_stream": "streams", "super_chat": "streams",
+    }
+    
+    for result in results:
+        notification_type = result["_id"]
+        count = result["count"]
+        category = type_to_category.get(notification_type, "other")
+        counts[category] += count
+        counts["total"] += count
+    
+    return counts
 
 @api_router.post("/notifications/mark-read")
 async def mark_notifications_read(current_user: User = Depends(require_auth)):
