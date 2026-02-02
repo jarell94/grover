@@ -246,7 +246,16 @@ export const api = {
   getProductById: (productId: string) => apiRequest(`/products/${productId}`),
   createProduct: (formData: FormData) => apiFormRequest('/products', formData),
   deleteProduct: (productId: string) => apiRequest(`/products/${productId}`, { method: 'DELETE' }),
-  updateProduct: (productId: string, data: { name: string; description: string; price: number }) => apiRequest(`/products/${productId}`, {
+  updateProduct: (productId: string, data: { 
+    name?: string; 
+    description?: string; 
+    price?: number;
+    stock?: number;
+    category?: string;
+    is_active?: boolean;
+    sale_price?: number;
+    sku?: string;
+  }) => apiRequest(`/products/${productId}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
