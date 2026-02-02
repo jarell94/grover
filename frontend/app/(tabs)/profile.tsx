@@ -49,13 +49,24 @@ export default function ProfileScreen() {
   const [subscribing, setSubscribing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  const loadStats = useCallback(async () => {
+    try {
+      if (user) {
+        const data = await api.getUserStats(user.user_id);
+        setStats(data);
+      }
+    } catch (error) {
+      console.error('Load stats error:', error);
+    }
+  }, [user]);
+
   // Auto-refresh on screen focus
   useFocusEffect(
     useCallback(() => {
       if (user) {
         loadStats();
       }
-    }, [user])
+    }, [user, loadStats])
   );
 
   useEffect(() => {
@@ -70,18 +81,7 @@ export default function ProfileScreen() {
       setLinkedin(user.linkedin || '');
       setPaypalEmail(user.paypal_email || '');
     }
-  }, [user]);
-
-  const loadStats = async () => {
-    try {
-      if (user) {
-        const data = await api.getUserStats(user.user_id);
-        setStats(data);
-      }
-    } catch (error) {
-      console.error('Load stats error:', error);
-    }
-  };
+  }, [user, loadStats]);
 
   const onRefresh = async () => {
     setRefreshing(true);

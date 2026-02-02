@@ -29,13 +29,7 @@ export default function StudioScreen() {
   const [myPosts, setMyPosts] = useState([]);
   const [myProducts, setMyProducts] = useState([]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadAnalytics();
-    }, [user?.user_id])
-  );
-
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     try {
       if (!user?.user_id) {
         setLoading(false);
@@ -58,7 +52,13 @@ export default function StudioScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.user_id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadAnalytics();
+    }, [loadAnalytics])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);

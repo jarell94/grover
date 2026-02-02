@@ -103,13 +103,13 @@ export default function ExploreScreen() {
       if (activeTab === "foryou" && posts.length === 0) {
         loadInitialContent(activeTab);
       }
-    }, [activeTab])
+    }, [activeTab, posts.length, loadInitialContent])
   );
 
   // Fetch when tab changes
   useEffect(() => {
     loadInitialContent(activeTab);
-  }, [activeTab]);
+  }, [activeTab, loadInitialContent]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -132,7 +132,7 @@ export default function ExploreScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [activeTab]);
+  }, [activeTab, loadInitialContent]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || activeTab !== "foryou") return;

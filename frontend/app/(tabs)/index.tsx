@@ -392,7 +392,7 @@ export default function HomeScreen() {
       if (posts.length === 0) {
         loadFeed(true);
       }
-    }, [])
+    }, [posts.length, loadFeed])
   );
 
   const handleRefresh = useCallback(() => {
