@@ -1651,10 +1651,13 @@ async def unlike_post(post_id: str, current_user: User = Depends(require_auth)):
 @api_router.put("/posts/{post_id}")
 async def update_post(
     post_id: str,
-    content: str = None,
+    content: Optional[str] = None,
+    visibility: Optional[str] = None,
+    is_pinned: Optional[bool] = None,
+    tags: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
-    """Update a post"""
+    """Update a post - supports content, visibility, pinned status, and tags"""
     validate_id(post_id, "post_id")
     
     post = await db.posts.find_one({"post_id": post_id})
@@ -1664,12 +1667,36 @@ async def update_post(
     if post["user_id"] != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    update_data = {"updated_at": datetime.utcnow().isoformat()}
+    update_data = {"updated_at": datetime.now(timezone.utc)}
+    
     if content is not None:
         update_data["content"] = sanitize_string(content, 5000, "content")
+        # Re-extract hashtags if content changed
+        import re
+        hashtags = re.findall(r'#(\w+)', content)
+        if hashtags:
+            update_data["tags"] = list(set(hashtags))[:10]
+    
+    if visibility is not None:
+        if visibility not in ["public", "followers", "private"]:
+            raise HTTPException(status_code=400, detail="Invalid visibility. Must be: public, followers, or private")
+        update_data["visibility"] = visibility
+    
+    if is_pinned is not None:
+        update_data["is_pinned"] = bool(is_pinned)
+    
+    if tags is not None:
+        # Parse comma-separated tags
+        tag_list = [t.strip().lower() for t in tags.split(",") if t.strip()]
+        update_data["tags"] = tag_list[:10]  # Max 10 tags
     
     await db.posts.update_one({"post_id": post_id}, {"$set": update_data})
-    return {"message": "Post updated"}
+    
+    # Invalidate cache if using Redis
+    await cache.invalidate_post(post_id)
+    
+    updated_post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+    return {"message": "Post updated", "post": updated_post}
 
 @api_router.delete("/posts/{post_id}")
 async def delete_post(post_id: str, current_user: User = Depends(require_auth)):
