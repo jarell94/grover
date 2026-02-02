@@ -73,7 +73,7 @@ export default function StoreScreen() {
 
   const openCreateModal = async () => {
     // Check if user has PayPal email for receiving payouts
-    const me = await api.getMe?.().catch(() => null);
+    const me = await api.getMe().catch(() => null);
 
     if (me && !me.paypal_email) {
       Alert.alert(

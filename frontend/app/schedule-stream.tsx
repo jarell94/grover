@@ -42,6 +42,24 @@ export default function ScheduleStreamScreen() {
       return;
     }
 
+    // Validate date and time format and ensure it's in the future
+    try {
+      const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}:00`);
+      if (isNaN(scheduledDateTime.getTime())) {
+        Alert.alert('Error', 'Invalid date or time format');
+        return;
+      }
+      
+      const now = new Date();
+      if (scheduledDateTime <= now) {
+        Alert.alert('Error', 'Scheduled time must be in the future');
+        return;
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Invalid date or time format');
+      return;
+    }
+
     setIsLoading(true);
     try {
       await api.scheduleStream({

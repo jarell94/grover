@@ -146,7 +146,7 @@ export default function WatchStreamScreen() {
 
     const initAgora = async () => {
       try {
-        const engine = createAgoraEngine();
+        const engine = createAgoraRtcEngine();
         if (!engine) return;
 
         engineRef.current = engine;
@@ -277,7 +277,9 @@ export default function WatchStreamScreen() {
       socketService.off('stream:likes', onLikes);
       socketService.off('stream:chat', onChat);
       socketService.off('stream:ended', onEnded);
-      socketService.emit('stream:leave', { streamId });
+      if (socketService.getSocket()) {
+        socketService.emit('stream:leave', { streamId });
+      }
     };
   }, [streamId, loading]);
 
@@ -409,9 +411,9 @@ export default function WatchStreamScreen() {
     // On native, show Agora view or waiting state
     if (hostUid != null) {
       return (
-        <AgoraView
+        <RtcSurfaceView
           style={StyleSheet.absoluteFill}
-          uid={hostUid}
+          canvas={{ uid: hostUid }}
         />
       );
     }

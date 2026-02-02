@@ -90,10 +90,10 @@ export default function PostViewScreen() {
           Post
         </Text>
 
-        {/* placeholder for future actions (share / report / save) */}
-        <TouchableOpacity style={styles.headerBtn} onPress={() => {}}>
-          <Ionicons name="ellipsis-horizontal" size={22} color={Colors.text} />
-        </TouchableOpacity>
+        {/* Menu button for future actions (share / report / save) */}
+        <View style={styles.headerBtn}>
+          <Ionicons name="ellipsis-horizontal" size={22} color={Colors.textSecondary} />
+        </View>
       </View>
 
       <ScrollView

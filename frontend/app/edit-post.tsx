@@ -47,6 +47,11 @@ export default function EditPostScreen() {
   }, [loadPost]);
 
   const handleSave = async () => {
+    if (!postId || postId === '') {
+      Alert.alert('Error', 'Invalid post ID');
+      return;
+    }
+    
     if (!content.trim()) {
       Alert.alert('Error', 'Post content cannot be empty');
       return;

@@ -51,6 +51,11 @@ export default function EditProductScreen() {
   }, [loadProduct]);
 
   const handleSave = async () => {
+    if (!productId || productId === '') {
+      Alert.alert('Error', 'Invalid product ID');
+      return;
+    }
+    
     if (!name.trim()) {
       Alert.alert('Error', 'Product name is required');
       return;

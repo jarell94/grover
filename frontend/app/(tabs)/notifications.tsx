@@ -342,7 +342,7 @@ export default function NotificationsScreen() {
       <View style={styles.filterContainer}>
         <TouchableOpacity
           style={[styles.filterChip, !unreadOnly && styles.filterChipActive]}
-          onPress={() => unreadOnly && handleToggleFilter()}
+          onPress={handleToggleFilter}
         >
           <Text style={[styles.filterChipText, !unreadOnly && styles.filterChipTextActive]}>
             All
@@ -350,7 +350,7 @@ export default function NotificationsScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.filterChip, unreadOnly && styles.filterChipActive]}
-          onPress={() => !unreadOnly && handleToggleFilter()}
+          onPress={handleToggleFilter}
         >
           <Text style={[styles.filterChipText, unreadOnly && styles.filterChipTextActive]}>
             Unread {unreadCount > 0 && `(${unreadCount})`}
