@@ -285,10 +285,22 @@ export const api = {
   getEngagement: () => apiRequest('/analytics/engagement'),
 
   // Notifications
-  getNotifications: (limit = 50, skip = 0, unreadOnly = false) => 
-    apiRequest(`/notifications?limit=${limit}&skip=${skip}&unread_only=${unreadOnly}`),
+  getNotifications: (limit = 50, skip = 0, unreadOnly = false, typeFilter?: string) => 
+    apiRequest(`/notifications?limit=${limit}&skip=${skip}&unread_only=${unreadOnly}${typeFilter ? `&type_filter=${typeFilter}` : ''}`),
+  getNotificationCounts: () => apiRequest('/notifications/count'),
   markNotificationsRead: () => apiRequest('/notifications/mark-read', { method: 'POST' }),
   markNotificationRead: (notificationId: string) => apiRequest(`/notifications/${notificationId}/read`, { method: 'POST' }),
+
+  // Streams
+  getActiveStreams: () => apiRequest('/streams/active'),
+  getScheduledStreams: (limit = 20, skip = 0, userId?: string) => 
+    apiRequest(`/streams/scheduled?limit=${limit}&skip=${skip}${userId ? `&user_id=${userId}` : ''}`),
+  scheduleStream: (formData: FormData) => apiFormRequest('/streams/schedule', formData),
+  cancelScheduledStream: (streamId: string) => apiRequest(`/streams/scheduled/${streamId}`, { method: 'DELETE' }),
+  startStream: (formData: FormData) => apiFormRequest('/streams/start', formData),
+  endStream: (streamId: string) => apiRequest(`/streams/${streamId}/end`, { method: 'POST' }),
+  joinStream: (streamId: string) => apiRequest(`/streams/${streamId}/join`, { method: 'POST' }),
+  getStreamInfo: (streamId: string) => apiRequest(`/streams/${streamId}`),
 
   // Premium
   subscribePremium: () => apiRequest('/premium/subscribe', { method: 'POST' }),
