@@ -235,7 +235,12 @@ export const api = {
   createPost: (formData: FormData) => apiFormRequest('/posts', formData),
   likePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'POST' }),
   deletePost: (postId: string) => apiRequest(`/posts/${postId}`, { method: 'DELETE' }),
-  updatePost: (postId: string, data: { content: string }) => apiRequest(`/posts/${postId}`, {
+  updatePost: (postId: string, data: { 
+    content?: string;
+    visibility?: 'public' | 'followers' | 'private';
+    is_pinned?: boolean;
+    tags?: string;
+  }) => apiRequest(`/posts/${postId}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
