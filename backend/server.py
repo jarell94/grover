@@ -5529,17 +5529,56 @@ async def schedule_stream(
     scheduled_time: str = Form(...),
     enable_super_chat: bool = Form(False),
     enable_shopping: bool = Form(False),
+    reminder_minutes: int = Form(30),
     current_user: User = Depends(require_auth)
 ):
-    """Schedule a future live stream"""
+    """
+    Schedule a future live stream with enhanced date validation.
+    
+    - scheduled_time: ISO 8601 format (e.g., "2024-01-15T14:00:00Z")
+    - reminder_minutes: Send reminder notification X minutes before (default 30)
+    - Must be at least 15 minutes in the future
+    - Cannot be more than 30 days in the future
+    """
     # Parse scheduled time
     try:
-        scheduled_dt = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Invalid datetime format")
+        # Handle various datetime formats
+        scheduled_time_clean = scheduled_time.replace('Z', '+00:00')
+        if '+' not in scheduled_time_clean and '-' not in scheduled_time_clean[-6:]:
+            scheduled_time_clean += '+00:00'
+        scheduled_dt = datetime.fromisoformat(scheduled_time_clean)
+        
+        # Ensure timezone aware
+        if scheduled_dt.tzinfo is None:
+            scheduled_dt = scheduled_dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid datetime format. Use ISO 8601 format (e.g., 2024-01-15T14:00:00Z). Error: {str(e)}"
+        )
     
-    if scheduled_dt <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+    now = datetime.now(timezone.utc)
+    min_schedule_time = now + timedelta(minutes=15)
+    max_schedule_time = now + timedelta(days=30)
+    
+    if scheduled_dt <= min_schedule_time:
+        raise HTTPException(
+            status_code=400, 
+            detail="Scheduled time must be at least 15 minutes in the future"
+        )
+    
+    if scheduled_dt > max_schedule_time:
+        raise HTTPException(
+            status_code=400, 
+            detail="Scheduled time cannot be more than 30 days in the future"
+        )
+    
+    # Validate reminder_minutes
+    if reminder_minutes < 5 or reminder_minutes > 1440:  # 5 minutes to 24 hours
+        raise HTTPException(
+            status_code=400,
+            detail="Reminder must be between 5 minutes and 24 hours (1440 minutes)"
+        )
     
     stream_id = f"stream_{uuid.uuid4().hex[:12]}"
     channel_name = stream_id
@@ -5553,6 +5592,8 @@ async def schedule_stream(
         "enable_shopping": enable_shopping,
         "status": "scheduled",
         "scheduled_time": scheduled_dt,
+        "reminder_minutes": reminder_minutes,
+        "reminder_sent": False,
         "channel_name": channel_name,
         "created_at": datetime.now(timezone.utc)
     }
@@ -5576,8 +5617,60 @@ async def schedule_stream(
     return {
         "stream_id": stream_id,
         "scheduled_time": scheduled_dt.isoformat(),
+        "reminder_time": (scheduled_dt - timedelta(minutes=reminder_minutes)).isoformat(),
         "message": "Stream scheduled successfully"
     }
+
+@api_router.get("/streams/scheduled")
+async def get_scheduled_streams(
+    limit: int = 20,
+    skip: int = 0,
+    user_id: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Get upcoming scheduled streams"""
+    query = {
+        "status": "scheduled",
+        "scheduled_time": {"$gt": datetime.now(timezone.utc)}
+    }
+    
+    if user_id:
+        query["user_id"] = user_id
+    
+    streams = await db.scheduled_streams.find(
+        query,
+        {"_id": 0}
+    ).sort("scheduled_time", 1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with user data
+    user_ids = list(set(s["user_id"] for s in streams))
+    users_map = await batch_fetch_users(db, user_ids)
+    
+    for stream in streams:
+        stream["user"] = users_map.get(stream["user_id"])
+    
+    return {"streams": streams, "total": len(streams)}
+
+@api_router.delete("/streams/scheduled/{stream_id}")
+async def cancel_scheduled_stream(stream_id: str, current_user: User = Depends(require_auth)):
+    """Cancel a scheduled stream"""
+    stream = await db.scheduled_streams.find_one({"stream_id": stream_id})
+    
+    if not stream:
+        raise HTTPException(status_code=404, detail="Scheduled stream not found")
+    
+    if stream["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if stream["status"] != "scheduled":
+        raise HTTPException(status_code=400, detail="Stream is not in scheduled status")
+    
+    await db.scheduled_streams.update_one(
+        {"stream_id": stream_id},
+        {"$set": {"status": "cancelled", "cancelled_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"message": "Scheduled stream cancelled"}
 
 @api_router.post("/streams/{stream_id}/join")
 async def join_stream(stream_id: str, current_user: User = Depends(require_auth)):
