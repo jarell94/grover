@@ -2086,12 +2086,17 @@ async def get_product_by_id(product_id: str, current_user: User = Depends(requir
 @api_router.put("/products/{product_id}")
 async def update_product(
     product_id: str,
-    name: str = None,
-    description: str = None,
-    price: float = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    price: Optional[float] = None,
+    stock: Optional[int] = None,
+    category: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    sale_price: Optional[float] = None,
+    sku: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
-    """Update a product"""
+    """Update a product - supports name, description, price, stock, category, active status, sale price, and SKU"""
     validate_id(product_id, "product_id")
     
     product = await db.products.find_one({"product_id": product_id})
@@ -2101,7 +2106,8 @@ async def update_product(
     if product["user_id"] != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    update_data = {"updated_at": datetime.utcnow().isoformat()}
+    update_data = {"updated_at": datetime.now(timezone.utc)}
+    
     if name is not None:
         update_data["name"] = sanitize_string(name, 200, "name")
     if description is not None:
@@ -2110,9 +2116,27 @@ async def update_product(
         if price < 0:
             raise HTTPException(status_code=400, detail="Price cannot be negative")
         update_data["price"] = round(price, 2)
+    if stock is not None:
+        if stock < 0:
+            raise HTTPException(status_code=400, detail="Stock cannot be negative")
+        update_data["stock"] = stock
+    if category is not None:
+        update_data["category"] = sanitize_string(category, 100, "category")
+    if is_active is not None:
+        update_data["is_active"] = bool(is_active)
+    if sale_price is not None:
+        if sale_price < 0:
+            raise HTTPException(status_code=400, detail="Sale price cannot be negative")
+        if price is not None and sale_price >= price:
+            raise HTTPException(status_code=400, detail="Sale price must be less than regular price")
+        update_data["sale_price"] = round(sale_price, 2)
+    if sku is not None:
+        update_data["sku"] = sanitize_string(sku, 50, "sku")
     
     await db.products.update_one({"product_id": product_id}, {"$set": update_data})
-    return {"message": "Product updated"}
+    
+    updated_product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+    return {"message": "Product updated", "product": updated_product}
 
 @api_router.delete("/products/{product_id}")
 async def delete_product(product_id: str, current_user: User = Depends(require_auth)):
