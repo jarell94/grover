@@ -107,6 +107,17 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
+        name="music"
+        options={{
+          title: "Music",
+          headerShown: false,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "musical-notes" : "musical-notes-outline"} size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
         name="messages"
         options={{
           title: "Messages",

@@ -289,6 +289,42 @@ async def create_indexes():
     await safe_create_index(db.sessions, "user_id", background=True, name="sessions_user")
     await safe_create_index(db.sessions, "expires_at", expireAfterSeconds=0, background=True, name="sessions_ttl")
     
+    # ========== SONGS COLLECTION ==========
+    await safe_create_index(db.songs, "song_id", unique=True, background=True, name="songs_id_unique")
+    await safe_create_index(db.songs, [("artist_id", 1), ("created_at", -1)], background=True, name="songs_artist_created")
+    await safe_create_index(db.songs, [("title", "text"), ("artist_name", "text")], background=True, name="songs_text_search")
+    await safe_create_index(db.songs, [("genre", 1), ("plays_count", -1)], background=True, name="songs_genre_popular")
+    await safe_create_index(db.songs, [("album_id", 1), ("track_number", 1)], background=True, sparse=True, name="songs_album_track")
+    
+    # ========== ALBUMS COLLECTION ==========
+    await safe_create_index(db.albums, "album_id", unique=True, background=True, name="albums_id_unique")
+    await safe_create_index(db.albums, [("artist_id", 1), ("created_at", -1)], background=True, name="albums_artist_created")
+    await safe_create_index(db.albums, [("title", "text"), ("artist_name", "text")], background=True, name="albums_text_search")
+    
+    # ========== PLAYLISTS COLLECTION ==========
+    await safe_create_index(db.playlists, "playlist_id", unique=True, background=True, name="playlists_id_unique")
+    await safe_create_index(db.playlists, [("user_id", 1), ("created_at", -1)], background=True, name="playlists_user_created")
+    await safe_create_index(db.playlists, [("name", "text")], background=True, name="playlists_text_search")
+    
+    # ========== SONG LIKES COLLECTION ==========
+    await safe_create_index(db.song_likes, [("song_id", 1), ("user_id", 1)], unique=True, background=True, name="song_likes_unique")
+    await safe_create_index(db.song_likes, "song_id", background=True, name="song_likes_song")
+    await safe_create_index(db.song_likes, [("user_id", 1), ("created_at", -1)], background=True, name="song_likes_user_created")
+    
+    # ========== SONG PURCHASES COLLECTION ==========
+    await safe_create_index(db.song_purchases, [("song_id", 1), ("user_id", 1)], unique=True, background=True, name="song_purchases_unique")
+    await safe_create_index(db.song_purchases, "user_id", background=True, name="song_purchases_user")
+    await safe_create_index(db.song_purchases, "artist_id", background=True, name="song_purchases_artist")
+    
+    # ========== ALBUM PURCHASES COLLECTION ==========
+    await safe_create_index(db.album_purchases, [("album_id", 1), ("user_id", 1)], unique=True, background=True, name="album_purchases_unique")
+    await safe_create_index(db.album_purchases, "user_id", background=True, name="album_purchases_user")
+    await safe_create_index(db.album_purchases, "artist_id", background=True, name="album_purchases_artist")
+    
+    # ========== SONG PLAYS COLLECTION ==========
+    await safe_create_index(db.song_plays, [("song_id", 1), ("played_at", -1)], background=True, name="song_plays_song_date")
+    await safe_create_index(db.song_plays, [("user_id", 1), ("played_at", -1)], background=True, name="song_plays_user_date")
+    
     logger.info(f"Database indexes: {indexes_created} created, {indexes_skipped} already exist")
 
 @app.on_event("startup")
@@ -5912,6 +5948,525 @@ async def typing(sid, data):
     
     if conversation_id and user_id:
         await sio.emit('user_typing', {"user_id": user_id}, room=f"conversation_{conversation_id}", skip_sid=sid)
+
+# ============ MUSIC/AUDIO ENDPOINTS ============
+
+class SongCreate(BaseModel):
+    title: str
+    artist_name: str
+    album_id: Optional[str] = None
+    genre: Optional[str] = None
+    duration: Optional[int] = None  # in seconds
+    track_number: Optional[int] = None
+    lyrics: Optional[str] = None
+    price: Optional[float] = 0.0  # Price in USD, 0 means free
+    is_downloadable: bool = True
+
+class AlbumCreate(BaseModel):
+    title: str
+    artist_name: str
+    description: Optional[str] = None
+    genre: Optional[str] = None
+    release_date: Optional[str] = None
+    price: Optional[float] = 0.0  # Price in USD, 0 means free
+
+class PlaylistCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    is_public: bool = True
+
+@api_router.post("/songs")
+async def upload_song(
+    title: str = Form(...),
+    artist_name: str = Form(...),
+    audio_file: UploadFile = File(...),
+    cover_art: Optional[UploadFile] = File(None),
+    album_id: Optional[str] = Form(None),
+    genre: Optional[str] = Form(None),
+    duration: Optional[int] = Form(None),
+    track_number: Optional[int] = Form(None),
+    lyrics: Optional[str] = Form(None),
+    price: float = Form(0.0),
+    is_downloadable: bool = Form(True),
+    authorization: str = Header(None)
+):
+    """Upload a new song with optional pricing"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Validate inputs
+    title = sanitize_string(title, MAX_NAME_LENGTH, "title")
+    artist_name = sanitize_string(artist_name, MAX_NAME_LENGTH, "artist_name")
+    genre = sanitize_string(genre, 50, "genre") if genre else None
+    lyrics = sanitize_string(lyrics, 10000, "lyrics") if lyrics else None
+    
+    if album_id:
+        album_id = validate_id(album_id, "album_id")
+        # Verify album exists and belongs to user
+        album = await db.albums.find_one({"album_id": album_id, "artist_id": user["user_id"]})
+        if not album:
+            raise HTTPException(status_code=404, detail="Album not found or access denied")
+    
+    # Validate price
+    if price < 0 or price > 999.99:
+        raise HTTPException(status_code=400, detail="Price must be between 0 and 999.99")
+    
+    # Validate and upload audio file
+    audio_content = await validate_file_upload(audio_file, ALLOWED_AUDIO_TYPES, MAX_FILE_SIZE)
+    
+    try:
+        # Upload audio to media service
+        audio_url = await upload_media(audio_content, audio_file.content_type, f"songs/{user['user_id']}")
+        
+        # Upload cover art if provided
+        cover_art_url = None
+        if cover_art:
+            cover_content = await validate_file_upload(cover_art, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
+            cover_art_url = await upload_media(cover_content, cover_art.content_type, f"covers/{user['user_id']}")
+    except Exception as e:
+        logger.error(f"Media upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload media")
+    
+    # Create song document
+    song_id = f"song_{uuid.uuid4().hex[:12]}"
+    song_data = {
+        "song_id": song_id,
+        "artist_id": user["user_id"],
+        "artist_name": artist_name,
+        "title": title,
+        "album_id": album_id,
+        "genre": genre,
+        "audio_url": audio_url,
+        "cover_art_url": cover_art_url,
+        "duration": duration,
+        "track_number": track_number,
+        "lyrics": lyrics,
+        "price": float(price),
+        "is_downloadable": is_downloadable,
+        "plays_count": 0,
+        "likes_count": 0,
+        "downloads_count": 0,
+        "revenue": 0.0,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.songs.insert_one(song_data)
+    
+    # If part of album, add to album's songs list
+    if album_id:
+        await db.albums.update_one(
+            {"album_id": album_id},
+            {
+                "$push": {"songs": song_id},
+                "$set": {"updated_at": datetime.now(timezone.utc)}
+            }
+        )
+    
+    return {"message": "Song uploaded successfully", "song_id": song_id, "song": song_data}
+
+@api_router.post("/albums")
+async def create_album(
+    title: str = Form(...),
+    artist_name: str = Form(...),
+    cover_art: UploadFile = File(...),
+    description: Optional[str] = Form(None),
+    genre: Optional[str] = Form(None),
+    release_date: Optional[str] = Form(None),
+    price: float = Form(0.0),
+    authorization: str = Header(None)
+):
+    """Create a new album with optional pricing"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Validate inputs
+    title = sanitize_string(title, MAX_NAME_LENGTH, "title")
+    artist_name = sanitize_string(artist_name, MAX_NAME_LENGTH, "artist_name")
+    description = sanitize_string(description, 1000, "description") if description else None
+    genre = sanitize_string(genre, 50, "genre") if genre else None
+    
+    # Validate price
+    if price < 0 or price > 9999.99:
+        raise HTTPException(status_code=400, detail="Price must be between 0 and 9999.99")
+    
+    # Validate and upload cover art
+    cover_content = await validate_file_upload(cover_art, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
+    
+    try:
+        cover_art_url = await upload_media(cover_content, cover_art.content_type, f"albums/{user['user_id']}")
+    except Exception as e:
+        logger.error(f"Cover art upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload cover art")
+    
+    # Create album document
+    album_id = f"album_{uuid.uuid4().hex[:12]}"
+    album_data = {
+        "album_id": album_id,
+        "artist_id": user["user_id"],
+        "artist_name": artist_name,
+        "title": title,
+        "description": description,
+        "genre": genre,
+        "cover_art_url": cover_art_url,
+        "release_date": release_date,
+        "price": float(price),
+        "songs": [],
+        "total_duration": 0,
+        "plays_count": 0,
+        "likes_count": 0,
+        "purchases_count": 0,
+        "revenue": 0.0,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.albums.insert_one(album_data)
+    
+    return {"message": "Album created successfully", "album_id": album_id, "album": album_data}
+
+@api_router.get("/songs")
+async def get_songs(
+    skip: int = 0,
+    limit: int = 20,
+    genre: Optional[str] = None,
+    artist_id: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: str = "created_at",  # created_at, plays_count, likes_count
+    authorization: str = Header(None)
+):
+    """Get songs with filtering and sorting"""
+    # Validate pagination
+    if skip < 0 or limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="Invalid pagination parameters")
+    
+    # Build query
+    query = {}
+    if genre:
+        query["genre"] = sanitize_string(genre, 50)
+    if artist_id:
+        query["artist_id"] = validate_id(artist_id, "artist_id")
+    if search:
+        query["$text"] = {"$search": sanitize_string(search, 100)}
+    
+    # Determine sort order
+    sort_field = "created_at"
+    if sort_by in ["plays_count", "likes_count"]:
+        sort_field = sort_by
+    
+    songs = await db.songs.find(query).sort(sort_field, -1).skip(skip).limit(limit).to_list(limit)
+    total = await db.songs.count_documents(query)
+    
+    return {"songs": songs, "total": total, "skip": skip, "limit": limit}
+
+@api_router.get("/songs/{song_id}")
+async def get_song(song_id: str, authorization: str = Header(None)):
+    """Get a specific song with ownership check"""
+    song_id = validate_id(song_id, "song_id")
+    user = await authenticate_user(authorization)
+    
+    song = await db.songs.find_one({"song_id": song_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    # Check if user owns or has purchased the song
+    owns_song = False
+    if user:
+        owns_song = (
+            song["artist_id"] == user["user_id"] or
+            song["price"] == 0.0 or
+            await db.song_purchases.find_one({"song_id": song_id, "user_id": user["user_id"]})
+        )
+    else:
+        # Allow preview/info for non-authenticated users if free
+        owns_song = song["price"] == 0.0
+    
+    song["can_play"] = owns_song
+    song["can_download"] = owns_song and song.get("is_downloadable", True)
+    
+    return {"song": song}
+
+@api_router.get("/albums")
+async def get_albums(
+    skip: int = 0,
+    limit: int = 20,
+    genre: Optional[str] = None,
+    artist_id: Optional[str] = None,
+    search: Optional[str] = None,
+    authorization: str = Header(None)
+):
+    """Get albums with filtering"""
+    if skip < 0 or limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="Invalid pagination parameters")
+    
+    query = {}
+    if genre:
+        query["genre"] = sanitize_string(genre, 50)
+    if artist_id:
+        query["artist_id"] = validate_id(artist_id, "artist_id")
+    if search:
+        query["$text"] = {"$search": sanitize_string(search, 100)}
+    
+    albums = await db.albums.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    total = await db.albums.count_documents(query)
+    
+    return {"albums": albums, "total": total, "skip": skip, "limit": limit}
+
+@api_router.get("/albums/{album_id}")
+async def get_album(album_id: str, authorization: str = Header(None)):
+    """Get album with all songs"""
+    album_id = validate_id(album_id, "album_id")
+    user = await authenticate_user(authorization)
+    
+    album = await db.albums.find_one({"album_id": album_id})
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+    
+    # Get all songs in album
+    songs = await db.songs.find({"album_id": album_id}).sort("track_number", 1).to_list(100)
+    album["songs_details"] = songs
+    
+    # Check ownership
+    owns_album = False
+    if user:
+        owns_album = (
+            album["artist_id"] == user["user_id"] or
+            album["price"] == 0.0 or
+            await db.album_purchases.find_one({"album_id": album_id, "user_id": user["user_id"]})
+        )
+    else:
+        owns_album = album["price"] == 0.0
+    
+    album["can_play"] = owns_album
+    
+    return {"album": album}
+
+@api_router.post("/songs/{song_id}/play")
+async def play_song(song_id: str, authorization: str = Header(None)):
+    """Increment play count and return playback URL"""
+    song_id = validate_id(song_id, "song_id")
+    user = await authenticate_user(authorization)
+    
+    song = await db.songs.find_one({"song_id": song_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    # Check if user can play (owns it or it's free)
+    can_play = False
+    if user:
+        can_play = (
+            song["artist_id"] == user["user_id"] or
+            song["price"] == 0.0 or
+            await db.song_purchases.find_one({"song_id": song_id, "user_id": user["user_id"]})
+        )
+    else:
+        can_play = song["price"] == 0.0
+    
+    if not can_play:
+        raise HTTPException(status_code=403, detail="Purchase required to play this song")
+    
+    # Increment play count
+    await db.songs.update_one(
+        {"song_id": song_id},
+        {"$inc": {"plays_count": 1}}
+    )
+    
+    # Track play in analytics if user is authenticated
+    if user:
+        await db.song_plays.insert_one({
+            "song_id": song_id,
+            "user_id": user["user_id"],
+            "played_at": datetime.now(timezone.utc)
+        })
+    
+    return {"audio_url": song["audio_url"], "can_download": song.get("is_downloadable", True)}
+
+@api_router.post("/songs/{song_id}/like")
+async def like_song(song_id: str, authorization: str = Header(None)):
+    """Like a song"""
+    song_id = validate_id(song_id, "song_id")
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Check if song exists
+    song = await db.songs.find_one({"song_id": song_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    # Check if already liked
+    existing = await db.song_likes.find_one({"song_id": song_id, "user_id": user["user_id"]})
+    if existing:
+        # Unlike
+        await db.song_likes.delete_one({"song_id": song_id, "user_id": user["user_id"]})
+        await db.songs.update_one({"song_id": song_id}, {"$inc": {"likes_count": -1}})
+        return {"message": "Song unliked", "liked": False}
+    else:
+        # Like
+        await db.song_likes.insert_one({
+            "song_id": song_id,
+            "user_id": user["user_id"],
+            "created_at": datetime.now(timezone.utc)
+        })
+        await db.songs.update_one({"song_id": song_id}, {"$inc": {"likes_count": 1}})
+        return {"message": "Song liked", "liked": True}
+
+@api_router.post("/songs/{song_id}/purchase")
+async def purchase_song(song_id: str, authorization: str = Header(None)):
+    """Purchase a song"""
+    song_id = validate_id(song_id, "song_id")
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    song = await db.songs.find_one({"song_id": song_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    if song["price"] == 0.0:
+        raise HTTPException(status_code=400, detail="This song is free")
+    
+    # Check if already purchased
+    existing = await db.song_purchases.find_one({"song_id": song_id, "user_id": user["user_id"]})
+    if existing:
+        raise HTTPException(status_code=400, detail="Song already purchased")
+    
+    # Record purchase
+    purchase_id = f"purchase_{uuid.uuid4().hex[:12]}"
+    await db.song_purchases.insert_one({
+        "purchase_id": purchase_id,
+        "song_id": song_id,
+        "user_id": user["user_id"],
+        "artist_id": song["artist_id"],
+        "price": song["price"],
+        "purchased_at": datetime.now(timezone.utc)
+    })
+    
+    # Update song stats and revenue
+    await db.songs.update_one(
+        {"song_id": song_id},
+        {
+            "$inc": {
+                "purchases_count": 1,
+                "revenue": song["price"]
+            }
+        }
+    )
+    
+    # Update artist revenue
+    await db.users.update_one(
+        {"user_id": song["artist_id"]},
+        {"$inc": {"total_revenue": song["price"]}}
+    )
+    
+    return {"message": "Song purchased successfully", "purchase_id": purchase_id}
+
+@api_router.post("/albums/{album_id}/purchase")
+async def purchase_album(album_id: str, authorization: str = Header(None)):
+    """Purchase an album"""
+    album_id = validate_id(album_id, "album_id")
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    album = await db.albums.find_one({"album_id": album_id})
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+    
+    if album["price"] == 0.0:
+        raise HTTPException(status_code=400, detail="This album is free")
+    
+    # Check if already purchased
+    existing = await db.album_purchases.find_one({"album_id": album_id, "user_id": user["user_id"]})
+    if existing:
+        raise HTTPException(status_code=400, detail="Album already purchased")
+    
+    # Record purchase
+    purchase_id = f"purchase_{uuid.uuid4().hex[:12]}"
+    await db.album_purchases.insert_one({
+        "purchase_id": purchase_id,
+        "album_id": album_id,
+        "user_id": user["user_id"],
+        "artist_id": album["artist_id"],
+        "price": album["price"],
+        "purchased_at": datetime.now(timezone.utc)
+    })
+    
+    # Update album stats and revenue
+    await db.albums.update_one(
+        {"album_id": album_id},
+        {
+            "$inc": {
+                "purchases_count": 1,
+                "revenue": album["price"]
+            }
+        }
+    )
+    
+    # Update artist revenue
+    await db.users.update_one(
+        {"user_id": album["artist_id"]},
+        {"$inc": {"total_revenue": album["price"]}}
+    )
+    
+    return {"message": "Album purchased successfully", "purchase_id": purchase_id}
+
+@api_router.get("/my-music")
+async def get_my_music(authorization: str = Header(None)):
+    """Get user's uploaded songs and albums"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    songs = await db.songs.find({"artist_id": user["user_id"]}).sort("created_at", -1).to_list(100)
+    albums = await db.albums.find({"artist_id": user["user_id"]}).sort("created_at", -1).to_list(100)
+    
+    # Calculate total stats
+    total_plays = sum(s.get("plays_count", 0) for s in songs)
+    total_likes = sum(s.get("likes_count", 0) for s in songs)
+    total_revenue = sum(s.get("revenue", 0) for s in songs) + sum(a.get("revenue", 0) for a in albums)
+    
+    return {
+        "songs": songs,
+        "albums": albums,
+        "stats": {
+            "total_songs": len(songs),
+            "total_albums": len(albums),
+            "total_plays": total_plays,
+            "total_likes": total_likes,
+            "total_revenue": round(total_revenue, 2)
+        }
+    }
+
+@api_router.get("/my-library")
+async def get_my_library(authorization: str = Header(None)):
+    """Get user's purchased and liked songs"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Get purchased songs
+    song_purchases = await db.song_purchases.find({"user_id": user["user_id"]}).to_list(1000)
+    purchased_song_ids = [p["song_id"] for p in song_purchases]
+    purchased_songs = await db.songs.find({"song_id": {"$in": purchased_song_ids}}).to_list(1000)
+    
+    # Get purchased albums
+    album_purchases = await db.album_purchases.find({"user_id": user["user_id"]}).to_list(1000)
+    purchased_album_ids = [p["album_id"] for p in album_purchases]
+    purchased_albums = await db.albums.find({"album_id": {"$in": purchased_album_ids}}).to_list(1000)
+    
+    # Get liked songs
+    song_likes = await db.song_likes.find({"user_id": user["user_id"]}).to_list(1000)
+    liked_song_ids = [l["song_id"] for l in song_likes]
+    liked_songs = await db.songs.find({"song_id": {"$in": liked_song_ids}}).to_list(1000)
+    
+    return {
+        "purchased_songs": purchased_songs,
+        "purchased_albums": purchased_albums,
+        "liked_songs": liked_songs
+    }
 
 # Health check at root
 @app.get("/health")
