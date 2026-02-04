@@ -118,57 +118,31 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
-        name="messages"
+        name="films"
         options={{
-          title: "Messages",
+          title: "Films",
           headerShown: false,
-          tabBarBadge: unreadMessages > 0 ? unreadMessages : undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: Colors.primary,
-            color: Colors.background,
-          },
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "chatbubbles" : "chatbubbles-outline"}
-              size={size}
-              color={color}
-            />
+            <Ionicons name={focused ? "film" : "film-outline"} size={size} color={color} />
           ),
         }}
       />
 
       <Tabs.Screen
-        name="notifications"
+        name="podcasts"
         options={{
-          title: "Notifications",
+          title: "Podcasts",
           headerShown: false,
-          tabBarBadge: unreadNotifications > 0 ? unreadNotifications : undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: Colors.primary,
-            color: Colors.background,
-          },
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "notifications" : "notifications-outline"}
-              size={size}
-              color={color}
-            />
+            <Ionicons name={focused ? "mic" : "mic-outline"} size={size} color={color} />
           ),
         }}
       />
 
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          headerShown: false,
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? "person" : "person-outline"} size={size} color={color} />
-          ),
-        }}
-      />
-
-      {/* Hidden tabs (still navigable with router.push("/(tabs)/store")) */}
+      {/* Hidden tabs (still navigable with router.push("/(tabs)/...")) */}
+      <Tabs.Screen name="messages" options={{ href: null, title: "Messages", headerShown: false }} />
+      <Tabs.Screen name="notifications" options={{ href: null, title: "Notifications", headerShown: false }} />
+      <Tabs.Screen name="profile" options={{ href: null, title: "Profile", headerShown: false }} />
       <Tabs.Screen name="store" options={{ href: null, title: "Store", headerShown: false }} />
       <Tabs.Screen name="studio" options={{ href: null, title: "Studio", headerShown: false }} />
     </Tabs>
