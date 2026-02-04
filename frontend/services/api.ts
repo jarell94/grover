@@ -502,4 +502,37 @@ export const api = {
 
   // Unlike Post (toggle like off)
   unlikePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'DELETE' }),
+
+  // Films
+  uploadFilm: (formData: FormData) => apiRequest('/films', { method: 'POST', body: formData }),
+  getFilms: (params?: { genre?: string; filmmaker?: string; search?: string; sort_by?: string; skip?: number; limit?: number }) => {
+    const queryString = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return apiRequest(`/films${queryString}`);
+  },
+  getFilm: (filmId: string) => apiRequest(`/films/${filmId}`),
+  playFilm: (filmId: string) => apiRequest(`/films/${filmId}/play`, { method: 'POST' }),
+  likeFilm: (filmId: string) => apiRequest(`/films/${filmId}/like`, { method: 'POST' }),
+  purchaseFilm: (filmId: string) => apiRequest(`/films/${filmId}/purchase`, { method: 'POST' }),
+  getMyFilms: () => apiRequest('/my-films'),
+
+  // Podcasts
+  uploadPodcast: (formData: FormData) => apiRequest('/podcasts', { method: 'POST', body: formData }),
+  createPodcastSeries: (formData: FormData) => apiRequest('/podcast-series', { method: 'POST', body: formData }),
+  getPodcasts: (params?: { category?: string; host?: string; series_id?: string; search?: string; sort_by?: string; skip?: number; limit?: number }) => {
+    const queryString = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return apiRequest(`/podcasts${queryString}`);
+  },
+  getPodcastSeries: (params?: { category?: string; search?: string; skip?: number; limit?: number }) => {
+    const queryString = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return apiRequest(`/podcast-series${queryString}`);
+  },
+  getPodcast: (podcastId: string) => apiRequest(`/podcasts/${podcastId}`),
+  getSeriesDetails: (seriesId: string) => apiRequest(`/podcast-series/${seriesId}`),
+  playPodcast: (podcastId: string) => apiRequest(`/podcasts/${podcastId}/play`, { method: 'POST' }),
+  likePodcast: (podcastId: string) => apiRequest(`/podcasts/${podcastId}/like`, { method: 'POST' }),
+  purchasePodcast: (podcastId: string) => apiRequest(`/podcasts/${podcastId}/purchase`, { method: 'POST' }),
+  getMyPodcasts: () => apiRequest('/my-podcasts'),
+
+  // Unified Media Library
+  getMyMediaLibrary: () => apiRequest('/my-media-library'),
 };

@@ -6468,6 +6468,774 @@ async def get_my_library(authorization: str = Header(None)):
         "liked_songs": liked_songs
     }
 
+
+# ============ FILMS / VIDEO CONTENT ============
+
+class FilmCreate(BaseModel):
+    title: str
+    filmmaker_name: str
+    description: Optional[str] = None
+    genre: Optional[str] = None
+    duration: Optional[int] = None  # in seconds
+    release_year: Optional[int] = None
+    price: Optional[float] = 0.0  # Price in USD, 0 means free
+    is_downloadable: bool = False
+    trailer_url: Optional[str] = None
+
+@api_router.post("/films")
+async def upload_film(
+    title: str = Form(...),
+    filmmaker_name: str = Form(...),
+    video_file: UploadFile = File(...),
+    thumbnail: Optional[UploadFile] = File(None),
+    description: Optional[str] = Form(None),
+    genre: Optional[str] = Form(None),
+    duration: Optional[int] = Form(None),
+    release_year: Optional[int] = Form(None),
+    price: float = Form(0.0),
+    is_downloadable: bool = Form(False),
+    authorization: str = Header(None)
+):
+    """Upload a new film/video with optional pricing"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Validate inputs
+    title = sanitize_string(title, MAX_NAME_LENGTH, "title")
+    filmmaker_name = sanitize_string(filmmaker_name, MAX_NAME_LENGTH, "filmmaker_name")
+    description = sanitize_string(description, 2000, "description") if description else None
+    genre = sanitize_string(genre, 50, "genre") if genre else None
+    
+    # Validate price
+    if price < 0 or price > 9999.99:
+        raise HTTPException(status_code=400, detail="Price must be between 0 and 9999.99")
+    
+    # Validate and upload video file (increased size limit for videos)
+    MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB for videos
+    video_content = await validate_file_upload(video_file, ALLOWED_VIDEO_TYPES, MAX_VIDEO_SIZE)
+    
+    try:
+        # Upload video to media service
+        video_url = await upload_media(video_content, video_file.content_type, f"films/{user['user_id']}")
+        
+        # Upload thumbnail if provided
+        thumbnail_url = None
+        if thumbnail:
+            thumb_content = await validate_file_upload(thumbnail, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
+            thumbnail_url = await upload_media(thumb_content, thumbnail.content_type, f"thumbnails/{user['user_id']}")
+    except Exception as e:
+        logger.error(f"Media upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload media")
+    
+    # Create film document
+    film_id = f"film_{uuid.uuid4().hex[:12]}"
+    film_data = {
+        "film_id": film_id,
+        "filmmaker_id": user["user_id"],
+        "filmmaker_name": filmmaker_name,
+        "title": title,
+        "description": description,
+        "genre": genre,
+        "video_url": video_url,
+        "thumbnail_url": thumbnail_url,
+        "duration": duration,
+        "release_year": release_year,
+        "price": float(price),
+        "is_downloadable": is_downloadable,
+        "views_count": 0,
+        "likes_count": 0,
+        "comments_count": 0,
+        "revenue": 0.0,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.films.insert_one(film_data)
+    
+    # Create indexes for films collection
+    await db.films.create_index([("filmmaker_id", 1)])
+    await db.films.create_index([("genre", 1)])
+    await db.films.create_index([("created_at", -1)])
+    await db.films.create_index([("views_count", -1)])
+    await db.films.create_index([("title", "text"), ("filmmaker_name", "text"), ("description", "text")])
+    
+    return {"message": "Film uploaded successfully", "film_id": film_id, "film": film_data}
+
+@api_router.get("/films")
+async def get_films(
+    genre: Optional[str] = None,
+    filmmaker: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: str = "recent",  # recent, popular, trending
+    skip: int = 0,
+    limit: int = 20
+):
+    """Browse films with filters"""
+    query = {}
+    
+    if genre:
+        query["genre"] = genre
+    
+    if filmmaker:
+        query["filmmaker_name"] = {"$regex": filmmaker, "$options": "i"}
+    
+    if search:
+        query["$text"] = {"$search": search}
+    
+    # Determine sorting
+    sort_field = "created_at"
+    sort_direction = -1
+    if sort_by == "popular":
+        sort_field = "views_count"
+    elif sort_by == "trending":
+        sort_field = "likes_count"
+    
+    films = await db.films.find(query).sort(sort_field, sort_direction).skip(skip).limit(limit).to_list(limit)
+    total = await db.films.count_documents(query)
+    
+    return {
+        "films": films,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
+
+@api_router.get("/films/{film_id}")
+async def get_film(film_id: str, authorization: str = Header(None)):
+    """Get film details with ownership check"""
+    film_id = validate_id(film_id, "film_id")
+    
+    film = await db.films.find_one({"film_id": film_id})
+    if not film:
+        raise HTTPException(status_code=404, detail="Film not found")
+    
+    # Check if user owns or purchased this film
+    user = await authenticate_user(authorization) if authorization else None
+    is_owner = user and film["filmmaker_id"] == user["user_id"]
+    has_purchased = False
+    
+    if user and not is_owner and film["price"] > 0:
+        purchase = await db.film_purchases.find_one({"film_id": film_id, "user_id": user["user_id"]})
+        has_purchased = purchase is not None
+    
+    film["is_owner"] = is_owner
+    film["has_purchased"] = has_purchased
+    film["can_watch"] = is_owner or has_purchased or film["price"] == 0
+    
+    return {"film": film}
+
+@api_router.post("/films/{film_id}/play")
+async def play_film(film_id: str, authorization: str = Header(None)):
+    """Play film - ownership or purchase check"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    film_id = validate_id(film_id, "film_id")
+    
+    film = await db.films.find_one({"film_id": film_id})
+    if not film:
+        raise HTTPException(status_code=404, detail="Film not found")
+    
+    # Check access rights
+    is_owner = film["filmmaker_id"] == user["user_id"]
+    is_free = film["price"] == 0
+    
+    if not is_owner and not is_free:
+        # Check if purchased
+        purchase = await db.film_purchases.find_one({"film_id": film_id, "user_id": user["user_id"]})
+        if not purchase:
+            raise HTTPException(status_code=403, detail="Purchase required to watch this film")
+    
+    # Increment view count
+    await db.films.update_one(
+        {"film_id": film_id},
+        {"$inc": {"views_count": 1}}
+    )
+    
+    # Record play
+    await db.film_plays.insert_one({
+        "film_id": film_id,
+        "user_id": user["user_id"],
+        "played_at": datetime.now(timezone.utc)
+    })
+    
+    return {"message": "Film play recorded", "video_url": film["video_url"]}
+
+@api_router.post("/films/{film_id}/like")
+async def like_film(film_id: str, authorization: str = Header(None)):
+    """Like or unlike a film"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    film_id = validate_id(film_id, "film_id")
+    
+    # Check if already liked
+    existing_like = await db.film_likes.find_one({"film_id": film_id, "user_id": user["user_id"]})
+    
+    if existing_like:
+        # Unlike
+        await db.film_likes.delete_one({"film_id": film_id, "user_id": user["user_id"]})
+        await db.films.update_one({"film_id": film_id}, {"$inc": {"likes_count": -1}})
+        return {"message": "Film unliked", "liked": False}
+    else:
+        # Like
+        await db.film_likes.insert_one({
+            "film_id": film_id,
+            "user_id": user["user_id"],
+            "liked_at": datetime.now(timezone.utc)
+        })
+        await db.films.update_one({"film_id": film_id}, {"$inc": {"likes_count": 1}})
+        return {"message": "Film liked", "liked": True}
+
+@api_router.post("/films/{film_id}/purchase")
+async def purchase_film(film_id: str, authorization: str = Header(None)):
+    """Purchase a film - payment integration placeholder"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    film_id = validate_id(film_id, "film_id")
+    
+    film = await db.films.find_one({"film_id": film_id})
+    if not film:
+        raise HTTPException(status_code=404, detail="Film not found")
+    
+    if film["price"] == 0:
+        raise HTTPException(status_code=400, detail="This film is free")
+    
+    # Check if already purchased
+    existing = await db.film_purchases.find_one({"film_id": film_id, "user_id": user["user_id"]})
+    if existing:
+        raise HTTPException(status_code=400, detail="Film already purchased")
+    
+    # TODO: Integrate with payment gateway (PayPal, Stripe, etc.)
+    # For now, simulate successful purchase
+    
+    purchase_id = f"fpur_{uuid.uuid4().hex[:12]}"
+    await db.film_purchases.insert_one({
+        "purchase_id": purchase_id,
+        "film_id": film_id,
+        "user_id": user["user_id"],
+        "filmmaker_id": film["filmmaker_id"],
+        "price": film["price"],
+        "purchased_at": datetime.now(timezone.utc)
+    })
+    
+    # Update film stats and revenue
+    await db.films.update_one(
+        {"film_id": film_id},
+        {
+            "$inc": {
+                "purchases_count": 1,
+                "revenue": film["price"]
+            }
+        }
+    )
+    
+    return {"message": "Film purchased successfully", "purchase_id": purchase_id}
+
+@api_router.get("/my-films")
+async def get_my_films(authorization: str = Header(None)):
+    """Get user's uploaded films"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    films = await db.films.find({"filmmaker_id": user["user_id"]}).sort("created_at", -1).to_list(100)
+    
+    # Calculate total stats
+    total_views = sum(f.get("views_count", 0) for f in films)
+    total_likes = sum(f.get("likes_count", 0) for f in films)
+    total_revenue = sum(f.get("revenue", 0) for f in films)
+    
+    return {
+        "films": films,
+        "stats": {
+            "total_films": len(films),
+            "total_views": total_views,
+            "total_likes": total_likes,
+            "total_revenue": total_revenue
+        }
+    }
+
+
+# ============ PODCASTS ============
+
+class PodcastCreate(BaseModel):
+    title: str
+    host_name: str
+    series_id: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    duration: Optional[int] = None  # in seconds
+    episode_number: Optional[int] = None
+    season_number: Optional[int] = None
+    price: Optional[float] = 0.0  # Price in USD, 0 means free
+    is_downloadable: bool = True
+
+class PodcastSeriesCreate(BaseModel):
+    title: str
+    host_name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+
+@api_router.post("/podcasts")
+async def upload_podcast(
+    title: str = Form(...),
+    host_name: str = Form(...),
+    audio_file: UploadFile = File(...),
+    cover_art: Optional[UploadFile] = File(None),
+    series_id: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    category: Optional[str] = Form(None),
+    duration: Optional[int] = Form(None),
+    episode_number: Optional[int] = Form(None),
+    season_number: Optional[int] = Form(None),
+    price: float = Form(0.0),
+    is_downloadable: bool = Form(True),
+    authorization: str = Header(None)
+):
+    """Upload a new podcast episode with optional pricing"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Validate inputs
+    title = sanitize_string(title, MAX_NAME_LENGTH, "title")
+    host_name = sanitize_string(host_name, MAX_NAME_LENGTH, "host_name")
+    description = sanitize_string(description, 2000, "description") if description else None
+    category = sanitize_string(category, 50, "category") if category else None
+    
+    if series_id:
+        series_id = validate_id(series_id, "series_id")
+        # Verify series exists and belongs to user
+        series = await db.podcast_series.find_one({"series_id": series_id, "host_id": user["user_id"]})
+        if not series:
+            raise HTTPException(status_code=404, detail="Podcast series not found or access denied")
+    
+    # Validate price
+    if price < 0 or price > 999.99:
+        raise HTTPException(status_code=400, detail="Price must be between 0 and 999.99")
+    
+    # Validate and upload audio file
+    MAX_PODCAST_SIZE = 200 * 1024 * 1024  # 200MB for podcasts
+    audio_content = await validate_file_upload(audio_file, ALLOWED_AUDIO_TYPES, MAX_PODCAST_SIZE)
+    
+    try:
+        # Upload audio to media service
+        audio_url = await upload_media(audio_content, audio_file.content_type, f"podcasts/{user['user_id']}")
+        
+        # Upload cover art if provided
+        cover_art_url = None
+        if cover_art:
+            cover_content = await validate_file_upload(cover_art, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
+            cover_art_url = await upload_media(cover_content, cover_art.content_type, f"podcast_covers/{user['user_id']}")
+    except Exception as e:
+        logger.error(f"Media upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload media")
+    
+    # Create podcast document
+    podcast_id = f"pod_{uuid.uuid4().hex[:12]}"
+    podcast_data = {
+        "podcast_id": podcast_id,
+        "host_id": user["user_id"],
+        "host_name": host_name,
+        "series_id": series_id,
+        "title": title,
+        "description": description,
+        "category": category,
+        "audio_url": audio_url,
+        "cover_art_url": cover_art_url,
+        "duration": duration,
+        "episode_number": episode_number,
+        "season_number": season_number,
+        "price": float(price),
+        "is_downloadable": is_downloadable,
+        "plays_count": 0,
+        "likes_count": 0,
+        "downloads_count": 0,
+        "revenue": 0.0,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.podcasts.insert_one(podcast_data)
+    
+    # If part of series, add to series' episodes list
+    if series_id:
+        await db.podcast_series.update_one(
+            {"series_id": series_id},
+            {
+                "$push": {"episodes": podcast_id},
+                "$set": {"updated_at": datetime.now(timezone.utc)}
+            }
+        )
+    
+    # Create indexes for podcasts collection
+    await db.podcasts.create_index([("host_id", 1)])
+    await db.podcasts.create_index([("category", 1)])
+    await db.podcasts.create_index([("series_id", 1)])
+    await db.podcasts.create_index([("created_at", -1)])
+    await db.podcasts.create_index([("plays_count", -1)])
+    await db.podcasts.create_index([("title", "text"), ("host_name", "text"), ("description", "text")])
+    
+    return {"message": "Podcast uploaded successfully", "podcast_id": podcast_id, "podcast": podcast_data}
+
+@api_router.post("/podcast-series")
+async def create_podcast_series(
+    title: str = Form(...),
+    host_name: str = Form(...),
+    cover_art: UploadFile = File(...),
+    description: Optional[str] = Form(None),
+    category: Optional[str] = Form(None),
+    authorization: str = Header(None)
+):
+    """Create a new podcast series"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Validate inputs
+    title = sanitize_string(title, MAX_NAME_LENGTH, "title")
+    host_name = sanitize_string(host_name, MAX_NAME_LENGTH, "host_name")
+    description = sanitize_string(description, 1000, "description") if description else None
+    category = sanitize_string(category, 50, "category") if category else None
+    
+    # Validate and upload cover art
+    cover_content = await validate_file_upload(cover_art, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
+    
+    try:
+        cover_art_url = await upload_media(cover_content, cover_art.content_type, f"podcast_series/{user['user_id']}")
+    except Exception as e:
+        logger.error(f"Media upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload cover art")
+    
+    # Create series document
+    series_id = f"series_{uuid.uuid4().hex[:12]}"
+    series_data = {
+        "series_id": series_id,
+        "host_id": user["user_id"],
+        "host_name": host_name,
+        "title": title,
+        "description": description,
+        "category": category,
+        "cover_art_url": cover_art_url,
+        "episodes": [],
+        "subscribers_count": 0,
+        "total_plays": 0,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.podcast_series.insert_one(series_data)
+    
+    return {"message": "Podcast series created successfully", "series_id": series_id, "series": series_data}
+
+@api_router.get("/podcasts")
+async def get_podcasts(
+    category: Optional[str] = None,
+    host: Optional[str] = None,
+    series_id: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: str = "recent",  # recent, popular, trending
+    skip: int = 0,
+    limit: int = 20
+):
+    """Browse podcasts with filters"""
+    query = {}
+    
+    if category:
+        query["category"] = category
+    
+    if host:
+        query["host_name"] = {"$regex": host, "$options": "i"}
+    
+    if series_id:
+        query["series_id"] = series_id
+    
+    if search:
+        query["$text"] = {"$search": search}
+    
+    # Determine sorting
+    sort_field = "created_at"
+    sort_direction = -1
+    if sort_by == "popular":
+        sort_field = "plays_count"
+    elif sort_by == "trending":
+        sort_field = "likes_count"
+    
+    podcasts = await db.podcasts.find(query).sort(sort_field, sort_direction).skip(skip).limit(limit).to_list(limit)
+    total = await db.podcasts.count_documents(query)
+    
+    return {
+        "podcasts": podcasts,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
+
+@api_router.get("/podcast-series")
+async def get_podcast_series(
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 20
+):
+    """Browse podcast series"""
+    query = {}
+    
+    if category:
+        query["category"] = category
+    
+    if search:
+        query["$or"] = [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"host_name": {"$regex": search, "$options": "i"}},
+            {"description": {"$regex": search, "$options": "i"}}
+        ]
+    
+    series_list = await db.podcast_series.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    total = await db.podcast_series.count_documents(query)
+    
+    return {
+        "series": series_list,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
+
+@api_router.get("/podcasts/{podcast_id}")
+async def get_podcast(podcast_id: str, authorization: str = Header(None)):
+    """Get podcast details with ownership check"""
+    podcast_id = validate_id(podcast_id, "podcast_id")
+    
+    podcast = await db.podcasts.find_one({"podcast_id": podcast_id})
+    if not podcast:
+        raise HTTPException(status_code=404, detail="Podcast not found")
+    
+    # Check if user owns or purchased this podcast
+    user = await authenticate_user(authorization) if authorization else None
+    is_owner = user and podcast["host_id"] == user["user_id"]
+    has_purchased = False
+    
+    if user and not is_owner and podcast["price"] > 0:
+        purchase = await db.podcast_purchases.find_one({"podcast_id": podcast_id, "user_id": user["user_id"]})
+        has_purchased = purchase is not None
+    
+    podcast["is_owner"] = is_owner
+    podcast["has_purchased"] = has_purchased
+    podcast["can_listen"] = is_owner or has_purchased or podcast["price"] == 0
+    
+    return {"podcast": podcast}
+
+@api_router.get("/podcast-series/{series_id}")
+async def get_series_details(series_id: str):
+    """Get podcast series with all episodes"""
+    series_id = validate_id(series_id, "series_id")
+    
+    series = await db.podcast_series.find_one({"series_id": series_id})
+    if not series:
+        raise HTTPException(status_code=404, detail="Podcast series not found")
+    
+    # Get all episodes
+    episode_ids = series.get("episodes", [])
+    episodes = await db.podcasts.find({"podcast_id": {"$in": episode_ids}}).sort("episode_number", 1).to_list(1000)
+    
+    series["episodes_list"] = episodes
+    
+    return {"series": series}
+
+@api_router.post("/podcasts/{podcast_id}/play")
+async def play_podcast(podcast_id: str, authorization: str = Header(None)):
+    """Play podcast - ownership or purchase check"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    podcast_id = validate_id(podcast_id, "podcast_id")
+    
+    podcast = await db.podcasts.find_one({"podcast_id": podcast_id})
+    if not podcast:
+        raise HTTPException(status_code=404, detail="Podcast not found")
+    
+    # Check access rights
+    is_owner = podcast["host_id"] == user["user_id"]
+    is_free = podcast["price"] == 0
+    
+    if not is_owner and not is_free:
+        # Check if purchased
+        purchase = await db.podcast_purchases.find_one({"podcast_id": podcast_id, "user_id": user["user_id"]})
+        if not purchase:
+            raise HTTPException(status_code=403, detail="Purchase required to listen to this podcast")
+    
+    # Increment play count
+    await db.podcasts.update_one(
+        {"podcast_id": podcast_id},
+        {"$inc": {"plays_count": 1}}
+    )
+    
+    # Record play
+    await db.podcast_plays.insert_one({
+        "podcast_id": podcast_id,
+        "user_id": user["user_id"],
+        "played_at": datetime.now(timezone.utc)
+    })
+    
+    return {"message": "Podcast play recorded", "audio_url": podcast["audio_url"]}
+
+@api_router.post("/podcasts/{podcast_id}/like")
+async def like_podcast(podcast_id: str, authorization: str = Header(None)):
+    """Like or unlike a podcast"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    podcast_id = validate_id(podcast_id, "podcast_id")
+    
+    # Check if already liked
+    existing_like = await db.podcast_likes.find_one({"podcast_id": podcast_id, "user_id": user["user_id"]})
+    
+    if existing_like:
+        # Unlike
+        await db.podcast_likes.delete_one({"podcast_id": podcast_id, "user_id": user["user_id"]})
+        await db.podcasts.update_one({"podcast_id": podcast_id}, {"$inc": {"likes_count": -1}})
+        return {"message": "Podcast unliked", "liked": False}
+    else:
+        # Like
+        await db.podcast_likes.insert_one({
+            "podcast_id": podcast_id,
+            "user_id": user["user_id"],
+            "liked_at": datetime.now(timezone.utc)
+        })
+        await db.podcasts.update_one({"podcast_id": podcast_id}, {"$inc": {"likes_count": 1}})
+        return {"message": "Podcast liked", "liked": True}
+
+@api_router.post("/podcasts/{podcast_id}/purchase")
+async def purchase_podcast(podcast_id: str, authorization: str = Header(None)):
+    """Purchase a podcast episode - payment integration placeholder"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    podcast_id = validate_id(podcast_id, "podcast_id")
+    
+    podcast = await db.podcasts.find_one({"podcast_id": podcast_id})
+    if not podcast:
+        raise HTTPException(status_code=404, detail="Podcast not found")
+    
+    if podcast["price"] == 0:
+        raise HTTPException(status_code=400, detail="This podcast is free")
+    
+    # Check if already purchased
+    existing = await db.podcast_purchases.find_one({"podcast_id": podcast_id, "user_id": user["user_id"]})
+    if existing:
+        raise HTTPException(status_code=400, detail="Podcast already purchased")
+    
+    # TODO: Integrate with payment gateway (PayPal, Stripe, etc.)
+    # For now, simulate successful purchase
+    
+    purchase_id = f"ppur_{uuid.uuid4().hex[:12]}"
+    await db.podcast_purchases.insert_one({
+        "purchase_id": purchase_id,
+        "podcast_id": podcast_id,
+        "user_id": user["user_id"],
+        "host_id": podcast["host_id"],
+        "price": podcast["price"],
+        "purchased_at": datetime.now(timezone.utc)
+    })
+    
+    # Update podcast stats and revenue
+    await db.podcasts.update_one(
+        {"podcast_id": podcast_id},
+        {
+            "$inc": {
+                "purchases_count": 1,
+                "revenue": podcast["price"]
+            }
+        }
+    )
+    
+    return {"message": "Podcast purchased successfully", "purchase_id": purchase_id}
+
+@api_router.get("/my-podcasts")
+async def get_my_podcasts(authorization: str = Header(None)):
+    """Get user's uploaded podcasts and series"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    podcasts = await db.podcasts.find({"host_id": user["user_id"]}).sort("created_at", -1).to_list(100)
+    series_list = await db.podcast_series.find({"host_id": user["user_id"]}).sort("created_at", -1).to_list(100)
+    
+    # Calculate total stats
+    total_plays = sum(p.get("plays_count", 0) for p in podcasts)
+    total_likes = sum(p.get("likes_count", 0) for p in podcasts)
+    total_revenue = sum(p.get("revenue", 0) for p in podcasts)
+    
+    return {
+        "podcasts": podcasts,
+        "series": series_list,
+        "stats": {
+            "total_episodes": len(podcasts),
+            "total_series": len(series_list),
+            "total_plays": total_plays,
+            "total_likes": total_likes,
+            "total_revenue": total_revenue
+        }
+    }
+
+@api_router.get("/my-media-library")
+async def get_my_media_library(authorization: str = Header(None)):
+    """Get user's complete media library (music, films, podcasts)"""
+    user = await authenticate_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Get purchased/liked songs
+    song_purchases = await db.song_purchases.find({"user_id": user["user_id"]}).to_list(1000)
+    purchased_song_ids = [p["song_id"] for p in song_purchases]
+    purchased_songs = await db.songs.find({"song_id": {"$in": purchased_song_ids}}).to_list(1000)
+    
+    song_likes = await db.song_likes.find({"user_id": user["user_id"]}).to_list(1000)
+    liked_song_ids = [l["song_id"] for l in song_likes]
+    liked_songs = await db.songs.find({"song_id": {"$in": liked_song_ids}}).to_list(1000)
+    
+    # Get purchased/liked films
+    film_purchases = await db.film_purchases.find({"user_id": user["user_id"]}).to_list(1000)
+    purchased_film_ids = [p["film_id"] for p in film_purchases]
+    purchased_films = await db.films.find({"film_id": {"$in": purchased_film_ids}}).to_list(1000)
+    
+    film_likes = await db.film_likes.find({"user_id": user["user_id"]}).to_list(1000)
+    liked_film_ids = [l["film_id"] for l in film_likes]
+    liked_films = await db.films.find({"film_id": {"$in": liked_film_ids}}).to_list(1000)
+    
+    # Get purchased/liked podcasts
+    podcast_purchases = await db.podcast_purchases.find({"user_id": user["user_id"]}).to_list(1000)
+    purchased_podcast_ids = [p["podcast_id"] for p in podcast_purchases]
+    purchased_podcasts = await db.podcasts.find({"podcast_id": {"$in": purchased_podcast_ids}}).to_list(1000)
+    
+    podcast_likes = await db.podcast_likes.find({"user_id": user["user_id"]}).to_list(1000)
+    liked_podcast_ids = [l["podcast_id"] for l in podcast_likes]
+    liked_podcasts = await db.podcasts.find({"podcast_id": {"$in": liked_podcast_ids}}).to_list(1000)
+    
+    return {
+        "music": {
+            "purchased_songs": purchased_songs,
+            "liked_songs": liked_songs
+        },
+        "films": {
+            "purchased_films": purchased_films,
+            "liked_films": liked_films
+        },
+        "podcasts": {
+            "purchased_podcasts": purchased_podcasts,
+            "liked_podcasts": liked_podcasts
+        }
+    }
+
 # Health check at root
 @app.get("/health")
 async def health():
