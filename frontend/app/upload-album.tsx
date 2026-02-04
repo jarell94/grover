@@ -90,11 +90,18 @@ export default function UploadAlbumScreen() {
       const coverName = 'cover.jpg';
       const coverType = 'image/jpeg';
       
+      // Type-safe file object for FormData
+      type FileUpload = {
+        uri: string;
+        name: string;
+        type: string;
+      };
+      
       formData.append('cover_art', {
         uri: coverUri,
         name: coverName,
         type: coverType,
-      } as any);
+      } as FileUpload);
 
       const response = await api.post('/albums', formData, {
         headers: {

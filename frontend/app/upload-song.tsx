@@ -108,11 +108,18 @@ export default function UploadSongScreen() {
       const audioName = audioFile.name || 'audio.mp3';
       const audioType = audioFile.mimeType || 'audio/mpeg';
       
+      // Type-safe file object for FormData
+      type FileUpload = {
+        uri: string;
+        name: string;
+        type: string;
+      };
+      
       formData.append('audio_file', {
         uri: audioUri,
         name: audioName,
         type: audioType,
-      } as any);
+      } as FileUpload);
 
       // Append cover art if selected
       if (coverArt) {
@@ -124,7 +131,7 @@ export default function UploadSongScreen() {
           uri: coverUri,
           name: coverName,
           type: coverType,
-        } as any);
+        } as FileUpload);
       }
 
       await api.post('/songs', formData, {
