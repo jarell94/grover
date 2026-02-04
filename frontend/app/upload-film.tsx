@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import { Video, AVPlaybackStatus } from 'expo-av';
 import { Colors } from '../constants/Colors';
 import { api } from '../services/api';
 
@@ -29,6 +30,8 @@ interface FileUpload {
 
 export default function UploadFilmScreen() {
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [title, setTitle] = useState('');
   const [filmmakerName, setFilmmakerName] = useState('');
   const [genre, setGenre] = useState('');
@@ -38,6 +41,8 @@ export default function UploadFilmScreen() {
   const [isDownloadable, setIsDownloadable] = useState(false);
   const [videoFile, setVideoFile] = useState<FileUpload | null>(null);
   const [thumbnail, setThumbnail] = useState<FileUpload | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
+  const [extractingMetadata, setExtractingMetadata] = useState(false);
 
   const pickVideoFile = async () => {
     try {
@@ -54,11 +59,56 @@ export default function UploadFilmScreen() {
           return;
         }
         setVideoFile(file);
+        
+        // Extract video metadata
+        await extractVideoMetadata(file.uri);
       }
     } catch (error) {
       console.error('Error picking video:', error);
       Alert.alert('Error', 'Failed to pick video file');
     }
+  };
+
+  const extractVideoMetadata = async (uri: string) => {
+    try {
+      setExtractingMetadata(true);
+      setUploadStatus('Analyzing video...');
+      
+      // Create a video component to extract duration
+      const { sound, status } = await Video.createAsync(
+        { uri },
+        {},
+        null,
+        false
+      );
+      
+      if (status && status.isLoaded && status.durationMillis) {
+        const durationSeconds = Math.round(status.durationMillis / 1000);
+        setDuration(durationSeconds);
+        setUploadStatus(`Video duration: ${formatDuration(durationSeconds)}`);
+        
+        // Unload the video
+        if (sound) {
+          await sound.unloadAsync();
+        }
+      }
+    } catch (error) {
+      console.error('Error extracting metadata:', error);
+      setUploadStatus('Could not extract video duration');
+    } finally {
+      setExtractingMetadata(false);
+    }
+  };
+
+  const formatDuration = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
   const pickThumbnail = async () => {
@@ -113,6 +163,8 @@ export default function UploadFilmScreen() {
 
     try {
       setLoading(true);
+      setUploadProgress(0);
+      setUploadStatus('Preparing upload...');
 
       const formData = new FormData();
       formData.append('title', title.trim());
@@ -122,6 +174,7 @@ export default function UploadFilmScreen() {
       if (genre) formData.append('genre', genre);
       if (description) formData.append('description', description.trim());
       if (releaseYear) formData.append('release_year', releaseYear);
+      if (duration) formData.append('duration', duration.toString());
       if (isDownloadable !== undefined) formData.append('is_downloadable', isDownloadable.toString());
 
       // Add video file
@@ -142,7 +195,24 @@ export default function UploadFilmScreen() {
         } as any);
       }
 
+      setUploadStatus('Uploading video...');
+      
+      // Simulate progress (actual progress tracking requires XMLHttpRequest or axios)
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 1000);
+
       await api.uploadFilm(formData);
+      
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      setUploadStatus('Upload complete!');
 
       Alert.alert('Success', 'Film uploaded successfully!', [
         {
@@ -152,9 +222,28 @@ export default function UploadFilmScreen() {
       ]);
     } catch (error: any) {
       console.error('Upload error:', error);
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to upload film');
+      
+      // Better error messages
+      let errorMessage = 'Failed to upload film';
+      if (error.message?.includes('timeout') || error.message?.includes('ECONNABORTED')) {
+        errorMessage = 'Upload timeout. Please check your connection and try again.';
+      } else if (error.response?.status === 413) {
+        errorMessage = 'File is too large. Maximum size is 500MB.';
+      } else if (error.response?.status === 400) {
+        errorMessage = error.response?.data?.detail || 'Invalid file or data provided.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'You must be logged in to upload videos.';
+      } else if (!navigator.onLine) {
+        errorMessage = 'No internet connection. Please check your network.';
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+      
+      setUploadStatus('Upload failed');
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -193,6 +282,17 @@ export default function UploadFilmScreen() {
             <Text style={styles.fileSize}>
               Size: {(videoFile.size / (1024 * 1024)).toFixed(2)} MB
             </Text>
+          )}
+          {duration && (
+            <Text style={styles.fileSize}>
+              Duration: {formatDuration(duration)}
+            </Text>
+          )}
+          {extractingMetadata && (
+            <View style={styles.metadataExtraction}>
+              <ActivityIndicator size="small" color={Colors.light.tint} />
+              <Text style={styles.metadataText}>Analyzing video...</Text>
+            </View>
           )}
         </View>
 
@@ -314,13 +414,27 @@ export default function UploadFilmScreen() {
         </View>
 
         {/* Upload Button */}
+        {loading && uploadProgress > 0 && (
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${uploadProgress}%` }]} />
+            </View>
+            <Text style={styles.progressText}>
+              {uploadProgress}% - {uploadStatus}
+            </Text>
+          </View>
+        )}
+        
         <TouchableOpacity
           style={[styles.uploadButton, loading && styles.uploadButtonDisabled]}
           onPress={handleUpload}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="white" />
+            <>
+              <ActivityIndicator color="white" />
+              <Text style={styles.uploadButtonText}> Uploading...</Text>
+            </>
           ) : (
             <>
               <Ionicons name="cloud-upload" size={24} color="white" />
@@ -489,5 +603,39 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  progressContainer: {
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.light.tint,
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  metadataExtraction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: '#F0E6FF',
+    borderRadius: 8,
+  },
+  metadataText: {
+    marginLeft: 8,
+    fontSize: 12,
+    color: Colors.light.tint,
   },
 });
