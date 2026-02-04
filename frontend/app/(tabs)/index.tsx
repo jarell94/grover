@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, memo } from 'react';
+import React, { useState, useCallback, useRef, useMemo, memo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,10 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
@@ -319,6 +322,13 @@ export default function HomeScreen() {
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [pollDuration, setPollDuration] = useState(24);
   
+  // UX Improvements - Draft saving, character counter, upload progress
+  const [characterCount, setCharacterCount] = useState(0);
+  const [lastSaved, setLastSaved] = useState<number | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadSize, setUploadSize] = useState({ loaded: 0, total: 0 });
+  const [canPost, setCanPost] = useState(true);
+  
   // Track visible video posts for auto-play
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
   
@@ -394,6 +404,66 @@ export default function HomeScreen() {
       }
     }, [])
   );
+
+  // Draft auto-save effect - saves every 5 seconds
+  useEffect(() => {
+    const saveDraft = async () => {
+      if (newPostContent || selectedMedia || taggedUsers || location || pollQuestion) {
+        try {
+          await AsyncStorage.setItem('postDraft', JSON.stringify({
+            content: newPostContent,
+            taggedUsers,
+            location,
+            pollQuestion,
+            pollOptions,
+            showPollOption,
+            timestamp: Date.now()
+          }));
+          setLastSaved(Date.now());
+        } catch (error) {
+          console.error('Failed to save draft:', error);
+        }
+      }
+    };
+    
+    const timer = setInterval(saveDraft, 5000); // Save every 5 seconds
+    return () => clearInterval(timer);
+  }, [newPostContent, taggedUsers, location, pollQuestion, pollOptions, showPollOption, selectedMedia]);
+
+  // Load draft when modal opens
+  useEffect(() => {
+    const loadDraft = async () => {
+      if (createModalVisible) {
+        try {
+          const draftJson = await AsyncStorage.getItem('postDraft');
+          if (draftJson) {
+            const draft = JSON.parse(draftJson);
+            // Only load if draft is less than 24 hours old
+            if (Date.now() - draft.timestamp < 24 * 60 * 60 * 1000) {
+              setNewPostContent(draft.content || '');
+              setTaggedUsers(draft.taggedUsers || '');
+              setLocation(draft.location || '');
+              setPollQuestion(draft.pollQuestion || '');
+              setPollOptions(draft.pollOptions || ['', '']);
+              setShowPollOption(draft.showPollOption || false);
+              setLastSaved(draft.timestamp);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load draft:', error);
+        }
+      }
+    };
+    
+    loadDraft();
+  }, [createModalVisible]);
+
+  // Character counter effect
+  useEffect(() => {
+    const count = newPostContent.length;
+    setCharacterCount(count);
+    setCanPost(count <= 5000);
+  }, [newPostContent]);
 
   const handleRefresh = useCallback(() => {
     loadFeed(true);
@@ -642,17 +712,42 @@ export default function HomeScreen() {
   };
 
   const createPost = async () => {
+    // Client-side validation
     if (!newPostContent.trim() && !selectedMedia && !showPollOption) {
       Alert.alert('Error', 'Please add some content');
       return;
     }
 
+    // Character limit validation
+    if (newPostContent.length > 5000) {
+      Alert.alert('Error', 'Post too long. Maximum 5000 characters.');
+      return;
+    }
+
+    // Poll validation
     if (showPollOption && (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2)) {
       Alert.alert('Error', 'Poll needs a question and at least 2 options');
       return;
     }
 
+    // Tag limit validation
+    if (taggedUsers) {
+      const tags = taggedUsers.split(',').map(t => t.trim()).filter(t => t);
+      if (tags.length > 10) {
+        Alert.alert('Error', 'You can tag up to 10 users.');
+        return;
+      }
+    }
+
+    // Location validation
+    if (location && location.length > 200) {
+      Alert.alert('Error', 'Location must be under 200 characters.');
+      return;
+    }
+
     setUploading(true);
+    setUploadProgress(0);
+    
     try {
       const formData = await buildPostFormData({
         content: newPostContent,
@@ -664,7 +759,19 @@ export default function HomeScreen() {
         pollDurationHours: showPollOption ? pollDuration : undefined,
       });
 
+      // Note: Progress tracking would require API changes to support onUploadProgress
+      // For now, simulating progress
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => Math.min(prev + 10, 90));
+      }, 200);
+
       await api.createPost(formData);
+      
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      
+      // Clear draft on success
+      await AsyncStorage.removeItem('postDraft');
       
       setNewPostContent('');
       setTaggedUsers('');
@@ -674,15 +781,48 @@ export default function HomeScreen() {
       setPollQuestion('');
       setPollOptions(['', '']);
       setPollDuration(24);
+      setUploadProgress(0);
+      setLastSaved(null);
       setCreateModalVisible(false);
       
       loadFeed(true);
       Alert.alert('Success', 'Post created!');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to create post');
+    } catch (error: any) {
+      // Enhanced error messages
+      let errorMessage = 'Failed to create post';
+      
+      if (error.message?.toLowerCase().includes('timeout')) {
+        errorMessage = 'Upload timeout. Please check your connection and try again.';
+      } else if (error.response?.status === 413) {
+        errorMessage = 'File too large. Please use a smaller file.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'You must be logged in to post.';
+      } else if (error.response?.status === 400) {
+        errorMessage = 'Invalid data. Please check your input and try again.';
+      } else if (!navigator.onLine) {
+        errorMessage = 'No internet connection. Please check your network.';
+      }
+      
+      Alert.alert('Error', errorMessage);
+      setUploadProgress(0);
     } finally {
       setUploading(false);
     }
+  };
+
+  // Helper functions for UX improvements
+  const getCharacterCountColor = () => {
+    if (characterCount > 5000) return Colors.error;
+    if (characterCount > 4500) return '#FF6B6B';
+    if (characterCount > 4000) return '#FFA500';
+    return Colors.success || '#4CAF50';
+  };
+
+  const formatTimestamp = (timestamp: number) => {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    return `${Math.floor(seconds / 3600)}h ago`;
   };
 
   // Footer component
@@ -800,39 +940,93 @@ export default function HomeScreen() {
         transparent
         onRequestClose={() => setCreateModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Create Post</Text>
-              <TouchableOpacity onPress={() => setCreateModalVisible(false)}>
-                <Ionicons name="close" size={28} color={Colors.text} />
-              </TouchableOpacity>
-            </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalContainer}>
+            <ScrollView 
+              style={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Create Post</Text>
+                <TouchableOpacity onPress={() => setCreateModalVisible(false)}>
+                  <Ionicons name="close" size={28} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
 
-            <TextInput
-              style={styles.input}
-              placeholder="What's on your mind?"
-              placeholderTextColor={Colors.textSecondary}
-              multiline
-              value={newPostContent}
-              onChangeText={setNewPostContent}
-            />
+              <TextInput
+                style={styles.input}
+                placeholder="What's on your mind?"
+                placeholderTextColor={Colors.textSecondary}
+                multiline
+                value={newPostContent}
+                onChangeText={setNewPostContent}
+                maxLength={5100}
+              />
 
-            <TextInput
-              style={styles.tagInput}
-              placeholder="Tag users (comma separated)"
-              placeholderTextColor={Colors.textSecondary}
-              value={taggedUsers}
-              onChangeText={setTaggedUsers}
-            />
+              {/* Character Counter and Draft Indicator */}
+              <View style={styles.metaInfoRow}>
+                <View style={styles.characterCounter}>
+                  <Text style={[
+                    styles.characterCountText,
+                    { color: getCharacterCountColor() }
+                  ]}>
+                    {characterCount} / 5000
+                  </Text>
+                  {characterCount > 4500 && (
+                    <Ionicons 
+                      name="warning" 
+                      size={16} 
+                      color={characterCount > 5000 ? Colors.error : '#FFA500'} 
+                    />
+                  )}
+                </View>
+                {lastSaved && (
+                  <View style={styles.draftIndicator}>
+                    <Ionicons name="checkmark-circle" size={14} color={Colors.success || '#4CAF50'} />
+                    <Text style={styles.draftText}>
+                      Saved {formatTimestamp(lastSaved)}
+                    </Text>
+                  </View>
+                )}
+              </View>
 
-            <TextInput
-              style={styles.tagInput}
-              placeholder="Location (optional)"
-              placeholderTextColor={Colors.textSecondary}
-              value={location}
-              onChangeText={setLocation}
-            />
+              {/* Upload Progress Bar */}
+              {uploading && uploadProgress > 0 && (
+                <View style={styles.uploadProgressContainer}>
+                  <View style={styles.progressBar}>
+                    <View 
+                      style={[
+                        styles.progressFill, 
+                        { width: `${uploadProgress}%` }
+                      ]} 
+                    />
+                  </View>
+                  <Text style={styles.progressText}>
+                    Uploading... {uploadProgress}%
+                  </Text>
+                </View>
+              )}
+
+              <TextInput
+                style={styles.tagInput}
+                placeholder="Tag users (comma separated, max 10)"
+                placeholderTextColor={Colors.textSecondary}
+                value={taggedUsers}
+                onChangeText={setTaggedUsers}
+              />
+
+              <TextInput
+                style={styles.tagInput}
+                placeholder="Location (optional, max 200 chars)"
+                placeholderTextColor={Colors.textSecondary}
+                value={location}
+                onChangeText={setLocation}
+                maxLength={200}
+              />
 
             {/* Poll Toggle */}
             <TouchableOpacity
@@ -920,14 +1114,24 @@ export default function HomeScreen() {
             </View>
 
             <TouchableOpacity
-              style={[styles.submitButton, uploading && styles.submitButtonDisabled]}
+              style={[
+                styles.submitButton, 
+                (uploading || !canPost) && styles.submitButtonDisabled
+              ]}
               onPress={createPost}
-              disabled={uploading}
+              disabled={uploading || !canPost}
             >
-              {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Post</Text>}
+              {uploading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitButtonText}>
+                  {canPost ? 'Post' : 'Character limit exceeded'}
+                </Text>
+              )}
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Comments Modal */}
@@ -1357,6 +1561,56 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 14,
     marginBottom: 12,
+  },
+  metaInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  characterCounter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  characterCountText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  draftIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  draftText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  uploadProgressContainer: {
+    backgroundColor: Colors.surface || Colors.background,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: Colors.border || '#E0E0E0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 13,
+    color: Colors.text,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   pollToggle: {
     flexDirection: 'row',
