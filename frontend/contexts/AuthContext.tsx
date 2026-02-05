@@ -38,6 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const isProcessingAuth = useRef(false);
   const appState = useRef(AppState.currentState);
+  const hasShownNetworkAlert = useRef(false);
 
   // Process redirect URL to extract session and authenticate
   const processRedirectUrl = useCallback(async (url: string): Promise<boolean> => {
@@ -165,12 +166,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         errorName === 'AbortError';
       
       if (isNetworkError) {
-        // Show user-friendly alert for network issues
-        Alert.alert(
-          'Connection Issue',
-          'Unable to verify your session due to a network problem. Please check your internet connection and try again.',
-          [{ text: 'OK' }]
-        );
+        // Show user-friendly alert for network issues (only once per session)
+        if (!hasShownNetworkAlert.current) {
+          hasShownNetworkAlert.current = true;
+          Alert.alert(
+            'Connection Issue',
+            'Unable to verify your session due to a network problem. Please check your internet connection and try again.',
+            [{ text: 'OK' }]
+          );
+        }
       }
       
       await AsyncStorage.removeItem('session_token');
