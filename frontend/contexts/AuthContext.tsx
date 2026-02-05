@@ -161,6 +161,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       
       // Check if it's a network-related error (case-insensitive)
+      // This matches error messages thrown by api.ts for network failures:
+      // - "Network error. Please check your connection." (line 144)
+      // - "Request timeout. Please check your connection." (line 139)
+      // Also catches AbortError from request timeouts
       const errorMessageLower = errorMessage.toLowerCase();
       const isNetworkError = 
         errorMessageLower.includes('network') ||
