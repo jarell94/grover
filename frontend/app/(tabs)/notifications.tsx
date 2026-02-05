@@ -280,6 +280,13 @@ export default function NotificationsScreen() {
     skipRef.current = 0;
   }, []);
 
+  const handleTypeFilterChange = useCallback((filterKey: FilterKey) => {
+    if (filterKey === typeFilter) return;
+    setTypeFilter(filterKey);
+    setLoading(true);
+    skipRef.current = 0;
+  }, [typeFilter]);
+
   const sections = useMemo(() => groupNotifications(notifications), [notifications]);
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
