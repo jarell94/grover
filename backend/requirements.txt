@@ -84,6 +84,7 @@ sentry-sdk==2.50.0
 shellingham==1.5.4
 simple-websocket==1.1.0
 six==1.17.0
+slowapi==0.1.9
 starlette==0.37.2
 typer==0.20.0
 typing-inspection==0.4.2

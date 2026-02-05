@@ -3,6 +3,9 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from motor.motor_asyncio import AsyncIOMotorClient
 import socketio
 import os
@@ -173,6 +176,11 @@ app = FastAPI(
     version="1.0.0"
 )
 api_router = APIRouter(prefix="/api")
+
+# Setup rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Setup Prometheus metrics
 setup_metrics(app)
@@ -581,7 +589,8 @@ async def get_media_status():
     return get_media_service_status()
 
 @api_router.get("/auth/session")
-async def create_session(session_id: str):
+@limiter.limit("5/minute")
+async def create_session(request: Request, session_id: str):
     """Exchange session_id for user data and create session"""
     # Validate session_id format
     if not session_id or len(session_id) > 500:
@@ -660,11 +669,13 @@ async def create_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/auth/me")
-async def get_me(current_user: User = Depends(require_auth)):
+@limiter.limit("100/minute")
+async def get_me(request: Request, current_user: User = Depends(require_auth)):
     return current_user
 
 @api_router.post("/auth/logout")
-async def logout(current_user: User = Depends(require_auth), authorization: str = Header(None)):
+@limiter.limit("5/minute")
+async def logout(request: Request, current_user: User = Depends(require_auth), authorization: str = Header(None)):
     token = authorization.replace("Bearer ", "")
     await db.user_sessions.delete_one({"session_token": token})
     return {"message": "Logged out"}
@@ -1128,7 +1139,9 @@ async def get_post_by_id(post_id: str, current_user: User = Depends(require_auth
     return post
 
 @api_router.post("/posts")
+@limiter.limit("10/minute")
 async def create_post(
+    request: Request,
     content: Optional[str] = Form(""),  # Allow empty content for media-only posts
     media: Optional[UploadFile] = File(None),
     tagged_users: Optional[str] = Form(None),
@@ -2465,7 +2478,9 @@ async def send_post_in_dm(
     return {"message_id": message_id, "message": "Post sent"}
 
 @api_router.post("/messages/send-voice")
+@limiter.limit("10/minute")
 async def send_voice_message(
+    request: Request,
     receiver_id: str,
     audio: UploadFile,
     duration: int = Form(...),
@@ -2497,7 +2512,9 @@ async def send_voice_message(
     return {"message_id": message_id, "message": "Voice message sent"}
 
 @api_router.post("/messages/send-video")
+@limiter.limit("10/minute")
 async def send_video_message(
+    request: Request,
     receiver_id: str,
     video: UploadFile,
     thumbnail: Optional[UploadFile] = None,
