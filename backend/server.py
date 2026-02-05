@@ -265,6 +265,12 @@ async def create_indexes():
     await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
     await safe_create_index(db.conversations, "participants", background=True, name="conversations_participants")
     await safe_create_index(db.conversations, [("participants", 1), ("updated_at", -1)], background=True, name="conversations_participants_updated")
+    await safe_create_index(db.conversations, [("is_group", 1), ("updated_at", -1)], background=True, name="conversations_group_updated")
+    
+    # ========== MESSAGE REACTIONS COLLECTION ==========
+    await safe_create_index(db.message_reactions, "reaction_id", unique=True, background=True, name="message_reactions_id_unique")
+    await safe_create_index(db.message_reactions, [("message_id", 1), ("user_id", 1)], unique=True, background=True, name="message_reactions_msg_user_unique")
+    await safe_create_index(db.message_reactions, "message_id", background=True, name="message_reactions_message")
     
     # ========== NOTIFICATIONS COLLECTION ==========
     await safe_create_index(db.notifications, "notification_id", unique=True, background=True, name="notifications_id_unique")
@@ -2800,6 +2806,227 @@ async def remove_group_member(
     )
     
     return {"message": "Member removed"}
+
+# ============ MESSAGE REACTIONS ENDPOINTS ============
+
+@api_router.post("/messages/{message_id}/reactions")
+async def add_message_reaction(
+    message_id: str,
+    emoji: str,
+    current_user: User = Depends(require_auth)
+):
+    """Add or remove emoji reaction to a message"""
+    validate_id(message_id, "message_id")
+    
+    # Validate emoji (limit to common emojis to prevent abuse)
+    allowed_emojis = ["❤️", "😂", "😮", "😢", "👍", "🔥", "🎉", "👏", "🙏", "💯"]
+    if emoji not in allowed_emojis:
+        raise HTTPException(status_code=400, detail="Invalid emoji")
+    
+    # Check if message exists
+    message = await db.messages.find_one({"message_id": message_id})
+    group_message = None
+    if not message:
+        group_message = await db.group_messages.find_one({"message_id": message_id})
+        if not group_message:
+            raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Check if reaction already exists
+    existing = await db.message_reactions.find_one({
+        "message_id": message_id,
+        "user_id": current_user.user_id,
+        "emoji": emoji
+    })
+    
+    if existing:
+        # Remove reaction (toggle off)
+        await db.message_reactions.delete_one({"_id": existing["_id"]})
+        action = "removed"
+    else:
+        # Add reaction
+        reaction_id = f"react_{uuid.uuid4().hex[:12]}"
+        await db.message_reactions.insert_one({
+            "reaction_id": reaction_id,
+            "message_id": message_id,
+            "user_id": current_user.user_id,
+            "emoji": emoji,
+            "created_at": datetime.now(timezone.utc)
+        })
+        action = "added"
+        
+        # Notify message sender (if not self)
+        target_message = message or group_message
+        if target_message["sender_id"] != current_user.user_id:
+            await create_notification(
+                target_message["sender_id"],
+                "message_reaction",
+                f"{current_user.name} reacted {emoji} to your message",
+                message_id
+            )
+    
+    # Get updated reaction counts
+    reactions = await db.message_reactions.find(
+        {"message_id": message_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Group by emoji
+    reaction_counts = {}
+    for r in reactions:
+        emoji_key = r["emoji"]
+        if emoji_key not in reaction_counts:
+            reaction_counts[emoji_key] = []
+        reaction_counts[emoji_key].append({
+            "user_id": r["user_id"],
+            "created_at": r["created_at"]
+        })
+    
+    # Emit Socket.IO event for real-time update
+    conversation_id = target_message.get("conversation_id") or target_message.get("group_id")
+    if conversation_id:
+        await sio.emit('message:reaction', {
+            "message_id": message_id,
+            "user_id": current_user.user_id,
+            "emoji": emoji,
+            "action": action,
+            "reaction_counts": reaction_counts
+        }, room=f"conversation_{conversation_id}")
+    
+    return {
+        "action": action,
+        "emoji": emoji,
+        "reaction_counts": reaction_counts
+    }
+
+@api_router.get("/messages/{message_id}/reactions")
+async def get_message_reactions(
+    message_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get all reactions for a message"""
+    validate_id(message_id, "message_id")
+    
+    reactions = await db.message_reactions.find(
+        {"message_id": message_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Enrich with user data
+    for reaction in reactions:
+        user = await db.users.find_one(
+            {"user_id": reaction["user_id"]},
+            {"_id": 0, "name": 1, "picture": 1}
+        )
+        reaction["user"] = user
+    
+    # Group by emoji
+    grouped = {}
+    for r in reactions:
+        emoji = r["emoji"]
+        if emoji not in grouped:
+            grouped[emoji] = []
+        grouped[emoji].append({
+            "user": r["user"],
+            "created_at": r["created_at"]
+        })
+    
+    return grouped
+
+@api_router.delete("/messages/{message_id}/reactions/{emoji}")
+async def remove_message_reaction(
+    message_id: str,
+    emoji: str,
+    current_user: User = Depends(require_auth)
+):
+    """Remove specific emoji reaction from message"""
+    validate_id(message_id, "message_id")
+    
+    result = await db.message_reactions.delete_one({
+        "message_id": message_id,
+        "user_id": current_user.user_id,
+        "emoji": emoji
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Reaction not found")
+    
+    return {"message": "Reaction removed"}
+
+# ============ READ RECEIPTS & TYPING ENDPOINTS ============
+
+@api_router.post("/messages/{message_id}/read")
+async def mark_message_read(
+    message_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Mark a message as read"""
+    validate_id(message_id, "message_id")
+    
+    # Update direct message
+    message = await db.messages.find_one({"message_id": message_id})
+    if message:
+        if message["sender_id"] != current_user.user_id:
+            await db.messages.update_one(
+                {"message_id": message_id},
+                {"$set": {"read": True, "read_at": datetime.now(timezone.utc)}}
+            )
+            
+            # Emit Socket.IO event
+            conversation_id = message.get("conversation_id")
+            if conversation_id:
+                await sio.emit('message:read', {
+                    "message_id": message_id,
+                    "user_id": current_user.user_id,
+                    "read_at": datetime.now(timezone.utc).isoformat()
+                }, room=f"conversation_{conversation_id}")
+    else:
+        # Update group message
+        group_message = await db.group_messages.find_one({"message_id": message_id})
+        if group_message:
+            await db.group_messages.update_one(
+                {"message_id": message_id},
+                {"$addToSet": {"read_by": current_user.user_id}}
+            )
+            
+            # Emit Socket.IO event
+            group_id = group_message.get("group_id")
+            if group_id:
+                await sio.emit('message:read', {
+                    "message_id": message_id,
+                    "user_id": current_user.user_id,
+                    "read_at": datetime.now(timezone.utc).isoformat()
+                }, room=f"conversation_{group_id}")
+        else:
+            raise HTTPException(status_code=404, detail="Message not found")
+    
+    return {"message": "Message marked as read"}
+
+@api_router.get("/conversations/{conversation_id}/unread-count")
+async def get_unread_count(
+    conversation_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get unread message count for a conversation"""
+    validate_id(conversation_id, "conversation_id")
+    
+    # Check if it's a group or 1:1 conversation
+    group = await db.groups.find_one({"group_id": conversation_id})
+    if group:
+        # Group chat - count messages not in read_by array
+        count = await db.group_messages.count_documents({
+            "group_id": conversation_id,
+            "sender_id": {"$ne": current_user.user_id},
+            "read_by": {"$ne": current_user.user_id}
+        })
+    else:
+        # 1:1 conversation
+        count = await db.messages.count_documents({
+            "conversation_id": conversation_id,
+            "sender_id": {"$ne": current_user.user_id},
+            "read": False
+        })
+    
+    return {"unread_count": count}
 
 # ============ COMMUNITIES ENDPOINTS ============
 
@@ -6900,9 +7127,46 @@ async def send_message(sid, data):
 async def typing(sid, data):
     conversation_id = data.get("conversation_id")
     user_id = data.get("user_id")
+    user_name = data.get("user_name")
     
     if conversation_id and user_id:
-        await sio.emit('user_typing', {"user_id": user_id}, room=f"conversation_{conversation_id}", skip_sid=sid)
+        await sio.emit('user_typing', {
+            "user_id": user_id,
+            "user_name": user_name,
+            "conversation_id": conversation_id
+        }, room=f"conversation_{conversation_id}", skip_sid=sid)
+
+@sio.event
+async def typing_stop(sid, data):
+    """Handle when user stops typing"""
+    conversation_id = data.get("conversation_id")
+    user_id = data.get("user_id")
+    
+    if conversation_id and user_id:
+        await sio.emit('user_stopped_typing', {
+            "user_id": user_id,
+            "conversation_id": conversation_id
+        }, room=f"conversation_{conversation_id}", skip_sid=sid)
+
+@sio.event
+async def join_conversation(sid, data):
+    """Join a conversation room for real-time updates"""
+    conversation_id = data.get("conversation_id")
+    user_id = data.get("user_id")
+    
+    if conversation_id and user_id:
+        sio.enter_room(sid, f"conversation_{conversation_id}")
+        logger.info(f"User {user_id} joined conversation {conversation_id}")
+
+@sio.event
+async def leave_conversation(sid, data):
+    """Leave a conversation room"""
+    conversation_id = data.get("conversation_id")
+    user_id = data.get("user_id")
+    
+    if conversation_id and user_id:
+        sio.leave_room(sid, f"conversation_{conversation_id}")
+        logger.info(f"User {user_id} left conversation {conversation_id}")
 
 
 # ============ VERIFICATION BADGES ENDPOINTS ============
