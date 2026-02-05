@@ -125,6 +125,10 @@ export default function StudioScreen() {
             <Ionicons name="bar-chart" size={24} color={Colors.primary} />
             <Text style={styles.toolText}>Analytics</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/ai-assistant')}>
+            <Ionicons name="sparkles" size={24} color={Colors.primary} />
+            <Text style={styles.toolText}>AI Assistant</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/schedule-post')}>
             <Ionicons name="calendar" size={24} color={Colors.primary} />
             <Text style={styles.toolText}>Schedule</Text>
