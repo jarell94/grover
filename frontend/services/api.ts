@@ -535,3 +535,38 @@ export const api = {
   // Unlike Post (toggle like off)
   unlikePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'DELETE' }),
 };
+  // Creator Subscriptions
+  createSubscriptionTier: (creatorId: string, data: {
+    name: string;
+    price: number;
+    description?: string;
+    benefits?: string[];
+  }) => apiRequest(`/creators/${creatorId}/subscription-tiers`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getSubscriptionTiers: (creatorId: string) => apiRequest(`/creators/${creatorId}/subscription-tiers`),
+  subscribeToCreator: (creatorId: string, tierId: string) => 
+    apiRequest(`/creators/${creatorId}/subscribe/${tierId}`, { method: 'POST' }),
+  cancelSubscription: (subscriptionId: string) => 
+    apiRequest(`/subscriptions/${subscriptionId}`, { method: 'DELETE' }),
+  getMySubscriptions: () => apiRequest('/subscriptions/my-subscriptions'),
+  getMySubscribers: () => apiRequest('/subscriptions/my-subscribers'),
+  checkSubscriptionStatus: (userId: string, creatorId: string) => 
+    apiRequest(`/users/${userId}/subscription-status/${creatorId}`),
+  getSubscriptionAnalytics: () => apiRequest('/creators/me/subscription-analytics'),
+
+  // Exclusive Content
+  setPostExclusive: (postId: string, exclusive: boolean, minTierId?: string) => 
+    apiRequest(`/posts/${postId}/set-exclusive`, {
+      method: 'POST',
+      body: JSON.stringify({ exclusive, min_tier_id: minTierId }),
+    }),
+  getExclusivePosts: (limit: number = 20, skip: number = 0) => 
+    apiRequest(`/posts/exclusive?limit=${limit}&skip=${skip}`),
+
+  // Supporter Badges
+  getUserBadges: (userId: string) => apiRequest(`/users/${userId}/badges`),
+  getCreatorBadgeForUser: (creatorId: string, userId: string) => 
+    apiRequest(`/creators/${creatorId}/badge/${userId}`),
+};
