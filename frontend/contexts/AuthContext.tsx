@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { makeRedirectUri } from 'expo-auth-session';
-import { Platform, AppState } from 'react-native';
+import { Platform, AppState, Alert } from 'react-native';
 import { api, setAuthToken } from '../services/api';
 import socketService from '../services/socket';
 import { setUser as setSentryUser, addBreadcrumb } from '../utils/sentry';
@@ -146,8 +146,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Socket connection failed:', error);
         }
       }
-    } catch (error) {
-      console.error('Auth check failed:', error);
+    } catch (error: any) {
+      // Enhanced error logging with detailed information
+      const errorMessage = error?.message || 'Unknown error';
+      const errorName = error?.name || 'Error';
+      console.error('Auth check failed:', {
+        message: errorMessage,
+        type: errorName,
+        timestamp: new Date().toISOString(),
+      });
+      
+      // Check if it's a network-related error
+      const isNetworkError = 
+        errorMessage.includes('Network error') || 
+        errorMessage.includes('network') ||
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('connection') ||
+        errorName === 'AbortError';
+      
+      if (isNetworkError) {
+        // Show user-friendly alert for network issues
+        Alert.alert(
+          'Connection Issue',
+          'Unable to verify your session due to a network problem. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+      }
+      
       await AsyncStorage.removeItem('session_token');
     } finally {
       setLoading(false);
