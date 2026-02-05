@@ -211,6 +211,43 @@ setup_metrics(app)
 # Add GZip compression middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses"""
+    response = await call_next(request)
+    
+    # Prevent clickjacking attacks
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    # Prevent MIME type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    # Enable XSS protection (for older browsers)
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    
+    # Control referrer information
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # Content Security Policy - restrictive but allows necessary resources
+    # Note: Adjust these directives based on your actual frontend needs
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Allow inline scripts for React/modern frameworks
+        "style-src 'self' 'unsafe-inline'",  # Allow inline styles
+        "img-src 'self' data: https: blob:",  # Allow images from various sources
+        "font-src 'self' data:",
+        "connect-src 'self' https:",  # Allow API calls
+        "media-src 'self' https: blob:",  # Allow media from cloud storage
+        "object-src 'none'",  # Block plugins
+        "frame-ancestors 'none'",  # Prevent framing (same as X-Frame-Options)
+        "base-uri 'self'",  # Restrict base tag
+        "form-action 'self'"  # Restrict form submissions
+    ]
+    response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+    
+    return response
+
 # CORS - configurable via environment
 app.add_middleware(
     CORSMiddleware,
