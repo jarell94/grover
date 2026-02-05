@@ -409,12 +409,35 @@ export default function StoreScreen() {
                   </View>
                 )}
 
-                <TouchableOpacity
-                  style={[styles.submitButton, { marginTop: 16 }]}
-                  onPress={() => handleBuy(selectedProduct)}
-                >
-                  <Text style={styles.submitButtonText}>Buy Now</Text>
-                </TouchableOpacity>
+                {/* Owner Actions */}
+                {isProductOwner && (
+                  <View style={styles.ownerActions}>
+                    <TouchableOpacity
+                      style={styles.editButton}
+                      onPress={handleEditProduct}
+                    >
+                      <Ionicons name="pencil" size={18} color="#fff" />
+                      <Text style={styles.editButtonText}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={handleDeleteProduct}
+                    >
+                      <Ionicons name="trash" size={18} color="#fff" />
+                      <Text style={styles.deleteButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Buy button - only show if NOT owner */}
+                {!isProductOwner && (
+                  <TouchableOpacity
+                    style={[styles.submitButton, { marginTop: 16 }]}
+                    onPress={() => handleBuy(selectedProduct)}
+                  >
+                    <Text style={styles.submitButtonText}>Buy Now</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </View>
