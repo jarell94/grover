@@ -440,6 +440,11 @@ export const api = {
   getContentPerformance: () => apiRequest('/analytics/content-performance'),
   getRevenueAnalytics: () => apiRequest('/analytics/revenue'),
   getEngagementAnalytics: () => apiRequest('/analytics/engagement'),
+  getAudienceDemographics: () => apiRequest('/analytics/audience/demographics'),
+  getActivityTimes: () => apiRequest('/analytics/audience/activity-times'),
+  getContentTypePerformance: () => apiRequest('/analytics/content-types'),
+  getPostAnalytics: (postId: string) => apiRequest(`/analytics/posts/${postId}`),
+  exportAnalytics: () => apiRequest('/analytics/export'),
 
   // Push Notifications
   registerPushToken: (token: string, platform: string) => 

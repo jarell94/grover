@@ -453,9 +453,18 @@ export default function AnalyticsScreen() {
 
         {/* Insights */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Insights & Tips</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Insights & Tips</Text>
+            <TouchableOpacity onPress={() => router.push('/audience-insights')}>
+              <Text style={styles.seeAllText}>Audience Insights →</Text>
+            </TouchableOpacity>
+          </View>
           
-          <View style={styles.insightCard}>
+          <TouchableOpacity 
+            style={styles.insightCard}
+            onPress={() => router.push('/audience-insights')}
+            activeOpacity={0.8}
+          >
             <LinearGradient
               colors={[Colors.primary + '30', Colors.secondary + '30']}
               style={styles.insightGradient}
@@ -465,10 +474,15 @@ export default function AnalyticsScreen() {
                 <Text style={styles.insightTitle}>Best Time to Post</Text>
                 <Text style={styles.insightText}>Your audience is most active on weekdays between 6-9 PM</Text>
               </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
             </LinearGradient>
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.insightCard}>
+          <TouchableOpacity 
+            style={styles.insightCard}
+            onPress={() => router.push('/audience-insights')}
+            activeOpacity={0.8}
+          >
             <LinearGradient
               colors={[Colors.success + '30', Colors.info + '30']}
               style={styles.insightGradient}
@@ -478,10 +492,15 @@ export default function AnalyticsScreen() {
                 <Text style={styles.insightTitle}>Growing Content</Text>
                 <Text style={styles.insightText}>Videos are getting 2.5x more engagement than photos</Text>
               </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
             </LinearGradient>
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.insightCard}>
+          <TouchableOpacity 
+            style={styles.insightCard}
+            onPress={() => router.push('/audience-insights')}
+            activeOpacity={0.8}
+          >
             <LinearGradient
               colors={[Colors.warning + '30', Colors.danger + '30']}
               style={styles.insightGradient}
@@ -491,8 +510,41 @@ export default function AnalyticsScreen() {
                 <Text style={styles.insightTitle}>Audience Demographics</Text>
                 <Text style={styles.insightText}>65% of your followers are aged 18-34</Text>
               </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
             </LinearGradient>
-          </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Export Button */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.exportButton}
+            onPress={async () => {
+              try {
+                const result = await api.exportAnalytics();
+                if (result?.csv) {
+                  Alert.alert(
+                    'Analytics Exported',
+                    'Your analytics data has been prepared. You can copy the CSV data or save it to a file.',
+                    [
+                      { text: 'OK', style: 'default' }
+                    ]
+                  );
+                  console.log('CSV Data:', result.csv);
+                }
+              } catch (error) {
+                Alert.alert('Error', 'Failed to export analytics');
+              }
+            }}
+          >
+            <LinearGradient
+              colors={[Colors.info, '#0EA5E9', '#38BDF8']}
+              style={styles.exportGradient}
+            >
+              <Ionicons name="download" size={24} color="#fff" />
+              <Text style={styles.exportText}>Export Analytics (CSV)</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
 
         {/* Bottom Padding */}
@@ -860,6 +912,25 @@ const styles = StyleSheet.create({
   topPostScoreLabel: {
     fontSize: 10,
     color: Colors.textSecondary,
+  },
+  
+  // Export Button
+  exportButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  exportGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    gap: 12,
+  },
+  exportText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
   
   // Insight Card
