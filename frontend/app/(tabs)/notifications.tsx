@@ -489,12 +489,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.surface,
   },
-  filterContainer: {
+  filterSection: {
+    backgroundColor: Colors.background,
+    paddingBottom: 8,
+  },
+  filterRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
     gap: 8,
-    backgroundColor: Colors.background,
   },
   filterChip: {
     paddingHorizontal: 16,
@@ -514,6 +518,38 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   filterChipTextActive: {
+    color: '#fff',
+  },
+  typeFilterScroll: {
+    flexGrow: 0,
+  },
+  typeFilterContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 8,
+    flexDirection: 'row',
+  },
+  typeFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  typeFilterChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  typeFilterText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: Colors.textSecondary,
+  },
+  typeFilterTextActive: {
     color: '#fff',
   },
   list: {
