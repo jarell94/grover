@@ -12,6 +12,7 @@ import base64
 import uuid
 import re
 import time
+import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
@@ -2874,7 +2875,18 @@ async def initiate_call(
     call_id = f"call_{uuid.uuid4().hex[:12]}"
     channel_name = call_id
     
-    # In production, generate Agora token here
+    # Generate proper Agora token with 1 hour expiration
+    # Use hash of user_id to create a numeric UID for Agora
+    uid = int(hashlib.md5(current_user.user_id.encode()).hexdigest()[:8], 16)
+    agora_token = generate_agora_token(channel_name, uid, role='publisher', expire_seconds=3600)
+    
+    # If token generation fails, return error instead of using temp token
+    if not agora_token:
+        raise HTTPException(
+            status_code=503, 
+            detail="Voice/video calling not available. Please contact support."
+        )
+    
     call_data = {
         "call_id": call_id,
         "caller_id": current_user.user_id,
@@ -2882,7 +2894,7 @@ async def initiate_call(
         "type": call_type,
         "status": "ringing",
         "channel_name": channel_name,
-        "agora_token": "temp_token",
+        "agora_token": agora_token,
         "started_at": datetime.now(timezone.utc)
     }
     
@@ -2899,7 +2911,7 @@ async def initiate_call(
     return {
         "call_id": call_id,
         "channel_name": channel_name,
-        "token": "temp_token"
+        "token": agora_token
     }
 
 @api_router.post("/calls/{call_id}/answer")
