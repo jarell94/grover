@@ -344,6 +344,38 @@ export const api = {
   deleteStory: (storyId: string) => apiRequest(`/stories/${storyId}`, { method: 'DELETE' }),
   getUserHighlights: (userId: string) => apiRequest(`/users/${userId}/highlights`),
 
+  // Story Archives
+  archiveStory: (storyId: string) => apiRequest(`/stories/${storyId}/archive`, { method: 'POST' }),
+  getArchivedStories: (limit: number = 20, skip: number = 0) => 
+    apiRequest(`/stories/archive?limit=${limit}&skip=${skip}`),
+  deleteArchivedStory: (archiveId: string) => 
+    apiRequest(`/stories/archive/${archiveId}`, { method: 'DELETE' }),
+  restoreArchivedStory: (archiveId: string) => 
+    apiRequest(`/stories/archive/${archiveId}/restore`, { method: 'POST' }),
+
+  // Story Batch Upload
+  createStoriesBatch: (formData: FormData) => apiFormRequest('/stories/batch', formData),
+
+  // Story Drafts
+  saveStoryDraft: (formData: FormData) => apiFormRequest('/stories/drafts', formData),
+  getStoryDrafts: () => apiRequest('/stories/drafts'),
+  updateStoryDraft: (draftId: string, data: { caption?: string; music_url?: string; music_title?: string; music_artist?: string }) => 
+    apiRequest(`/stories/drafts/${draftId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteStoryDraft: (draftId: string) => 
+    apiRequest(`/stories/drafts/${draftId}`, { method: 'DELETE' }),
+  publishStoryDraft: (draftId: string) => 
+    apiRequest(`/stories/drafts/${draftId}/publish`, { method: 'POST' }),
+
+  // Music Library
+  searchMusic: (query: string, limit: number = 10) => 
+    apiRequest(`/music/search?q=${encodeURIComponent(query)}&limit=${limit}`),
+  getTrendingMusic: (limit: number = 20) => 
+    apiRequest(`/music/trending?limit=${limit}`),
+  getMusicCategories: () => apiRequest('/music/categories'),
+
   // Polls
   voteOnPoll: (postId: string, optionIndex: number) => apiRequest(`/posts/${postId}/vote`, {
     method: 'POST',

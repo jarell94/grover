@@ -9,6 +9,8 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  ScrollView,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -16,6 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
 
 import { api } from '../services/api';
+import MusicPicker from '../components/MusicPicker';
 
 const Colors = {
   primary: '#8B5CF6',
@@ -28,7 +31,7 @@ const Colors = {
   border: 'rgba(255,255,255,0.1)',
 };
 
-type Picked = ImagePicker.ImagePickerAsset & { mimeType?: string };
+type Picked = ImagePicker.ImagePickerAsset & { mimeType?: string; caption?: string };
 
 function guessMimeType(uri: string, assetType?: string, mimeType?: string) {
   if (mimeType) return mimeType;
@@ -56,18 +59,29 @@ function guessFileExt(mime: string) {
   return 'jpg';
 }
 
+interface SelectedMusic {
+  id: string;
+  title: string;
+  artist: string;
+  url: string;
+}
+
 export default function CreateStoryScreen() {
-  const [selectedMedia, setSelectedMedia] = useState<Picked | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<Picked[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [selectedMusic, setSelectedMusic] = useState<SelectedMusic | null>(null);
+  const [showDraftsButton, setShowDraftsButton] = useState(true);
 
   const videoRef = useRef<Video>(null);
 
-  const isVideo = selectedMedia?.type === 'video';
+  const currentMedia = selectedMedia[currentIndex];
+  const isVideo = currentMedia?.type === 'video';
+  const canPost = selectedMedia.length > 0 && !uploading;
 
-  const canPost = useMemo(() => !!selectedMedia?.uri && !uploading, [selectedMedia, uploading]);
-
-  const pickFromGallery = async () => {
+  const pickMultipleFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please grant photo library permissions');
@@ -76,14 +90,16 @@ export default function CreateStoryScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: true,
-      aspect: [9, 16],
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
       quality: 0.85,
       base64: false,
     });
 
-    if (!result.canceled && result.assets?.[0]) {
-      setSelectedMedia(result.assets[0] as Picked);
+    if (!result.canceled && result.assets) {
+      const media = result.assets.map(asset => ({ ...asset, caption: '' } as Picked));
+      setSelectedMedia(media);
+      setCurrentIndex(0);
     }
   };
 
@@ -103,13 +119,55 @@ export default function CreateStoryScreen() {
     });
 
     if (!result.canceled && result.assets?.[0]) {
-      setSelectedMedia(result.assets[0] as Picked);
+      const media = { ...result.assets[0], caption: '' } as Picked;
+      setSelectedMedia([media]);
+      setCurrentIndex(0);
     }
   };
 
-  const createStory = async () => {
-    if (!selectedMedia?.uri) {
-      Alert.alert('Error', 'Please select a photo or video');
+  const addMoreMedia = async () => {
+    if (selectedMedia.length >= 10) {
+      Alert.alert('Limit Reached', 'You can only add up to 10 stories at once');
+      return;
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant photo library permissions');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsMultipleSelection: true,
+      selectionLimit: 10 - selectedMedia.length,
+      quality: 0.85,
+      base64: false,
+    });
+
+    if (!result.canceled && result.assets) {
+      const newMedia = result.assets.map(asset => ({ ...asset, caption: '' } as Picked));
+      setSelectedMedia([...selectedMedia, ...newMedia]);
+    }
+  };
+
+  const removeMedia = (index: number) => {
+    const newMedia = selectedMedia.filter((_, i) => i !== index);
+    setSelectedMedia(newMedia);
+    if (currentIndex >= newMedia.length) {
+      setCurrentIndex(Math.max(0, newMedia.length - 1));
+    }
+  };
+
+  const updateCaption = (text: string) => {
+    const updated = [...selectedMedia];
+    updated[currentIndex] = { ...updated[currentIndex], caption: text };
+    setSelectedMedia(updated);
+  };
+
+  const saveAsDraft = async () => {
+    if (!currentMedia?.uri) {
+      Alert.alert('Error', 'No media selected');
       return;
     }
 
@@ -117,33 +175,117 @@ export default function CreateStoryScreen() {
     try {
       const formData = new FormData();
 
-      const mime = guessMimeType(
-        selectedMedia.uri,
-        selectedMedia.type,
-        (selectedMedia as any).mimeType
-      );
+      const mime = guessMimeType(currentMedia.uri, currentMedia.type, (currentMedia as any).mimeType);
       const ext = guessFileExt(mime);
-      const filename = `story-${Date.now()}.${ext}`;
+      const filename = `draft-${Date.now()}.${ext}`;
 
       formData.append('media', {
-        uri: selectedMedia.uri,
+        uri: currentMedia.uri,
         type: mime,
         name: filename,
       } as any);
 
-      if (caption.trim()) {
-        formData.append('caption', caption.trim());
+      if (currentMedia.caption?.trim()) {
+        formData.append('caption', currentMedia.caption.trim());
       }
 
-      await api.createStory(formData);
+      if (selectedMusic) {
+        formData.append('music_url', selectedMusic.url);
+        formData.append('music_title', selectedMusic.title);
+        formData.append('music_artist', selectedMusic.artist);
+      }
 
-      Alert.alert('Success', 'Story posted!', [{ text: 'OK', onPress: () => router.back() }]);
+      await api.saveStoryDraft(formData);
+      Alert.alert('Success', 'Story saved as draft', [{ text: 'OK', onPress: () => router.back() }]);
+    } catch (error) {
+      console.error('Save draft error:', error);
+      Alert.alert('Error', 'Failed to save draft');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const createStories = async () => {
+    if (selectedMedia.length === 0) {
+      Alert.alert('Error', 'Please select at least one photo or video');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      if (selectedMedia.length === 1) {
+        // Single story
+        const formData = new FormData();
+        const media = selectedMedia[0];
+
+        const mime = guessMimeType(media.uri, media.type, (media as any).mimeType);
+        const ext = guessFileExt(mime);
+        const filename = `story-${Date.now()}.${ext}`;
+
+        formData.append('media', {
+          uri: media.uri,
+          type: mime,
+          name: filename,
+        } as any);
+
+        if (media.caption?.trim()) {
+          formData.append('caption', media.caption.trim());
+        }
+
+        if (selectedMusic) {
+          formData.append('music_url', selectedMusic.url);
+          formData.append('music_title', selectedMusic.title);
+          formData.append('music_artist', selectedMusic.artist);
+        }
+
+        await api.createStory(formData);
+      } else {
+        // Batch upload
+        const formData = new FormData();
+        
+        selectedMedia.forEach((media, index) => {
+          const mime = guessMimeType(media.uri, media.type, (media as any).mimeType);
+          const ext = guessFileExt(mime);
+          const filename = `story-${Date.now()}-${index}.${ext}`;
+
+          formData.append('media', {
+            uri: media.uri,
+            type: mime,
+            name: filename,
+          } as any);
+        });
+
+        // Add captions as JSON array
+        const captions = selectedMedia.map(m => m.caption || null);
+        formData.append('captions', JSON.stringify(captions));
+
+        if (selectedMusic) {
+          formData.append('music_url', selectedMusic.url);
+          formData.append('music_title', selectedMusic.title);
+          formData.append('music_artist', selectedMusic.artist);
+        }
+
+        await api.createStoriesBatch(formData);
+      }
+
+      Alert.alert('Success', `${selectedMedia.length} ${selectedMedia.length === 1 ? 'story' : 'stories'} posted!`, [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
     } catch (error) {
       console.error('Create story error:', error);
       Alert.alert('Error', 'Failed to post story');
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleSelectMusic = (track: any) => {
+    setSelectedMusic({
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      url: track.url,
+    });
   };
 
   return (
@@ -153,15 +295,20 @@ export default function CreateStoryScreen() {
           <Ionicons name="close" size={28} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Story</Text>
-        <View style={{ width: 28 }} />
+        {showDraftsButton && (
+          <TouchableOpacity onPress={() => router.push('/story-drafts')}>
+            <Ionicons name="document-text-outline" size={24} color={Colors.text} />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {selectedMedia ? (
+      {selectedMedia.length > 0 ? (
         <View style={styles.previewContainer}>
+          {/* Current Media Preview */}
           {isVideo ? (
             <Video
               ref={videoRef}
-              source={{ uri: selectedMedia.uri }}
+              source={{ uri: currentMedia.uri }}
               style={styles.preview}
               resizeMode={ResizeMode.COVER}
               isLooping
@@ -170,45 +317,105 @@ export default function CreateStoryScreen() {
               onError={(e) => console.log('Video error', e)}
             />
           ) : (
-            <Image source={{ uri: selectedMedia.uri }} style={styles.preview} resizeMode="cover" />
+            <Image source={{ uri: currentMedia.uri }} style={styles.preview} resizeMode="cover" />
           )}
 
+          {/* Media Counter */}
+          {selectedMedia.length > 1 && (
+            <View style={styles.counter}>
+              <Text style={styles.counterText}>
+                {currentIndex + 1} / {selectedMedia.length}
+              </Text>
+            </View>
+          )}
+
+          {/* Thumbnail Carousel */}
+          {selectedMedia.length > 1 && (
+            <View style={styles.carousel}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {selectedMedia.map((media, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[styles.thumbnail, index === currentIndex && styles.activeThumbnail]}
+                    onPress={() => setCurrentIndex(index)}
+                    onLongPress={() => removeMedia(index)}
+                  >
+                    <Image source={{ uri: media.uri }} style={styles.thumbnailImage} />
+                    {media.type === 'video' && (
+                      <View style={styles.thumbnailVideoIcon}>
+                        <Ionicons name="play" size={12} color="#fff" />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                ))}
+                {selectedMedia.length < 10 && (
+                  <TouchableOpacity style={styles.addMoreThumbnail} onPress={addMoreMedia}>
+                    <Ionicons name="add" size={24} color={Colors.text} />
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Caption Input */}
           <View style={styles.captionOverlay}>
             <TextInput
               style={styles.captionInput}
               placeholder="Add a caption..."
               placeholderTextColor={Colors.textSecondary}
-              value={caption}
-              onChangeText={setCaption}
+              value={currentMedia.caption || ''}
+              onChangeText={updateCaption}
               multiline
               editable={!uploading}
             />
           </View>
 
+          {/* Music Display */}
+          {selectedMusic && (
+            <View style={styles.musicBanner}>
+              <Ionicons name="musical-notes" size={16} color={Colors.text} />
+              <Text style={styles.musicText} numberOfLines={1}>
+                {selectedMusic.title} - {selectedMusic.artist}
+              </Text>
+              <TouchableOpacity onPress={() => setSelectedMusic(null)}>
+                <Ionicons name="close-circle" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Action Buttons */}
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => {
-                setSelectedMedia(null);
-                setCaption('');
-              }}
-              disabled={uploading}
-            >
-              <Ionicons name="refresh" size={22} color={Colors.text} />
-              <Text style={styles.actionText}>Change</Text>
-            </TouchableOpacity>
+            <View style={styles.leftActions}>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => setShowMusicPicker(true)}
+                disabled={uploading}
+              >
+                <Ionicons name="musical-notes" size={24} color={Colors.text} />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={saveAsDraft}
+                disabled={uploading}
+              >
+                <Ionicons name="bookmark-outline" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={[styles.postButton, (!canPost || uploading) && styles.postButtonDisabled]}
-              onPress={createStory}
+              onPress={createStories}
               disabled={!canPost || uploading}
             >
               {uploading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="checkmark-circle" size={22} color="#fff" />
-                  <Text style={styles.postButtonText}>Post</Text>
+                  <Ionicons name="send" size={20} color="#fff" />
+                  <Text style={styles.postButtonText}>
+                    Post {selectedMedia.length > 1 ? `(${selectedMedia.length})` : ''}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
@@ -218,7 +425,7 @@ export default function CreateStoryScreen() {
         <View style={styles.emptyContainer}>
           <Ionicons name="images-outline" size={80} color={Colors.textSecondary} />
           <Text style={styles.emptyTitle}>Create a Story</Text>
-          <Text style={styles.emptySubtitle}>Share a moment that disappears in 24 hours</Text>
+          <Text style={styles.emptySubtitle}>Share moments that disappear in 24 hours</Text>
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity style={styles.button} onPress={takePhotoOrVideo}>
@@ -226,20 +433,27 @@ export default function CreateStoryScreen() {
               <Text style={styles.buttonText}>Camera</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.button} onPress={pickFromGallery}>
+            <TouchableOpacity style={styles.button} onPress={pickMultipleFromGallery}>
               <Ionicons name="images" size={32} color={Colors.primary} />
               <Text style={styles.buttonText}>Gallery</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.tips}>
-            <Text style={styles.tipsTitle}>Story Tips</Text>
-            <Text style={styles.tip}>Stories disappear after 24 hours</Text>
-            <Text style={styles.tip}>Add captions, reactions, and replies</Text>
-            <Text style={styles.tip}>Save your favorites to Highlights</Text>
+            <Text style={styles.tipsTitle}>✨ New Features</Text>
+            <Text style={styles.tip}>📸 Upload multiple stories at once</Text>
+            <Text style={styles.tip}>🎵 Add music to your stories</Text>
+            <Text style={styles.tip}>💾 Save drafts for later</Text>
+            <Text style={styles.tip}>📦 Archive your favorite stories</Text>
           </View>
         </View>
       )}
+
+      <MusicPicker
+        visible={showMusicPicker}
+        onClose={() => setShowMusicPicker(false)}
+        onSelect={handleSelectMusic}
+      />
     </View>
   );
 }
@@ -302,7 +516,73 @@ const styles = StyleSheet.create({
   previewContainer: { flex: 1, position: 'relative' },
   preview: { width: '100%', height: '100%' },
 
-  captionOverlay: { position: 'absolute', bottom: 120, left: 16, right: 16 },
+  counter: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  counterText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  carousel: {
+    position: 'absolute',
+    top: 16,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+  },
+  thumbnail: {
+    width: 50,
+    height: 70,
+    borderRadius: 8,
+    marginRight: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    overflow: 'hidden',
+  },
+  activeThumbnail: {
+    borderColor: Colors.primary,
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbnailVideoIcon: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addMoreThumbnail: {
+    width: 50,
+    height: 70,
+    borderRadius: 8,
+    backgroundColor: Colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.border,
+    borderStyle: 'dashed',
+  },
+
+  captionOverlay: { 
+    position: 'absolute', 
+    bottom: selectedMedia?.length > 1 ? 160 : 120, 
+    left: 16, 
+    right: 16 
+  },
   captionInput: {
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     color: Colors.text,
@@ -310,6 +590,26 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     maxHeight: 120,
+  },
+
+  musicBanner: {
+    position: 'absolute',
+    bottom: selectedMedia?.length > 1 ? 280 : 240,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(139, 92, 246, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 8,
+  },
+  musicText: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   actions: {
@@ -321,16 +621,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  actionButton: {
+  leftActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
+    gap: 12,
   },
-  actionText: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  iconButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   postButton: {
     flexDirection: 'row',
