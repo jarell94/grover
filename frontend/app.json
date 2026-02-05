@@ -8,12 +8,8 @@
     "scheme": "grover",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "owner": "emergent",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
     "updates": {
-      "url": "https://u.expo.dev/auto"
+      "enabled": false
     },
     "ios": {
       "supportsTablet": true,
@@ -75,9 +71,6 @@
     "extra": {
       "router": {
         "origin": false
-      },
-      "eas": {
-        "projectId": "auto"
       }
     }
   }
