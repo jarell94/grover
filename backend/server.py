@@ -309,6 +309,20 @@ async def create_indexes():
     await safe_create_index(db.sessions, "user_id", background=True, name="sessions_user")
     await safe_create_index(db.sessions, "expires_at", expireAfterSeconds=0, background=True, name="sessions_ttl")
     
+    # ========== SUBSCRIPTION TIERS COLLECTION ==========
+    await safe_create_index(db.subscription_tiers, "tier_id", unique=True, background=True, name="subscription_tiers_id_unique")
+    await safe_create_index(db.subscription_tiers, [("creator_id", 1), ("active", 1)], background=True, name="subscription_tiers_creator_active")
+    
+    # ========== CREATOR SUBSCRIPTIONS COLLECTION ==========
+    await safe_create_index(db.creator_subscriptions, "subscription_id", unique=True, background=True, name="creator_subscriptions_id_unique")
+    await safe_create_index(db.creator_subscriptions, [("subscriber_id", 1), ("status", 1)], background=True, name="creator_subscriptions_subscriber_status")
+    await safe_create_index(db.creator_subscriptions, [("creator_id", 1), ("status", 1)], background=True, name="creator_subscriptions_creator_status")
+    await safe_create_index(db.creator_subscriptions, [("subscriber_id", 1), ("creator_id", 1)], background=True, name="creator_subscriptions_sub_creator")
+    
+    # ========== SUPPORTER BADGES COLLECTION ==========
+    await safe_create_index(db.supporter_badges, [("user_id", 1), ("creator_id", 1)], unique=True, background=True, name="supporter_badges_user_creator_unique")
+    await safe_create_index(db.supporter_badges, "user_id", background=True, name="supporter_badges_user")
+    
     logger.info(f"Database indexes: {indexes_created} created, {indexes_skipped} already exist")
 
 @app.on_event("startup")
@@ -1143,12 +1157,21 @@ async def create_post(
     poll_question: Optional[str] = Form(None),
     poll_options: Optional[str] = Form(None),  # JSON string
     poll_duration_hours: Optional[int] = Form(24),
+    is_exclusive: Optional[bool] = Form(False),
+    min_tier_id: Optional[str] = Form(None),
     current_user: User = Depends(require_auth)
 ):
     # Security: Sanitize and validate content
     content = sanitize_string(content or "", MAX_INPUT_LENGTH, "content")
     location = sanitize_string(location or "", 200, "location") if location else None
     poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
+    
+    # Check if exclusive content requires monetization
+    if is_exclusive and not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="You must enable monetization to create exclusive content."
+        )
     
     # Validate that at least some content exists
     if not content and not media and not poll_question:
@@ -1210,6 +1233,8 @@ async def create_post(
         "tagged_users": tagged_user_list,
         "location": location,
         "has_poll": has_poll,
+        "is_exclusive": is_exclusive or False,
+        "min_tier_id": min_tier_id if is_exclusive else None,
         "created_at": datetime.now(timezone.utc)
     }
     
@@ -1231,7 +1256,7 @@ async def create_post(
                 post_id
             )
     
-    return {"post_id": post_id, "message": "Post created"}
+    return {"post_id": post_id, "message": "Post created", "is_exclusive": is_exclusive}
 
 @api_router.post("/posts/{post_id}/react")
 async def react_to_post(
@@ -4105,6 +4130,296 @@ async def get_my_subscribers(current_user: User = Depends(require_auth)):
         sub["tier"] = tier
     
     return subscriptions
+
+
+# ============ EXCLUSIVE CONTENT & BADGES ============
+
+async def check_subscription_access(subscriber_id: str, creator_id: str, min_tier: Optional[str] = None) -> bool:
+    """Check if a user has active subscription to a creator"""
+    query = {
+        "subscriber_id": subscriber_id,
+        "creator_id": creator_id,
+        "status": "active"
+    }
+    subscription = await db.creator_subscriptions.find_one(query)
+    return subscription is not None
+
+
+async def calculate_supporter_badge(subscriber_id: str, creator_id: str) -> dict:
+    """Calculate supporter badge tier based on subscription duration and tier"""
+    subscription = await db.creator_subscriptions.find_one({
+        "subscriber_id": subscriber_id,
+        "creator_id": creator_id,
+        "status": "active"
+    })
+    
+    if not subscription:
+        return None
+    
+    # Calculate subscription duration in months
+    started_at = subscription["started_at"]
+    now = datetime.now(timezone.utc)
+    duration_months = (now.year - started_at.year) * 12 + (now.month - started_at.month)
+    
+    # Get tier info
+    tier = await db.subscription_tiers.find_one({"tier_id": subscription["tier_id"]})
+    
+    # Determine badge level based on duration
+    if duration_months >= 12:
+        badge_level = "Diamond"
+        badge_color = "#B9F2FF"  # Light blue
+        badge_icon = "💎"
+    elif duration_months >= 6:
+        badge_level = "Gold"
+        badge_color = "#FFD700"
+        badge_icon = "👑"
+    elif duration_months >= 3:
+        badge_level = "Silver"
+        badge_color = "#C0C0C0"
+        badge_icon = "⭐"
+    else:
+        badge_level = "Bronze"
+        badge_color = "#CD7F32"
+        badge_icon = "🥉"
+    
+    badge_data = {
+        "badge_level": badge_level,
+        "badge_color": badge_color,
+        "badge_icon": badge_icon,
+        "tier_name": tier.get("name", "Supporter") if tier else "Supporter",
+        "duration_months": duration_months,
+        "subscriber_since": started_at.isoformat()
+    }
+    
+    # Update or create badge record
+    await db.supporter_badges.update_one(
+        {"user_id": subscriber_id, "creator_id": creator_id},
+        {
+            "$set": {
+                **badge_data,
+                "updated_at": now
+            },
+            "$setOnInsert": {
+                "badge_id": f"badge_{uuid.uuid4().hex[:12]}",
+                "created_at": now
+            }
+        },
+        upsert=True
+    )
+    
+    return badge_data
+
+
+@api_router.get("/users/{user_id}/subscription-status/{creator_id}")
+async def check_subscription_status(
+    user_id: str,
+    creator_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Check if a user is subscribed to a creator"""
+    if user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Can only check your own subscription status")
+    
+    subscription = await db.creator_subscriptions.find_one({
+        "subscriber_id": user_id,
+        "creator_id": creator_id,
+        "status": "active"
+    })
+    
+    if not subscription:
+        return {"subscribed": False}
+    
+    # Get tier info
+    tier = await db.subscription_tiers.find_one({"tier_id": subscription["tier_id"]})
+    
+    # Calculate badge
+    badge = await calculate_supporter_badge(user_id, creator_id)
+    
+    return {
+        "subscribed": True,
+        "subscription_id": subscription["subscription_id"],
+        "tier": tier,
+        "badge": badge,
+        "started_at": subscription["started_at"],
+        "next_billing": subscription["next_billing"]
+    }
+
+
+@api_router.post("/posts/{post_id}/set-exclusive")
+async def set_post_as_exclusive(
+    post_id: str,
+    exclusive: bool = True,
+    min_tier_id: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Set a post as exclusive to subscribers only"""
+    # Check if creator has monetization enabled
+    if not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="You must enable monetization in your profile settings before creating exclusive content."
+        )
+    
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not your post")
+    
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$set": {
+            "is_exclusive": exclusive,
+            "min_tier_id": min_tier_id,
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    return {"message": f"Post {'set as' if exclusive else 'removed from'} exclusive content"}
+
+
+@api_router.get("/posts/exclusive")
+async def get_exclusive_posts(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get exclusive posts from subscribed creators"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    # Get creators I'm subscribed to
+    subscriptions = await db.creator_subscriptions.find(
+        {"subscriber_id": current_user.user_id, "status": "active"},
+        {"creator_id": 1}
+    ).to_list(1000)
+    
+    creator_ids = [sub["creator_id"] for sub in subscriptions]
+    
+    if not creator_ids:
+        return []
+    
+    # Get exclusive posts from these creators
+    posts = await db.posts.find(
+        {
+            "user_id": {"$in": creator_ids},
+            "is_exclusive": True
+        },
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich posts with user data and badge info
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # Add my badge for this creator
+        badge = await db.supporter_badges.find_one({
+            "user_id": current_user.user_id,
+            "creator_id": post["user_id"]
+        }, {"_id": 0})
+        post["my_badge"] = badge
+    
+    return posts
+
+
+@api_router.get("/users/{user_id}/badges")
+async def get_user_badges(user_id: str, current_user: User = Depends(require_auth)):
+    """Get all supporter badges for a user"""
+    badges = await db.supporter_badges.find(
+        {"user_id": user_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Enrich with creator info
+    for badge in badges:
+        creator = await db.users.find_one(
+            {"user_id": badge["creator_id"]},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+        )
+        badge["creator"] = creator
+    
+    return badges
+
+
+@api_router.get("/creators/{creator_id}/badge/{user_id}")
+async def get_creator_badge_for_user(
+    creator_id: str,
+    user_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get a specific user's badge for a creator (for display in comments/posts)"""
+    badge = await db.supporter_badges.find_one(
+        {"user_id": user_id, "creator_id": creator_id},
+        {"_id": 0}
+    )
+    
+    if not badge:
+        return None
+    
+    return badge
+
+
+@api_router.get("/creators/me/subscription-analytics")
+async def get_subscription_analytics(current_user: User = Depends(require_auth)):
+    """Get subscription analytics for creator"""
+    if not current_user.monetization_enabled:
+        raise HTTPException(status_code=403, detail="Monetization not enabled")
+    
+    # Count active subscribers
+    active_subs = await db.creator_subscriptions.count_documents({
+        "creator_id": current_user.user_id,
+        "status": "active"
+    })
+    
+    # Count by tier
+    pipeline = [
+        {"$match": {"creator_id": current_user.user_id, "status": "active"}},
+        {"$group": {
+            "_id": "$tier_id",
+            "count": {"$sum": 1},
+            "total_revenue": {"$sum": "$amount"}
+        }}
+    ]
+    tier_stats = await db.creator_subscriptions.aggregate(pipeline).to_list(10)
+    
+    # Get tier details
+    for stat in tier_stats:
+        tier = await db.subscription_tiers.find_one({"tier_id": stat["_id"]}, {"_id": 0})
+        stat["tier"] = tier
+    
+    # Calculate monthly revenue (85% after platform fee)
+    total_monthly = sum(stat["total_revenue"] for stat in tier_stats)
+    creator_revenue = total_monthly * 0.85
+    
+    # Get all active subscriptions with details
+    subscriptions = await db.creator_subscriptions.find(
+        {"creator_id": current_user.user_id, "status": "active"},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Badge distribution
+    badges = await db.supporter_badges.find(
+        {"creator_id": current_user.user_id},
+        {"_id": 0, "badge_level": 1}
+    ).to_list(1000)
+    
+    badge_counts = {
+        "Diamond": sum(1 for b in badges if b.get("badge_level") == "Diamond"),
+        "Gold": sum(1 for b in badges if b.get("badge_level") == "Gold"),
+        "Silver": sum(1 for b in badges if b.get("badge_level") == "Silver"),
+        "Bronze": sum(1 for b in badges if b.get("badge_level") == "Bronze"),
+    }
+    
+    return {
+        "total_subscribers": active_subs,
+        "monthly_revenue": round(creator_revenue, 2),
+        "gross_revenue": round(total_monthly, 2),
+        "platform_fee": round(total_monthly * 0.15, 2),
+        "tier_breakdown": tier_stats,
+        "badge_distribution": badge_counts,
+        "recent_subscriptions": subscriptions[:10]
+    }
 
 
 # ============ PAID CONTENT ENDPOINTS ============
