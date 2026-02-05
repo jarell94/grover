@@ -3,7 +3,7 @@ AI Content Assistant Service
 Uses OpenAI/Claude for AI-powered content generation
 """
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 import logging
 
@@ -159,7 +159,7 @@ Hashtags:"""
         logger.error(f"Error suggesting hashtags: {e}")
         return []
 
-async def recommend_posting_time(user_stats: Dict) -> Dict[str, any]:
+async def recommend_posting_time(user_stats: Dict) -> Dict[str, Any]:
     """
     Recommend the best time to post based on user's analytics
     

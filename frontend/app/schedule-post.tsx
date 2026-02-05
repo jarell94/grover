@@ -210,10 +210,17 @@ export default function SchedulePostScreen() {
       
       if (batchMode && selectedMedia.length > 1) {
         // Batch mode: Schedule multiple posts
+        // Require content in batch mode
+        if (!postContent.trim()) {
+          Alert.alert('Error', 'Please add content for your batch posts');
+          return;
+        }
+        
         let successCount = 0;
         for (const [index, media] of selectedMedia.entries()) {
           const formData = new FormData();
-          formData.append('content', postContent.trim() || `Post ${index + 1}`);
+          // Use same content for all posts in batch with number suffix
+          formData.append('content', `${postContent.trim()} (${index + 1}/${selectedMedia.length})`);
           
           // Stagger posts by 15 minutes each
           const postDate = new Date(scheduledDate.getTime() + (index * 15 * 60 * 1000));

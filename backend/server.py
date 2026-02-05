@@ -103,6 +103,9 @@ ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES + ALLOWED_VIDEO_TYPES + ALLOWED_AUDIO_TYPES
 
+# Interest keywords for content recommendations
+INTEREST_KEYWORDS = ["music", "art", "tech", "fashion", "food", "fitness", "gaming", "education", "business"]
+
 # ID validation pattern (alphanumeric with underscores)
 ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
 
@@ -4398,8 +4401,7 @@ async def ai_content_ideas(current_user: User = Depends(require_auth)):
     interests = []
     if user and user.get("bio"):
         bio_lower = user["bio"].lower()
-        interest_keywords = ["music", "art", "tech", "fashion", "food", "fitness", "gaming", "education", "business"]
-        interests = [kw for kw in interest_keywords if kw in bio_lower]
+        interests = [kw for kw in INTEREST_KEYWORDS if kw in bio_lower]
     
     # Get trending topics (placeholder - in real implementation, analyze popular posts)
     trending_topics = ["social media", "content creation", "digital marketing"]
