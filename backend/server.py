@@ -4765,7 +4765,7 @@ async def create_story(
         filename=media.filename or f"story_{story_id}",
         content_type=media.content_type or "image/jpeg",
         folder="grover/stories",
-        generate_thumbnail=media_type == "image"
+        generate_thumbnail=media_type == "video"
     )
     
     expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
@@ -5362,7 +5362,7 @@ async def create_stories_batch(
                 filename=media_file.filename or f"story_{story_id}",
                 content_type=media_file.content_type or "image/jpeg",
                 folder="grover/stories",
-                generate_thumbnail=media_type == "image"
+                generate_thumbnail=media_type == "video"
             )
             
             expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
@@ -5430,7 +5430,7 @@ async def save_story_draft(
         filename=media.filename or f"draft_{draft_id}",
         content_type=media.content_type or "image/jpeg",
         folder="grover/drafts",
-        generate_thumbnail=media_type == "image"
+        generate_thumbnail=media_type == "video"
     )
     
     draft_data = {

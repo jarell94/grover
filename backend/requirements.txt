@@ -1,7 +1,6 @@
 agora_token_builder==1.0.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.2
-APScheduler==3.10.4
 aiosignal==1.4.0
 annotated-types==0.7.0
 anyio==4.12.0

@@ -73,7 +73,6 @@ export default function CreateStoryScreen() {
   const [uploading, setUploading] = useState(false);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState<SelectedMusic | null>(null);
-  const [showDraftsButton, setShowDraftsButton] = useState(true);
 
   const videoRef = useRef<Video>(null);
 
@@ -295,11 +294,9 @@ export default function CreateStoryScreen() {
           <Ionicons name="close" size={28} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Story</Text>
-        {showDraftsButton && (
-          <TouchableOpacity onPress={() => router.push('/story-drafts')}>
-            <Ionicons name="document-text-outline" size={24} color={Colors.text} />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity onPress={() => router.push('/story-drafts')}>
+          <Ionicons name="document-text-outline" size={24} color={Colors.text} />
+        </TouchableOpacity>
       </View>
 
       {selectedMedia.length > 0 ? (
@@ -579,7 +576,7 @@ const styles = StyleSheet.create({
 
   captionOverlay: { 
     position: 'absolute', 
-    bottom: selectedMedia?.length > 1 ? 160 : 120, 
+    bottom: 120, 
     left: 16, 
     right: 16 
   },
@@ -594,7 +591,7 @@ const styles = StyleSheet.create({
 
   musicBanner: {
     position: 'absolute',
-    bottom: selectedMedia?.length > 1 ? 280 : 240,
+    bottom: 240,
     left: 16,
     right: 16,
     flexDirection: 'row',

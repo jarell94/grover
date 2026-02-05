@@ -456,6 +456,21 @@ export default function StoriesScreen() {
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
+          {isOwnStory && (
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={async () => {
+                try {
+                  await api.archiveStory(currentStory.story_id);
+                  Alert.alert('Success', 'Story archived!');
+                } catch (error) {
+                  Alert.alert('Error', 'Failed to archive story');
+                }
+              }}
+            >
+              <Ionicons name="archive-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
           {paused && (
             <View style={styles.pausedIndicator}>
               <Ionicons name="pause" size={16} color="#fff" />
@@ -471,6 +486,16 @@ export default function StoriesScreen() {
       {currentStory.caption && (
         <View style={[styles.captionContainer, { bottom: isOwnStory ? 100 : 140 }]}>
           <Text style={styles.caption}>{currentStory.caption}</Text>
+        </View>
+      )}
+
+      {/* Music Info */}
+      {(currentStory as any).music_title && (
+        <View style={[styles.musicInfo, { bottom: isOwnStory ? 120 : 160 }]}>
+          <Ionicons name="musical-notes" size={16} color="#fff" />
+          <Text style={styles.musicText} numberOfLines={1}>
+            {(currentStory as any).music_title} - {(currentStory as any).music_artist || 'Unknown'}
+          </Text>
         </View>
       )}
 
@@ -921,5 +946,27 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 12,
     marginTop: 2,
+  },
+  headerButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  musicInfo: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(139, 92, 246, 0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 8,
+  },
+  musicText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
