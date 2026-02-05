@@ -18,7 +18,7 @@ import time
 import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field, validator
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from PIL import Image
@@ -248,8 +248,16 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Security headers middleware
 @app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    """Add security headers to all responses"""
+async def add_security_headers(request: Request, call_next) -> JSONResponse:
+    """Add security headers to all responses
+    
+    Args:
+        request: The incoming request
+        call_next: The next middleware/handler in the chain
+        
+    Returns:
+        JSONResponse: Response with security headers added
+    """
     response = await call_next(request)
     
     # Prevent clickjacking attacks
@@ -433,10 +441,11 @@ async def startup_event():
 # ============ HEALTH CHECK ENDPOINT ============
 
 @api_router.get("/health")
-async def health_check():
-    """
-    Health check endpoint for deployment monitoring.
-    Returns status of all services.
+async def health_check() -> Dict[str, Any]:
+    """Health check endpoint for deployment monitoring
+    
+    Returns:
+        Dict[str, Any]: Health status of all services
     """
     health_status = {
         "status": "healthy",
@@ -694,7 +703,15 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Optio
         logger.error(f"Auth error: {e}")
         return None
 
-async def require_auth(current_user: Optional[User] = Depends(get_current_user)):
+async def require_auth(current_user: Optional[User] = Depends(get_current_user)) -> User:
+    """Require authentication, raises 401 if not authenticated
+    
+    Returns:
+        User: The authenticated user
+        
+    Raises:
+        HTTPException: 401 if user is not authenticated
+    """
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return current_user
@@ -702,8 +719,12 @@ async def require_auth(current_user: Optional[User] = Depends(get_current_user))
 # ============ AUTH ENDPOINTS ============
 
 @api_router.get("/media/status")
-async def get_media_status():
-    """Get media upload service status"""
+async def get_media_status() -> Dict[str, Any]:
+    """Get media upload service status
+    
+    Returns:
+        Dict[str, Any]: Status of media service configuration
+    """
     return get_media_service_status()
 
 @api_router.get("/auth/session")
@@ -941,35 +962,43 @@ async def update_notification_settings(
     notify_mentions: Optional[bool] = None,
     notify_reposts: Optional[bool] = None,
     current_user: User = Depends(require_auth)
-):
-    """Update notification preferences"""
-    update_data = {}
-    if notify_followers is not None:
-        update_data["notify_followers"] = notify_followers
-    if notify_likes is not None:
-        update_data["notify_likes"] = notify_likes
-    if notify_comments is not None:
-        update_data["notify_comments"] = notify_comments
-    if notify_messages is not None:
-        update_data["notify_messages"] = notify_messages
-    if notify_sales is not None:
-        update_data["notify_sales"] = notify_sales
-    if notify_mentions is not None:
-        update_data["notify_mentions"] = notify_mentions
-    if notify_reposts is not None:
-        update_data["notify_reposts"] = notify_reposts
+) -> Dict[str, Any]:
+    """Update notification preferences
     
-    if update_data:
-        await db.users.update_one(
-            {"user_id": current_user.user_id},
-            {"$set": update_data}
-        )
+    Returns:
+        Dict[str, Any]: Success message and updated settings
+    """
+    # Build settings dictionary and filter out None values
+    settings = {
+        "notify_followers": notify_followers,
+        "notify_likes": notify_likes,
+        "notify_comments": notify_comments,
+        "notify_messages": notify_messages,
+        "notify_sales": notify_sales,
+        "notify_mentions": notify_mentions,
+        "notify_reposts": notify_reposts,
+    }
+    
+    # Early return if nothing to update
+    update_data = {k: v for k, v in settings.items() if v is not None}
+    
+    if not update_data:
+        return {"message": "No settings to update", "settings": {}}
+    
+    await db.users.update_one(
+        {"user_id": current_user.user_id},
+        {"$set": update_data}
+    )
     
     return {"message": "Notification settings updated", "settings": update_data}
 
 @api_router.get("/users/me/notification-settings")
-async def get_notification_settings(current_user: User = Depends(require_auth)):
-    """Get current notification preferences"""
+async def get_notification_settings(current_user: User = Depends(require_auth)) -> Dict[str, bool]:
+    """Get current notification preferences
+    
+    Returns:
+        Dict[str, bool]: User's notification settings
+    """
     user = await db.users.find_one({"user_id": current_user.user_id}, {"_id": 0})
     return {
         "notify_followers": user.get("notify_followers", True),
