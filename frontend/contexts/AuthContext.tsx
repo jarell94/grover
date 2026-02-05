@@ -137,6 +137,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userData = await api.getMe();
         setUser(userData);
         
+        // Reset network alert flag on successful authentication
+        hasShownNetworkAlert.current = false;
+        
         // Set user in Sentry for error tracking
         setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
         
@@ -316,6 +319,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAuthToken(null);
       setUser(null);
       socketService.disconnect();
+      
+      // Reset network alert flag on logout
+      hasShownNetworkAlert.current = false;
       
       // Clear Sentry user context
       setSentryUser(null);
