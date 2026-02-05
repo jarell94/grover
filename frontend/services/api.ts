@@ -569,4 +569,25 @@ export const api = {
   getUserBadges: (userId: string) => apiRequest(`/users/${userId}/badges`),
   getCreatorBadgeForUser: (creatorId: string, userId: string) => 
     apiRequest(`/creators/${creatorId}/badge/${userId}`),
+
+  // Verification Badges
+  verifyUser: (userId: string, verificationType: string, note?: string) =>
+    apiRequest(`/admin/verify-user/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify({ verification_type: verificationType, note }),
+    }),
+  unverifyUser: (userId: string) =>
+    apiRequest(`/admin/verify-user/${userId}`, { method: 'DELETE' }),
+  getVerifiedUsers: (verificationType?: string, limit: number = 50, skip: number = 0) =>
+    apiRequest(`/users/verified?${verificationType ? `verification_type=${verificationType}&` : ''}limit=${limit}&skip=${skip}`),
+
+  // Collaboration Posts
+  acceptCollaboration: (postId: string) =>
+    apiRequest(`/posts/${postId}/accept-collaboration`, { method: 'POST' }),
+  declineCollaboration: (postId: string) =>
+    apiRequest(`/posts/${postId}/decline-collaboration`, { method: 'POST' }),
+  getMyCollaborations: (limit: number = 20, skip: number = 0) =>
+    apiRequest(`/posts/collaborations?limit=${limit}&skip=${skip}`),
+  getPostCollaborators: (postId: string) =>
+    apiRequest(`/posts/${postId}/collaborators`),
 };
