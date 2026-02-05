@@ -175,13 +175,34 @@ async def validate_file_upload(file: UploadFile, allowed_types: list = None, max
     
     return content
 
-# CORS configuration from environment
+# ============ CORS CONFIGURATION ============
+# CORS (Cross-Origin Resource Sharing) configuration from environment variable
+# 
+# SECURITY BEST PRACTICES:
+# - In PRODUCTION: Always set ALLOWED_ORIGINS to specific domains (e.g., "https://myapp.com,https://www.myapp.com")
+# - In DEVELOPMENT: Can use "*" for testing, but never in production
+# - Wildcard "*" allows any website to make requests to your API, which is a security risk
+# 
+# Example .env configuration:
+#   ALLOWED_ORIGINS=https://myapp.com,https://www.myapp.com
+#
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-# In development, allow all origins; in production, specify domains
+
+# Validate CORS configuration and warn about insecure settings
 if ALLOWED_ORIGINS == ["*"]:
     cors_origins = ["*"]
+    if ENVIRONMENT == "production":
+        logger.error("=" * 80)
+        logger.error("SECURITY WARNING: Wildcard CORS (*) is enabled in PRODUCTION!")
+        logger.error("This allows any website to make requests to your API.")
+        logger.error("Set ALLOWED_ORIGINS environment variable to specific domains.")
+        logger.error("Example: ALLOWED_ORIGINS=https://myapp.com,https://www.myapp.com")
+        logger.error("=" * 80)
+    else:
+        logger.warning("CORS: Wildcard (*) enabled for development. Ensure ALLOWED_ORIGINS is set in production.")
 else:
     cors_origins = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+    logger.info(f"CORS: Configured for origins: {', '.join(cors_origins)}")
 
 # Socket.IO setup with configured CORS
 sio = socketio.AsyncServer(
