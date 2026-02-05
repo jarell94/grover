@@ -260,7 +260,16 @@ EXPO_PUBLIC_ENVIRONMENT=production
 
 ## Testing the Improvements
 
-1. Start the backend server: `cd backend && python server.py`
+1. Start the backend server (command may vary based on your setup):
+   ```bash
+   # Python/FastAPI backend
+   cd backend && python server.py
+   
+   # Node.js/Express backend
+   cd backend && npm start
+   
+   # Or use your specific backend command
+   ```
 2. Start the frontend: `cd frontend && npm start`
 3. Attempt to login
 4. Check the console logs for clear error messages with hints
