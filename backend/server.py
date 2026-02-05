@@ -120,14 +120,37 @@ def validate_id(id_value: str, id_type: str = "ID") -> str:
     return id_value
 
 def sanitize_string(value: str, max_length: int = MAX_INPUT_LENGTH, field_name: str = "input") -> str:
-    """Sanitize string input"""
+    """Sanitize string input to prevent XSS attacks"""
     if not isinstance(value, str):
         return ""
     # Trim whitespace and limit length
     value = value.strip()[:max_length]
-    # Remove potential script tags and dangerous characters
+    
+    # Remove script tags and their content
     value = re.sub(r'<script[^>]*>.*?</script>', '', value, flags=re.IGNORECASE | re.DOTALL)
+    
+    # Remove dangerous tags that can execute scripts or load external content
+    dangerous_tags = r'<(iframe|object|embed|form|input|link|meta|base|applet)[^>]*>.*?</\1>|<(iframe|object|embed|form|input|link|meta|base|applet)[^>]*/?>'
+    value = re.sub(dangerous_tags, '', value, flags=re.IGNORECASE | re.DOTALL)
+    
+    # Remove event handlers (onclick, onerror, onload, onmouseover, etc.)
+    event_handlers = r'\s*on\w+\s*=\s*["\']?[^"\'>\s]*["\']?'
+    value = re.sub(event_handlers, '', value, flags=re.IGNORECASE)
+    
+    # Remove dangerous protocols
     value = re.sub(r'javascript:', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'vbscript:', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'data:text/html', 'data:text/plain', value, flags=re.IGNORECASE)
+    # Remove data: URLs that could contain scripts (but allow data:image)
+    value = re.sub(r'data:(?!image/)[^,]*;base64,', '', value, flags=re.IGNORECASE)
+    
+    # Encode common HTML entities that could be used to bypass filters
+    value = value.replace('&lt;', '<').replace('&gt;', '>')
+    value = value.replace('&quot;', '"').replace('&#', '&amp;#')
+    
+    # Remove any remaining dangerous patterns
+    value = re.sub(r'<.*?>', '', value)  # Strip remaining HTML tags
+    
     return value
 
 async def validate_file_upload(file: UploadFile, allowed_types: list = None, max_size: int = MAX_FILE_SIZE) -> bytes:
