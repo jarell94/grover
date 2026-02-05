@@ -4134,6 +4134,16 @@ async def get_my_subscribers(current_user: User = Depends(require_auth)):
 
 # ============ EXCLUSIVE CONTENT & BADGES ============
 
+# Badge tier thresholds (in days)
+BADGE_BRONZE_DAYS = 0
+BADGE_SILVER_DAYS = 90  # 3 months
+BADGE_GOLD_DAYS = 180   # 6 months  
+BADGE_DIAMOND_DAYS = 365 # 12 months
+
+# Subscription constants
+SUBSCRIPTION_PLATFORM_FEE = 0.15  # 15% platform fee
+SUBSCRIPTION_CREATOR_PAYOUT = 0.85  # 85% creator payout
+
 async def check_subscription_access(subscriber_id: str, creator_id: str, min_tier: Optional[str] = None) -> bool:
     """Check if a user has active subscription to a creator"""
     query = {
@@ -4156,24 +4166,25 @@ async def calculate_supporter_badge(subscriber_id: str, creator_id: str) -> dict
     if not subscription:
         return None
     
-    # Calculate subscription duration in months
+    # Calculate subscription duration in days (more precise than months)
     started_at = subscription["started_at"]
     now = datetime.now(timezone.utc)
-    duration_months = (now.year - started_at.year) * 12 + (now.month - started_at.month)
+    duration_days = (now - started_at).days
+    duration_months = duration_days // 30  # Approximate months for display
     
     # Get tier info
     tier = await db.subscription_tiers.find_one({"tier_id": subscription["tier_id"]})
     
     # Determine badge level based on duration
-    if duration_months >= 12:
+    if duration_days >= BADGE_DIAMOND_DAYS:
         badge_level = "Diamond"
         badge_color = "#B9F2FF"  # Light blue
         badge_icon = "💎"
-    elif duration_months >= 6:
+    elif duration_days >= BADGE_GOLD_DAYS:
         badge_level = "Gold"
         badge_color = "#FFD700"
         badge_icon = "👑"
-    elif duration_months >= 3:
+    elif duration_days >= BADGE_SILVER_DAYS:
         badge_level = "Silver"
         badge_color = "#C0C0C0"
         badge_icon = "⭐"
@@ -4390,7 +4401,7 @@ async def get_subscription_analytics(current_user: User = Depends(require_auth))
     
     # Calculate monthly revenue (85% after platform fee)
     total_monthly = sum(stat["total_revenue"] for stat in tier_stats)
-    creator_revenue = total_monthly * 0.85
+    creator_revenue = total_monthly * SUBSCRIPTION_CREATOR_PAYOUT
     
     # Get all active subscriptions with details
     subscriptions = await db.creator_subscriptions.find(
@@ -4415,7 +4426,7 @@ async def get_subscription_analytics(current_user: User = Depends(require_auth))
         "total_subscribers": active_subs,
         "monthly_revenue": round(creator_revenue, 2),
         "gross_revenue": round(total_monthly, 2),
-        "platform_fee": round(total_monthly * 0.15, 2),
+        "platform_fee": round(total_monthly * SUBSCRIPTION_PLATFORM_FEE, 2),
         "tier_breakdown": tier_stats,
         "badge_distribution": badge_counts,
         "recent_subscriptions": subscriptions[:10]

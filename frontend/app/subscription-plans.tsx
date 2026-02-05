@@ -15,6 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
+// Constants
+const MIN_SUBSCRIPTION_PRICE = 0.99;
+
 const Colors = {
   primary: '#8B5CF6',
   secondary: '#EC4899',
@@ -98,8 +101,8 @@ export default function SubscriptionPlansScreen() {
     }
 
     const priceNum = parseFloat(price);
-    if (isNaN(priceNum) || priceNum < 0.99) {
-      Alert.alert('Error', 'Minimum price is $0.99');
+    if (isNaN(priceNum) || priceNum < MIN_SUBSCRIPTION_PRICE) {
+      Alert.alert('Error', `Minimum price is $${MIN_SUBSCRIPTION_PRICE}`);
       return;
     }
 
