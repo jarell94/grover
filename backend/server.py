@@ -102,10 +102,19 @@ ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
 
 ROOT_DIR = Path(__file__).parent
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+# MongoDB connection - use .get() with validation for safer access
+mongo_url = os.environ.get('MONGO_URL')
+if not mongo_url:
+    logger.error("MONGO_URL environment variable is not set!")
+    raise ValueError("MONGO_URL environment variable is required")
+
+db_name = os.environ.get('DB_NAME')
+if not db_name:
+    logger.error("DB_NAME environment variable is not set!")
+    raise ValueError("DB_NAME environment variable is required")
+
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
 # ============ SECURITY HELPER FUNCTIONS ============
 
@@ -254,6 +263,12 @@ async def add_security_headers(request: Request, call_next):
     
     # Control referrer information
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # HTTPS enforcement - Strict-Transport-Security (HSTS)
+    # Forces browsers to use HTTPS for all future requests to this domain
+    # max-age=31536000 = 1 year, includeSubDomains applies to all subdomains
+    if ENVIRONMENT == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     
     # Content Security Policy - restrictive but allows necessary resources
     # SECURITY NOTE: This CSP includes 'unsafe-inline' and 'unsafe-eval' for compatibility
@@ -757,7 +772,8 @@ async def create_session(request: Request, session_id: str):
             except Exception as session_error:
                 # Handle race condition - if E11000 occurs, session already exists, which is fine
                 if "E11000" in str(session_error) or "duplicate key" in str(session_error):
-                    logger.warning(f"Session already exists for token (race condition handled): {session_token[:10]}...")
+                    # Don't log any part of the token for security
+                    logger.warning("Session already exists for token (race condition handled)")
                 else:
                     logger.error(f"Session error: {session_error}")
                     raise
@@ -770,8 +786,12 @@ async def create_session(request: Request, session_id: str):
                 "session_token": session_token
             }
     except Exception as e:
-        logger.error(f"Session error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Session creation error: {type(e).__name__}: {str(e)}")
+        # Don't expose internal error details to client
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to create session. Please try again or contact support."
+        )
 
 @api_router.get("/auth/me")
 @limiter.limit("100/minute")
@@ -2078,7 +2098,9 @@ async def get_my_products(current_user: User = Depends(require_auth)):
     return products
 
 @api_router.post("/products")
+@limiter.limit("10/minute")
 async def create_product(
+    request: Request,
     name: str = Form(...),
     description: str = Form(...),
     price: float = Form(...),
