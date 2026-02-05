@@ -3281,18 +3281,100 @@ async def get_call_history(current_user: User = Depends(require_auth)):
 
 @api_router.get("/analytics/revenue")
 async def get_revenue_analytics(current_user: User = Depends(require_auth)):
-    orders = await db.orders.find(
-        {"seller_id": current_user.user_id},
-        {"_id": 0}
-    ).to_list(1000)
-    
-    total_revenue = sum(o["amount"] for o in orders)
-    total_orders = len(orders)
-    
-    return {
-        "total_revenue": total_revenue,
-        "total_orders": total_orders
-    }
+    """Enhanced revenue analytics with breakdown by source"""
+    try:
+        # Marketplace revenue
+        orders = await db.orders.find(
+            {"seller_id": current_user.user_id, "status": "completed"},
+            {"_id": 0, "amount": 1, "created_at": 1}
+        ).to_list(10000)
+        
+        marketplace_revenue = sum(o.get("amount", 0) for o in orders)
+        
+        # Tips revenue
+        tips_pipeline = [
+            {"$match": {"to_user_id": current_user.user_id, "status": "completed"}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]
+        tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
+        tips_revenue = tips_result[0]["total"] if tips_result else 0
+        
+        # Subscription revenue
+        subs_pipeline = [
+            {"$match": {"creator_id": current_user.user_id, "status": "active"}},
+            {"$lookup": {
+                "from": "subscription_tiers",
+                "localField": "tier_id",
+                "foreignField": "tier_id",
+                "as": "tier"
+            }},
+            {"$unwind": "$tier"},
+            {"$group": {"_id": None, "total": {"$sum": "$tier.price"}}}
+        ]
+        subs_result = await db.creator_subscriptions.aggregate(subs_pipeline).to_list(1)
+        subscription_revenue = (subs_result[0]["total"] if subs_result else 0) * 0.85  # 85% payout
+        
+        # Total revenue
+        total_revenue = marketplace_revenue + tips_revenue + subscription_revenue
+        
+        # Time-series data (last 30 days)
+        end_date = datetime.now(timezone.utc)
+        revenue_timeline = []
+        
+        for i in range(30):
+            day = end_date - timedelta(days=i)
+            day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            
+            # Tips for this day
+            day_tips = await db.tips.count_documents({
+                "to_user_id": current_user.user_id,
+                "status": "completed",
+                "created_at": {"$gte": day_start, "$lt": day_end}
+            })
+            
+            # Orders for this day
+            day_orders = await db.orders.count_documents({
+                "seller_id": current_user.user_id,
+                "status": "completed",
+                "created_at": {"$gte": day_start, "$lt": day_end}
+            })
+            
+            revenue_timeline.append({
+                "date": day_start.isoformat(),
+                "tips": day_tips,
+                "orders": day_orders,
+                "total": day_tips + day_orders
+            })
+        
+        # Calculate growth rate
+        follower_count = await db.follows.count_documents({"following_id": current_user.user_id})
+        avg_revenue_per_follower = total_revenue / follower_count if follower_count > 0 else 0
+        
+        return {
+            "total_revenue": round(total_revenue, 2),
+            "tips": round(tips_revenue, 2),
+            "subscriptions": round(subscription_revenue, 2),
+            "marketplace": round(marketplace_revenue, 2),
+            "total_orders": len(orders),
+            "revenue_timeline": revenue_timeline[::-1],  # Reverse for chronological order
+            "avg_revenue_per_follower": round(avg_revenue_per_follower, 2),
+            "pending_revenue": 0,  # Could track pending payouts
+            "completed_revenue": round(total_revenue, 2)
+        }
+    except Exception as e:
+        logging.error(f"Error getting revenue analytics: {e}")
+        return {
+            "total_revenue": 0,
+            "tips": 0,
+            "subscriptions": 0,
+            "marketplace": 0,
+            "total_orders": 0,
+            "revenue_timeline": [],
+            "avg_revenue_per_follower": 0,
+            "pending_revenue": 0,
+            "completed_revenue": 0
+        }
 
 @api_router.get("/analytics/engagement")
 async def get_engagement_analytics(current_user: User = Depends(require_auth)):
@@ -4972,6 +5054,466 @@ async def get_content_performance(current_user: User = Depends(require_auth)):
         post["engagement_score"] = total_reactions + post.get("comments_count", 0) + post.get("shares_count", 0)
     
     return posts
+
+@api_router.get("/analytics/audience/demographics")
+async def get_audience_demographics(current_user: User = Depends(require_auth)):
+    """Get audience demographics (age, gender, location)"""
+    try:
+        # Get all followers
+        followers = await db.follows.find(
+            {"following_id": current_user.user_id},
+            {"follower_id": 1}
+        ).to_list(10000)
+        
+        follower_ids = [f["follower_id"] for f in followers]
+        
+        if not follower_ids:
+            return {
+                "age_distribution": {},
+                "gender_distribution": {},
+                "top_locations": [],
+                "follower_count": 0,
+                "subscriber_count": 0,
+                "total_reach": 0
+            }
+        
+        # Get subscriber count
+        subscriber_count = await db.creator_subscriptions.count_documents({
+            "creator_id": current_user.user_id,
+            "status": "active"
+        })
+        
+        # Age distribution
+        age_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}, "birthdate": {"$exists": True}}},
+            {"$project": {
+                "age": {
+                    "$divide": [
+                        {"$subtract": [datetime.now(timezone.utc), "$birthdate"]},
+                        365.25 * 24 * 60 * 60 * 1000
+                    ]
+                }
+            }},
+            {"$bucket": {
+                "groupBy": "$age",
+                "boundaries": [0, 18, 25, 35, 45, 100],
+                "default": "Unknown",
+                "output": {"count": {"$sum": 1}}
+            }}
+        ]
+        
+        age_results = await db.users.aggregate(age_pipeline).to_list(10)
+        age_distribution = {}
+        for result in age_results:
+            bucket = result["_id"]
+            if bucket == 0:
+                age_distribution["Under 18"] = result["count"]
+            elif bucket == 18:
+                age_distribution["18-24"] = result["count"]
+            elif bucket == 25:
+                age_distribution["25-34"] = result["count"]
+            elif bucket == 35:
+                age_distribution["35-44"] = result["count"]
+            elif bucket == 45:
+                age_distribution["45+"] = result["count"]
+        
+        # Gender distribution
+        gender_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}}},
+            {"$group": {
+                "_id": "$gender",
+                "count": {"$sum": 1}
+            }}
+        ]
+        
+        gender_results = await db.users.aggregate(gender_pipeline).to_list(10)
+        gender_distribution = {
+            result["_id"] or "not_specified": result["count"]
+            for result in gender_results
+        }
+        
+        # Location distribution (top 10 countries and cities)
+        location_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}, "country": {"$exists": True, "$ne": None}}},
+            {"$group": {
+                "_id": "$country",
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ]
+        
+        location_results = await db.users.aggregate(location_pipeline).to_list(10)
+        top_countries = [
+            {"country": result["_id"], "count": result["count"]}
+            for result in location_results
+        ]
+        
+        city_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}, "city": {"$exists": True, "$ne": None}}},
+            {"$group": {
+                "_id": "$city",
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ]
+        
+        city_results = await db.users.aggregate(city_pipeline).to_list(10)
+        top_cities = [
+            {"city": result["_id"], "count": result["count"]}
+            for result in city_results
+        ]
+        
+        return {
+            "age_distribution": age_distribution,
+            "gender_distribution": gender_distribution,
+            "top_countries": top_countries,
+            "top_cities": top_cities,
+            "follower_count": len(follower_ids),
+            "subscriber_count": subscriber_count,
+            "total_reach": len(follower_ids) + subscriber_count
+        }
+    except Exception as e:
+        logging.error(f"Error getting demographics: {e}")
+        return {
+            "age_distribution": {},
+            "gender_distribution": {},
+            "top_locations": [],
+            "follower_count": 0,
+            "subscriber_count": 0,
+            "total_reach": 0
+        }
+
+@api_router.get("/analytics/audience/activity-times")
+async def get_activity_times(current_user: User = Depends(require_auth)):
+    """Get peak activity times for audience"""
+    try:
+        # Get user's posts
+        user_posts = await db.posts.find(
+            {"user_id": current_user.user_id},
+            {"post_id": 1}
+        ).to_list(1000)
+        
+        post_ids = [p["post_id"] for p in user_posts]
+        
+        if not post_ids:
+            return {
+                "hourly_engagement": [],
+                "daily_engagement": [],
+                "peak_hours": [],
+                "peak_days": [],
+                "best_time_to_post": "No data available yet"
+            }
+        
+        # Hourly engagement
+        hourly_pipeline = [
+            {"$match": {"post_id": {"$in": post_ids}}},
+            {"$project": {
+                "hour": {"$hour": {"date": "$created_at", "timezone": "UTC"}}
+            }},
+            {"$group": {
+                "_id": "$hour",
+                "engagement": {"$sum": 1}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        
+        hourly_results = await db.reactions.aggregate(hourly_pipeline).to_list(24)
+        hourly_engagement = [
+            {"hour": result["_id"], "engagement": result["engagement"]}
+            for result in hourly_results
+        ]
+        
+        # Fill in missing hours with 0
+        hour_map = {h["hour"]: h["engagement"] for h in hourly_engagement}
+        hourly_engagement = [
+            {"hour": h, "engagement": hour_map.get(h, 0)}
+            for h in range(24)
+        ]
+        
+        # Daily engagement (day of week)
+        daily_pipeline = [
+            {"$match": {"post_id": {"$in": post_ids}}},
+            {"$project": {
+                "dayOfWeek": {"$dayOfWeek": {"date": "$created_at", "timezone": "UTC"}}
+            }},
+            {"$group": {
+                "_id": "$dayOfWeek",
+                "engagement": {"$sum": 1}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        
+        daily_results = await db.reactions.aggregate(daily_pipeline).to_list(7)
+        day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        daily_engagement = [
+            {"day": day_names[result["_id"] - 1], "engagement": result["engagement"]}
+            for result in daily_results
+        ]
+        
+        # Find peak hours (top 3)
+        sorted_hours = sorted(hourly_engagement, key=lambda x: x["engagement"], reverse=True)
+        peak_hours = [h["hour"] for h in sorted_hours[:3] if h["engagement"] > 0]
+        
+        # Find peak days (top 3)
+        sorted_days = sorted(daily_engagement, key=lambda x: x["engagement"], reverse=True)
+        peak_days = [d["day"] for d in sorted_days[:3] if d["engagement"] > 0]
+        
+        # Generate recommendation
+        if peak_hours:
+            hour_range = f"{min(peak_hours)}-{max(peak_hours) + 1}"
+            day_list = ", ".join(peak_days[:2]) if len(peak_days) >= 2 else peak_days[0] if peak_days else "weekdays"
+            best_time = f"{day_list} between {hour_range}:00 UTC"
+        else:
+            best_time = "No data available yet"
+        
+        return {
+            "hourly_engagement": hourly_engagement,
+            "daily_engagement": daily_engagement,
+            "peak_hours": peak_hours,
+            "peak_days": peak_days,
+            "best_time_to_post": best_time
+        }
+    except Exception as e:
+        logging.error(f"Error getting activity times: {e}")
+        return {
+            "hourly_engagement": [],
+            "daily_engagement": [],
+            "peak_hours": [],
+            "peak_days": [],
+            "best_time_to_post": "Error calculating activity times"
+        }
+
+@api_router.get("/analytics/content-types")
+async def get_content_type_performance(current_user: User = Depends(require_auth)):
+    """Get performance breakdown by content type"""
+    try:
+        # Get all user's posts with their engagement
+        posts = await db.posts.find(
+            {"user_id": current_user.user_id},
+            {"post_id": 1, "media_url": 1, "media_type": 1, "content": 1, "likes_count": 1, "comments_count": 1, "shares_count": 1}
+        ).to_list(10000)
+        
+        if not posts:
+            return {
+                "content_types": [],
+                "best_performing_type": None,
+                "recommendation": "Create content to see performance"
+            }
+        
+        # Categorize posts
+        type_stats = {
+            "text": {"total_posts": 0, "total_engagement": 0},
+            "image": {"total_posts": 0, "total_engagement": 0},
+            "video": {"total_posts": 0, "total_engagement": 0},
+            "mixed": {"total_posts": 0, "total_engagement": 0}
+        }
+        
+        for post in posts:
+            engagement = (post.get("likes_count", 0) + 
+                         post.get("comments_count", 0) + 
+                         post.get("shares_count", 0))
+            
+            media_type = post.get("media_type", "")
+            has_media = bool(post.get("media_url"))
+            has_text = bool(post.get("content"))
+            
+            if not has_media and has_text:
+                content_type = "text"
+            elif "video" in media_type.lower():
+                content_type = "video"
+            elif "image" in media_type.lower() or has_media:
+                content_type = "image"
+            elif has_media and has_text:
+                content_type = "mixed"
+            else:
+                content_type = "text"
+            
+            type_stats[content_type]["total_posts"] += 1
+            type_stats[content_type]["total_engagement"] += engagement
+        
+        # Calculate averages and format results
+        content_types = []
+        for type_name, stats in type_stats.items():
+            if stats["total_posts"] > 0:
+                avg_engagement = stats["total_engagement"] / stats["total_posts"]
+                engagement_rate = (stats["total_engagement"] / stats["total_posts"]) / 100 if stats["total_posts"] > 0 else 0
+                
+                content_types.append({
+                    "type": type_name,
+                    "total_posts": stats["total_posts"],
+                    "total_engagement": stats["total_engagement"],
+                    "avg_engagement": round(avg_engagement, 2),
+                    "engagement_rate": round(engagement_rate, 4)
+                })
+        
+        # Find best performing type
+        if content_types:
+            best = max(content_types, key=lambda x: x["avg_engagement"])
+            best_type = best["type"]
+            multiplier = round(best["avg_engagement"] / (sum(ct["avg_engagement"] for ct in content_types) / len(content_types)), 1)
+            recommendation = f"Post more {best_type} content for {multiplier}x better engagement"
+        else:
+            best_type = None
+            recommendation = "Create content to see recommendations"
+        
+        return {
+            "content_types": sorted(content_types, key=lambda x: x["avg_engagement"], reverse=True),
+            "best_performing_type": best_type,
+            "recommendation": recommendation
+        }
+    except Exception as e:
+        logging.error(f"Error getting content type performance: {e}")
+        return {
+            "content_types": [],
+            "best_performing_type": None,
+            "recommendation": "Error calculating performance"
+        }
+
+@api_router.get("/analytics/posts/{post_id}")
+async def get_post_analytics(post_id: str, current_user: User = Depends(require_auth)):
+    """Get detailed analytics for a specific post"""
+    try:
+        # Validate post ownership
+        post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+        if not post:
+            raise HTTPException(status_code=404, detail="Post not found")
+        
+        if post.get("user_id") != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this post's analytics")
+        
+        # Get detailed engagement metrics
+        total_likes = await db.reactions.count_documents({"post_id": post_id})
+        total_comments = await db.comments.count_documents({"post_id": post_id})
+        total_shares = post.get("shares_count", 0)
+        total_saves = post.get("saves_count", 0)
+        
+        # Reaction breakdown
+        reaction_pipeline = [
+            {"$match": {"post_id": post_id}},
+            {"$group": {
+                "_id": "$reaction_type",
+                "count": {"$sum": 1}
+            }}
+        ]
+        reaction_results = await db.reactions.aggregate(reaction_pipeline).to_list(10)
+        reaction_breakdown = {
+            result["_id"]: result["count"]
+            for result in reaction_results
+        }
+        
+        # Engagement timeline (hourly for first 24 hours)
+        post_created = post.get("created_at", datetime.now(timezone.utc))
+        timeline = []
+        
+        for hour in range(24):
+            hour_start = post_created + timedelta(hours=hour)
+            hour_end = hour_start + timedelta(hours=1)
+            
+            reactions_count = await db.reactions.count_documents({
+                "post_id": post_id,
+                "created_at": {"$gte": hour_start, "$lt": hour_end}
+            })
+            
+            timeline.append({
+                "hour": hour,
+                "engagement": reactions_count
+            })
+        
+        # Calculate engagement rate
+        # Estimate reach as followers at time of posting
+        follower_count = await db.follows.count_documents({"following_id": current_user.user_id})
+        reach = max(follower_count, 1)  # Prevent division by zero
+        total_engagement = total_likes + total_comments + total_shares
+        engagement_rate = (total_engagement / reach) * 100
+        
+        return {
+            "post_id": post_id,
+            "total_likes": total_likes,
+            "total_comments": total_comments,
+            "total_shares": total_shares,
+            "total_saves": total_saves,
+            "total_engagement": total_engagement,
+            "reaction_breakdown": reaction_breakdown,
+            "engagement_timeline": timeline,
+            "reach": reach,
+            "engagement_rate": round(engagement_rate, 2),
+            "created_at": post_created.isoformat() if post_created else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting post analytics: {e}")
+        raise HTTPException(status_code=500, detail="Error loading post analytics")
+
+@api_router.get("/analytics/export")
+async def export_analytics(current_user: User = Depends(require_auth)):
+    """Export analytics data as CSV"""
+    try:
+        # Collect all analytics data
+        overview = await get_analytics_overview(current_user)
+        demographics = await get_audience_demographics(current_user)
+        activity = await get_activity_times(current_user)
+        content_types = await get_content_type_performance(current_user)
+        revenue = await get_revenue_analytics(current_user)
+        
+        # Create CSV content
+        csv_lines = []
+        csv_lines.append("Grover Creator Analytics Export")
+        csv_lines.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
+        csv_lines.append(f"Creator: @{current_user.username}")
+        csv_lines.append("")
+        
+        # Overview
+        csv_lines.append("OVERVIEW")
+        csv_lines.append(f"Total Posts,{overview.get('total_posts', 0)}")
+        csv_lines.append(f"Total Followers,{overview.get('total_followers', 0)}")
+        csv_lines.append(f"Total Reactions,{overview.get('total_reactions', 0)}")
+        csv_lines.append(f"Total Revenue,${overview.get('total_revenue', 0)}")
+        csv_lines.append("")
+        
+        # Demographics
+        csv_lines.append("DEMOGRAPHICS")
+        csv_lines.append("Age Range,Count")
+        for age_range, count in demographics.get("age_distribution", {}).items():
+            csv_lines.append(f"{age_range},{count}")
+        csv_lines.append("")
+        
+        csv_lines.append("Gender,Count")
+        for gender, count in demographics.get("gender_distribution", {}).items():
+            csv_lines.append(f"{gender},{count}")
+        csv_lines.append("")
+        
+        # Content types
+        csv_lines.append("CONTENT PERFORMANCE")
+        csv_lines.append("Type,Posts,Avg Engagement")
+        for ct in content_types.get("content_types", []):
+            csv_lines.append(f"{ct['type']},{ct['total_posts']},{ct['avg_engagement']}")
+        csv_lines.append("")
+        
+        # Activity times
+        csv_lines.append("PEAK ACTIVITY")
+        csv_lines.append(f"Best Time to Post,{activity.get('best_time_to_post', 'N/A')}")
+        csv_lines.append(f"Peak Hours,\"{', '.join(map(str, activity.get('peak_hours', [])))}\"")
+        csv_lines.append(f"Peak Days,\"{', '.join(activity.get('peak_days', []))}\"")
+        csv_lines.append("")
+        
+        # Revenue
+        csv_lines.append("REVENUE")
+        csv_lines.append(f"Total Tips,${revenue.get('tips', 0)}")
+        csv_lines.append(f"Total Subscriptions,${revenue.get('subscriptions', 0)}")
+        csv_lines.append(f"Total Marketplace,${revenue.get('marketplace', 0)}")
+        
+        csv_content = "\n".join(csv_lines)
+        
+        return JSONResponse(
+            content={"csv": csv_content, "filename": f"analytics_{current_user.username}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"},
+            headers={"Content-Type": "application/json"}
+        )
+    except Exception as e:
+        logging.error(f"Error exporting analytics: {e}")
+        raise HTTPException(status_code=500, detail="Error exporting analytics")
 
 # ============ CATEGORIES ENDPOINTS ============
 
