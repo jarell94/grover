@@ -171,6 +171,39 @@ export default function StoreScreen() {
     }
   };
 
+  const handleEditProduct = () => {
+    if (!selectedProduct) return;
+    setDetailsVisible(false);
+    router.push({ pathname: '/edit-product', params: { productId: selectedProduct.product_id } });
+  };
+
+  const handleDeleteProduct = () => {
+    if (!selectedProduct) return;
+    Alert.alert(
+      'Delete Product',
+      'Are you sure you want to delete this product? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.deleteProduct(selectedProduct.product_id);
+              setDetailsVisible(false);
+              setSelectedProduct(null);
+              loadProducts();
+              Alert.alert('Success', 'Product deleted');
+            } catch (e) {
+              console.error('Delete product error:', e);
+              Alert.alert('Error', 'Failed to delete product');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderProduct = ({ item }: { item: Product }) => {
     const src = getProductImageSource(item.image_url);
 
