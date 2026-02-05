@@ -211,13 +211,13 @@ const LocationList = ({ title, locations, icon }: {
     ) : (
       <View style={styles.locationList}>
         {locations.slice(0, 5).map((location, index) => {
-          const name = location.country || location.city || 'Unknown';
+          const locationName = location.country || location.city || 'Unknown';
           const count = location.count as number;
           
           return (
             <View key={index} style={styles.locationItem}>
               <Text style={styles.locationRank}>#{index + 1}</Text>
-              <Text style={styles.locationName}>{name}</Text>
+              <Text style={styles.locationName}>{locationName}</Text>
               <View style={styles.locationSpacer} />
               <Text style={styles.locationCount}>{count}</Text>
             </View>

@@ -523,16 +523,30 @@ export default function AnalyticsScreen() {
               try {
                 const result = await api.exportAnalytics();
                 if (result?.csv) {
+                  // For now, show alert with option to copy
+                  // In production, you could use expo-sharing or expo-file-system
                   Alert.alert(
                     'Analytics Exported',
-                    'Your analytics data has been prepared. You can copy the CSV data or save it to a file.',
+                    'Your analytics data is ready. The CSV data has been logged to the console. In a production app, this would download the file or open a share dialog.',
                     [
-                      { text: 'OK', style: 'default' }
+                      { 
+                        text: 'View Console', 
+                        onPress: () => console.log('CSV Data:\n', result.csv),
+                        style: 'default' 
+                      },
+                      { text: 'OK', style: 'cancel' }
                     ]
                   );
-                  console.log('CSV Data:', result.csv);
+                  // Log CSV for debugging
+                  console.log('CSV Export:', result.csv);
+                  // TODO: Implement file download/share using expo-sharing
+                  // import * as Sharing from 'expo-sharing';
+                  // const fileUri = FileSystem.cacheDirectory + result.filename;
+                  // await FileSystem.writeAsStringAsync(fileUri, result.csv);
+                  // await Sharing.shareAsync(fileUri);
                 }
               } catch (error) {
+                console.error('Export error:', error);
                 Alert.alert('Error', 'Failed to export analytics');
               }
             }}

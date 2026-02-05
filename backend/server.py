@@ -3326,25 +3326,39 @@ async def get_revenue_analytics(current_user: User = Depends(require_auth)):
             day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
             day_end = day_start + timedelta(days=1)
             
-            # Tips for this day
-            day_tips = await db.tips.count_documents({
-                "to_user_id": current_user.user_id,
-                "status": "completed",
-                "created_at": {"$gte": day_start, "$lt": day_end}
-            })
+            # Tips revenue for this day
+            tips_pipeline = [
+                {
+                    "$match": {
+                        "to_user_id": current_user.user_id,
+                        "status": "completed",
+                        "created_at": {"$gte": day_start, "$lt": day_end}
+                    }
+                },
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+            ]
+            day_tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
+            day_tips = day_tips_result[0]["total"] if day_tips_result else 0
             
-            # Orders for this day
-            day_orders = await db.orders.count_documents({
-                "seller_id": current_user.user_id,
-                "status": "completed",
-                "created_at": {"$gte": day_start, "$lt": day_end}
-            })
+            # Orders revenue for this day
+            orders_pipeline = [
+                {
+                    "$match": {
+                        "seller_id": current_user.user_id,
+                        "status": "completed",
+                        "created_at": {"$gte": day_start, "$lt": day_end}
+                    }
+                },
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+            ]
+            day_orders_result = await db.orders.aggregate(orders_pipeline).to_list(1)
+            day_orders = day_orders_result[0]["total"] if day_orders_result else 0
             
             revenue_timeline.append({
                 "date": day_start.isoformat(),
-                "tips": day_tips,
-                "orders": day_orders,
-                "total": day_tips + day_orders
+                "tips": round(day_tips, 2),
+                "orders": round(day_orders, 2),
+                "total": round(day_tips + day_orders, 2)
             })
         
         # Calculate growth rate
@@ -5338,21 +5352,24 @@ async def get_content_type_performance(current_user: User = Depends(require_auth
         for type_name, stats in type_stats.items():
             if stats["total_posts"] > 0:
                 avg_engagement = stats["total_engagement"] / stats["total_posts"]
-                engagement_rate = (stats["total_engagement"] / stats["total_posts"]) / 100 if stats["total_posts"] > 0 else 0
+                # Engagement rate as a percentage (total_engagement / total_posts / average_followers * 100)
+                # For simplicity, we'll use normalized engagement score
+                engagement_score = avg_engagement
                 
                 content_types.append({
                     "type": type_name,
                     "total_posts": stats["total_posts"],
                     "total_engagement": stats["total_engagement"],
                     "avg_engagement": round(avg_engagement, 2),
-                    "engagement_rate": round(engagement_rate, 4)
+                    "engagement_score": round(engagement_score, 2)
                 })
         
         # Find best performing type
-        if content_types:
+        if content_types and len(content_types) > 0:
             best = max(content_types, key=lambda x: x["avg_engagement"])
             best_type = best["type"]
-            multiplier = round(best["avg_engagement"] / (sum(ct["avg_engagement"] for ct in content_types) / len(content_types)), 1)
+            avg_all = sum(ct["avg_engagement"] for ct in content_types) / len(content_types)
+            multiplier = round(best["avg_engagement"] / avg_all, 1) if avg_all > 0 else 1.0
             recommendation = f"Post more {best_type} content for {multiplier}x better engagement"
         else:
             best_type = None
