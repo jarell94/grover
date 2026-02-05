@@ -247,7 +247,6 @@ export default function StoreScreen() {
       </View>
     </TouchableOpacity>
   );
-  };
 
   if (loading) {
     return (
