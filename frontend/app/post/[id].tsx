@@ -18,6 +18,7 @@ import MediaDisplay from "../../components/MediaDisplay";
 
 export default function PostViewScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const { user } = useAuth();
 
   const postId = useMemo(() => {
     const v = params?.id;
@@ -28,6 +29,10 @@ export default function PostViewScreen() {
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+
+  // Check if current user owns this post
+  const isOwner = user?.user_id && post?.user_id === user.user_id;
 
   const load = useCallback(async () => {
     if (!postId) {
