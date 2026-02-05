@@ -272,6 +272,14 @@ async def create_indexes():
     await safe_create_index(db.stories, [("user_id", 1), ("expires_at", 1)], background=True, name="stories_user_expires")
     await safe_create_index(db.stories, "expires_at", expireAfterSeconds=0, background=True, name="stories_ttl")
     
+    # ========== STORY ARCHIVES COLLECTION ==========
+    await safe_create_index(db.story_archives, "archive_id", unique=True, background=True, name="story_archives_id_unique")
+    await safe_create_index(db.story_archives, [("user_id", 1), ("archived_at", -1)], background=True, name="story_archives_user_archived")
+    
+    # ========== STORY DRAFTS COLLECTION ==========
+    await safe_create_index(db.story_drafts, "draft_id", unique=True, background=True, name="story_drafts_id_unique")
+    await safe_create_index(db.story_drafts, [("user_id", 1), ("updated_at", -1)], background=True, name="story_drafts_user_updated")
+    
     # ========== SAVED POSTS COLLECTION ==========
     await safe_create_index(db.saved_posts, [("user_id", 1), ("post_id", 1)], unique=True, background=True, name="saved_posts_unique")
     await safe_create_index(db.saved_posts, [("user_id", 1), ("created_at", -1)], background=True, name="saved_posts_user_created")
@@ -3724,6 +3732,25 @@ async def start_scheduled_posts_worker():
     logger.info("Scheduled posts worker started")
 
 
+# ============ STORY CLEANUP BACKGROUND WORKER ============
+
+async def story_cleanup_worker():
+    """Background worker to clean up expired stories every hour"""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Wait 1 hour
+            await cleanup_expired_stories()
+        except Exception as e:
+            logger.error(f"Story cleanup worker error: {e}")
+
+
+@app.on_event("startup")
+async def start_story_cleanup_worker():
+    """Start the story cleanup background worker"""
+    asyncio.create_task(story_cleanup_worker())
+    logger.info("Story cleanup worker started")
+
+
 # ============ TIPS/DONATIONS ENDPOINTS ============
 
 # Revenue Share Configuration
@@ -4716,6 +4743,11 @@ async def get_trending_creators(
 async def create_story(
     media: UploadFile,
     caption: Optional[str] = Form(None),
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    music_start_time: Optional[float] = Form(0.0),
+    music_duration: Optional[float] = Form(None),
     current_user: User = Depends(require_auth)
 ):
     """Create a 24-hour disappearing story"""
@@ -4746,6 +4778,11 @@ async def create_story(
         "media_public_id": upload_result.get("public_id"),
         "thumbnail_url": upload_result.get("thumbnail"),
         "caption": caption,
+        "music_url": music_url,
+        "music_title": music_title,
+        "music_artist": music_artist,
+        "music_start_time": music_start_time,
+        "music_duration": music_duration,
         "views_count": 0,
         "reactions_count": 0,
         "replies_count": 0,
@@ -5074,19 +5111,6 @@ async def highlight_story(
     
     return {"message": "Story added to highlights"}
 
-@api_router.delete("/stories/{story_id}")
-async def delete_story(story_id: str, current_user: User = Depends(require_auth)):
-    """Delete a story"""
-    story = await db.stories.find_one({"story_id": story_id})
-    if not story:
-        raise HTTPException(status_code=404, detail="Story not found")
-    
-    if story["user_id"] != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    await db.stories.delete_one({"story_id": story_id})
-    return {"message": "Story deleted"}
-
 @api_router.get("/users/{user_id}/highlights")
 async def get_user_highlights(user_id: str, current_user: User = Depends(require_auth)):
     """Get user's highlighted stories"""
@@ -5104,6 +5128,490 @@ async def get_user_highlights(user_id: str, current_user: User = Depends(require
         grouped[title].append(story)
     
     return grouped
+
+
+# ============ STORY CLEANUP JOB ============
+
+async def cleanup_expired_stories():
+    """
+    Background job to permanently delete expired stories that are not highlighted.
+    Deletes associated story_views and story_reactions as well.
+    """
+    now = datetime.now(timezone.utc)
+    
+    # Find expired non-highlighted stories
+    expired_stories = await db.stories.find(
+        {
+            "expires_at": {"$lt": now},
+            "is_highlighted": False
+        },
+        {"_id": 0, "story_id": 1, "media_public_id": 1}
+    ).to_list(1000)
+    
+    if not expired_stories:
+        logger.info("Story cleanup: No expired stories to delete")
+        return {"deleted_count": 0, "message": "No expired stories to delete"}
+    
+    story_ids = [s["story_id"] for s in expired_stories]
+    
+    # Delete associated views and reactions
+    views_deleted = await db.story_views.delete_many({"story_id": {"$in": story_ids}})
+    reactions_deleted = await db.story_reactions.delete_many({"story_id": {"$in": story_ids}})
+    
+    # Delete media from Cloudinary if available
+    if CLOUDINARY_CONFIGURED:
+        for story in expired_stories:
+            if story.get("media_public_id"):
+                try:
+                    await delete_media(story["media_public_id"])
+                except Exception as e:
+                    logger.error(f"Failed to delete media {story['media_public_id']}: {e}")
+    
+    # Delete the stories
+    result = await db.stories.delete_many({"story_id": {"$in": story_ids}})
+    
+    logger.info(f"Story cleanup: Deleted {result.deleted_count} expired stories, {views_deleted.deleted_count} views, {reactions_deleted.deleted_count} reactions")
+    
+    return {
+        "deleted_count": result.deleted_count,
+        "views_deleted": views_deleted.deleted_count,
+        "reactions_deleted": reactions_deleted.deleted_count,
+        "message": f"Deleted {result.deleted_count} expired stories"
+    }
+
+
+@api_router.post("/admin/cleanup-stories")
+async def manual_cleanup_stories(current_user: User = Depends(require_auth)):
+    """Manually trigger story cleanup (admin only)"""
+    # Check if user is admin (you can add is_admin field to User model)
+    # For now, we'll allow any authenticated user for testing
+    result = await cleanup_expired_stories()
+    return result
+
+
+# ============ STORY ARCHIVE ENDPOINTS ============
+
+@api_router.post("/stories/{story_id}/archive")
+async def archive_story(story_id: str, current_user: User = Depends(require_auth)):
+    """Archive a story before it expires"""
+    validate_id(story_id, "story_id")
+    
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    if story["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to archive this story")
+    
+    # Create archive entry
+    archive_id = f"archive_{uuid.uuid4().hex[:12]}"
+    archive_data = {
+        "archive_id": archive_id,
+        "user_id": current_user.user_id,
+        "original_story_id": story_id,
+        "media_url": story["media_url"],
+        "media_type": story["media_type"],
+        "media_public_id": story.get("media_public_id"),
+        "thumbnail_url": story.get("thumbnail_url"),
+        "caption": story.get("caption"),
+        "music_url": story.get("music_url"),
+        "music_title": story.get("music_title"),
+        "music_artist": story.get("music_artist"),
+        "views_count": story.get("views_count", 0),
+        "reactions_count": story.get("reactions_count", 0),
+        "original_created_at": story["created_at"],
+        "archived_at": datetime.now(timezone.utc)
+    }
+    
+    await db.story_archives.insert_one(archive_data)
+    
+    return {"archive_id": archive_id, "message": "Story archived successfully"}
+
+
+@api_router.get("/stories/archive")
+async def get_archived_stories(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get user's archived stories (paginated)"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    archives = await db.story_archives.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("archived_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    total_count = await db.story_archives.count_documents({"user_id": current_user.user_id})
+    
+    return {
+        "archives": archives,
+        "total_count": total_count,
+        "has_more": (skip + limit) < total_count
+    }
+
+
+@api_router.delete("/stories/archive/{archive_id}")
+async def delete_archived_story(archive_id: str, current_user: User = Depends(require_auth)):
+    """Delete an archived story"""
+    validate_id(archive_id, "archive_id")
+    
+    archive = await db.story_archives.find_one({"archive_id": archive_id})
+    if not archive:
+        raise HTTPException(status_code=404, detail="Archived story not found")
+    
+    if archive["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this archive")
+    
+    await db.story_archives.delete_one({"archive_id": archive_id})
+    
+    return {"message": "Archived story deleted"}
+
+
+@api_router.post("/stories/archive/{archive_id}/restore")
+async def restore_archived_story(archive_id: str, current_user: User = Depends(require_auth)):
+    """Restore an archived story as a new story"""
+    validate_id(archive_id, "archive_id")
+    
+    archive = await db.story_archives.find_one({"archive_id": archive_id})
+    if not archive:
+        raise HTTPException(status_code=404, detail="Archived story not found")
+    
+    if archive["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to restore this archive")
+    
+    # Create new story from archive
+    story_id = f"story_{uuid.uuid4().hex[:12]}"
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    story_data = {
+        "story_id": story_id,
+        "user_id": current_user.user_id,
+        "media_url": archive["media_url"],
+        "media_type": archive["media_type"],
+        "media_public_id": archive.get("media_public_id"),
+        "thumbnail_url": archive.get("thumbnail_url"),
+        "caption": archive.get("caption"),
+        "music_url": archive.get("music_url"),
+        "music_title": archive.get("music_title"),
+        "music_artist": archive.get("music_artist"),
+        "views_count": 0,
+        "reactions_count": 0,
+        "replies_count": 0,
+        "is_highlighted": False,
+        "highlight_title": None,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.stories.insert_one(story_data)
+    
+    return {"story_id": story_id, "message": "Story restored", "expires_at": expires_at}
+
+
+# ============ STORY BATCH UPLOAD ============
+
+class StoryBatchRequest(BaseModel):
+    captions: Optional[List[Optional[str]]] = []
+    music_url: Optional[str] = None
+    music_title: Optional[str] = None
+    music_artist: Optional[str] = None
+
+
+@api_router.post("/stories/batch")
+async def create_stories_batch(
+    media: List[UploadFile] = File(...),
+    captions: Optional[str] = Form(None),  # JSON string
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Create multiple stories at once"""
+    if not media or len(media) == 0:
+        raise HTTPException(status_code=400, detail="No media files provided")
+    
+    if len(media) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 stories per batch")
+    
+    # Parse captions if provided
+    import json
+    captions_list = []
+    if captions:
+        try:
+            captions_list = json.loads(captions)
+        except:
+            captions_list = []
+    
+    story_ids = []
+    
+    for idx, media_file in enumerate(media):
+        try:
+            story_id = f"story_{uuid.uuid4().hex[:12]}"
+            
+            # Read and validate media
+            media_content = await media_file.read()
+            
+            # Determine media type
+            media_type = 'video' if media_file.content_type and media_file.content_type.startswith('video') else 'image'
+            
+            # Upload to Cloudinary
+            upload_result = await upload_media(
+                file_data=media_content,
+                filename=media_file.filename or f"story_{story_id}",
+                content_type=media_file.content_type or "image/jpeg",
+                folder="grover/stories",
+                generate_thumbnail=media_type == "image"
+            )
+            
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+            
+            # Get caption for this story
+            caption = captions_list[idx] if idx < len(captions_list) else None
+            
+            story_data = {
+                "story_id": story_id,
+                "user_id": current_user.user_id,
+                "media_url": upload_result["url"],
+                "media_type": upload_result["media_type"],
+                "media_public_id": upload_result.get("public_id"),
+                "thumbnail_url": upload_result.get("thumbnail"),
+                "caption": caption,
+                "music_url": music_url,
+                "music_title": music_title,
+                "music_artist": music_artist,
+                "views_count": 0,
+                "reactions_count": 0,
+                "replies_count": 0,
+                "is_highlighted": False,
+                "highlight_title": None,
+                "expires_at": expires_at,
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            await db.stories.insert_one(story_data)
+            story_ids.append(story_id)
+            
+        except Exception as e:
+            logger.error(f"Error uploading story {idx}: {e}")
+            # Continue with next story
+    
+    return {
+        "story_ids": story_ids,
+        "created_count": len(story_ids),
+        "message": f"Created {len(story_ids)} stories"
+    }
+
+
+# ============ STORY DRAFTS ENDPOINTS ============
+
+@api_router.post("/stories/drafts")
+async def save_story_draft(
+    media: UploadFile,
+    caption: Optional[str] = Form(None),
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Save a story as draft"""
+    draft_id = f"draft_{uuid.uuid4().hex[:12]}"
+    
+    # Read and validate media
+    media_content = await media.read()
+    
+    # Determine media type
+    media_type = 'video' if media.content_type and media.content_type.startswith('video') else 'image'
+    
+    # Upload to Cloudinary with "draft" tag
+    upload_result = await upload_media(
+        file_data=media_content,
+        filename=media.filename or f"draft_{draft_id}",
+        content_type=media.content_type or "image/jpeg",
+        folder="grover/drafts",
+        generate_thumbnail=media_type == "image"
+    )
+    
+    draft_data = {
+        "draft_id": draft_id,
+        "user_id": current_user.user_id,
+        "media_url": upload_result["url"],
+        "media_type": upload_result["media_type"],
+        "media_public_id": upload_result.get("public_id"),
+        "thumbnail_url": upload_result.get("thumbnail"),
+        "caption": caption,
+        "music_url": music_url,
+        "music_title": music_title,
+        "music_artist": music_artist,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.story_drafts.insert_one(draft_data)
+    
+    return {"draft_id": draft_id, "message": "Draft saved successfully"}
+
+
+@api_router.get("/stories/drafts")
+async def get_story_drafts(current_user: User = Depends(require_auth)):
+    """Get user's story drafts"""
+    drafts = await db.story_drafts.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("updated_at", -1).to_list(100)
+    
+    return {"drafts": drafts, "count": len(drafts)}
+
+
+@api_router.put("/stories/drafts/{draft_id}")
+async def update_story_draft(
+    draft_id: str,
+    caption: Optional[str] = Form(None),
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Update a story draft"""
+    validate_id(draft_id, "draft_id")
+    
+    draft = await db.story_drafts.find_one({"draft_id": draft_id})
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    
+    if draft["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this draft")
+    
+    update_data = {"updated_at": datetime.now(timezone.utc)}
+    if caption is not None:
+        update_data["caption"] = caption
+    if music_url is not None:
+        update_data["music_url"] = music_url
+    if music_title is not None:
+        update_data["music_title"] = music_title
+    if music_artist is not None:
+        update_data["music_artist"] = music_artist
+    
+    await db.story_drafts.update_one(
+        {"draft_id": draft_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Draft updated successfully"}
+
+
+@api_router.delete("/stories/drafts/{draft_id}")
+async def delete_story_draft(draft_id: str, current_user: User = Depends(require_auth)):
+    """Delete a story draft"""
+    validate_id(draft_id, "draft_id")
+    
+    draft = await db.story_drafts.find_one({"draft_id": draft_id})
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    
+    if draft["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this draft")
+    
+    # Delete media from Cloudinary if available
+    if CLOUDINARY_CONFIGURED and draft.get("media_public_id"):
+        try:
+            await delete_media(draft["media_public_id"])
+        except Exception as e:
+            logger.error(f"Failed to delete draft media {draft['media_public_id']}: {e}")
+    
+    await db.story_drafts.delete_one({"draft_id": draft_id})
+    
+    return {"message": "Draft deleted successfully"}
+
+
+@api_router.post("/stories/drafts/{draft_id}/publish")
+async def publish_story_draft(draft_id: str, current_user: User = Depends(require_auth)):
+    """Publish a draft as a story"""
+    validate_id(draft_id, "draft_id")
+    
+    draft = await db.story_drafts.find_one({"draft_id": draft_id})
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    
+    if draft["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to publish this draft")
+    
+    # Create story from draft
+    story_id = f"story_{uuid.uuid4().hex[:12]}"
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    story_data = {
+        "story_id": story_id,
+        "user_id": current_user.user_id,
+        "media_url": draft["media_url"],
+        "media_type": draft["media_type"],
+        "media_public_id": draft.get("media_public_id"),
+        "thumbnail_url": draft.get("thumbnail_url"),
+        "caption": draft.get("caption"),
+        "music_url": draft.get("music_url"),
+        "music_title": draft.get("music_title"),
+        "music_artist": draft.get("music_artist"),
+        "views_count": 0,
+        "reactions_count": 0,
+        "replies_count": 0,
+        "is_highlighted": False,
+        "highlight_title": None,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.stories.insert_one(story_data)
+    
+    # Delete the draft
+    await db.story_drafts.delete_one({"draft_id": draft_id})
+    
+    return {"story_id": story_id, "message": "Draft published as story", "expires_at": expires_at}
+
+
+# ============ MUSIC LIBRARY ENDPOINTS ============
+
+# Mock music library data (in production, integrate with Spotify, Apple Music, or a music service)
+MOCK_MUSIC = [
+    {"id": "1", "title": "Summer Vibes", "artist": "DJ Cool", "url": "https://example.com/music1.mp3", "duration": 180, "category": "Pop"},
+    {"id": "2", "title": "Chill Beats", "artist": "LoFi Master", "url": "https://example.com/music2.mp3", "duration": 210, "category": "LoFi"},
+    {"id": "3", "title": "Dance Party", "artist": "Party Mix", "url": "https://example.com/music3.mp3", "duration": 195, "category": "Dance"},
+    {"id": "4", "title": "Acoustic Dreams", "artist": "Guitar Hero", "url": "https://example.com/music4.mp3", "duration": 240, "category": "Acoustic"},
+    {"id": "5", "title": "Hip Hop Jam", "artist": "MC Flow", "url": "https://example.com/music5.mp3", "duration": 165, "category": "Hip Hop"},
+]
+
+
+@api_router.get("/music/search")
+async def search_music(q: str, limit: int = 10, current_user: User = Depends(require_auth)):
+    """Search available music"""
+    limit = min(max(1, limit), 50)
+    
+    # Simple mock search
+    query = q.lower()
+    results = [
+        music for music in MOCK_MUSIC
+        if query in music["title"].lower() or query in music["artist"].lower()
+    ]
+    
+    return {"results": results[:limit], "count": len(results)}
+
+
+@api_router.get("/music/trending")
+async def get_trending_music(limit: int = 20, current_user: User = Depends(require_auth)):
+    """Get trending/popular music"""
+    limit = min(max(1, limit), 50)
+    
+    # Return mock music data
+    return {"music": MOCK_MUSIC[:limit], "count": len(MOCK_MUSIC)}
+
+
+@api_router.get("/music/categories")
+async def get_music_categories(current_user: User = Depends(require_auth)):
+    """Get music categories"""
+    categories = ["Pop", "LoFi", "Dance", "Acoustic", "Hip Hop", "Rock", "Electronic", "Classical"]
+    
+    return {"categories": categories}
+
 
 # ============ LIVE STREAMING ENDPOINTS ============
 
