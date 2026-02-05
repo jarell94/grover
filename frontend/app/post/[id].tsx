@@ -62,6 +62,37 @@ export default function PostViewScreen() {
     setRefreshing(false);
   };
 
+  const handleEdit = () => {
+    setShowMenu(false);
+    router.push({ pathname: '/edit-post', params: { postId } });
+  };
+
+  const handleDelete = () => {
+    setShowMenu(false);
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.deletePost(postId);
+              Alert.alert('Success', 'Post deleted', [
+                { text: 'OK', onPress: () => router.back() }
+              ]);
+            } catch (e) {
+              console.error('Delete post error:', e);
+              Alert.alert('Error', 'Failed to delete post');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
