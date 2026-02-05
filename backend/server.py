@@ -98,10 +98,27 @@ ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
 
 ROOT_DIR = Path(__file__).parent
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection with proper error handling
+mongo_url = os.getenv('MONGO_URL')
+if not mongo_url:
+    raise RuntimeError(
+        "MONGO_URL environment variable is required. "
+        "Please set it to your MongoDB connection string (e.g., mongodb://localhost:27017)"
+    )
+
+db_name = os.getenv('DB_NAME')
+if not db_name:
+    raise RuntimeError(
+        "DB_NAME environment variable is required. "
+        "Please set it to your database name (e.g., grover)"
+    )
+
+try:
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[db_name]
+    logger.info(f"MongoDB client initialized for database: {db_name}")
+except Exception as e:
+    raise RuntimeError(f"Failed to connect to MongoDB: {e}")
 
 # ============ SECURITY HELPER FUNCTIONS ============
 
@@ -188,9 +205,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Logging
-logging.basicConfig(level=logging.INFO)
+# Logging configuration - environment-aware
+log_level = logging.DEBUG if ENVIRONMENT == "development" else logging.INFO
+logging.basicConfig(
+    level=log_level,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Console output
+    ]
+)
 logger = logging.getLogger(__name__)
+logger.info(f"Logging initialized at {log_level} level for environment: {ENVIRONMENT}")
 
 # ============ DATABASE INDEXES ============
 
@@ -337,15 +362,53 @@ async def create_indexes():
 
 @app.on_event("startup")
 async def startup_event():
-    """Run on application startup"""
-    await create_indexes()
-    # Initialize Redis cache
-    cache_connected = await init_cache()
-    if cache_connected:
-        logger.info("Redis cache connected")
-    else:
-        logger.warning("Redis cache not available - running without caching")
-    logger.info("Application startup complete")
+    """
+    Run on application startup.
+    Initializes all services, creates database indexes, and starts background workers.
+    """
+    logger.info("Starting application initialization...")
+    
+    # 1. Create database indexes
+    try:
+        await create_indexes()
+        logger.info("✓ Database indexes created/verified")
+    except Exception as e:
+        logger.error(f"✗ Failed to create indexes: {e}")
+        # Don't fail startup, but log the error
+    
+    # 2. Initialize Redis cache
+    try:
+        cache_connected = await init_cache()
+        if cache_connected:
+            logger.info("✓ Redis cache connected")
+        else:
+            logger.warning("⚠ Redis cache not available - running without caching")
+    except Exception as e:
+        logger.warning(f"⚠ Redis initialization failed: {e} - running without caching")
+    
+    # 3. Start scheduled posts worker
+    try:
+        asyncio.create_task(scheduled_posts_worker())
+        logger.info("✓ Scheduled posts worker started")
+    except Exception as e:
+        logger.error(f"✗ Failed to start scheduled posts worker: {e}")
+    
+    # 4. Start story cleanup worker
+    try:
+        asyncio.create_task(story_cleanup_worker())
+        logger.info("✓ Story cleanup worker started")
+    except Exception as e:
+        logger.error(f"✗ Failed to start story cleanup worker: {e}")
+    
+    logger.info("=" * 50)
+    logger.info("Application startup complete!")
+    logger.info(f"Environment: {ENVIRONMENT}")
+    logger.info(f"MongoDB: {db_name}")
+    logger.info(f"Redis: {'Connected' if cache.connected else 'Not available'}")
+    logger.info(f"Cloudinary: {'Configured' if CLOUDINARY_CONFIGURED else 'Not configured'}")
+    logger.info(f"Agora: {'Available' if AGORA_AVAILABLE else 'Not available'}")
+    logger.info(f"Sentry: {'Enabled' if SENTRY_DSN else 'Disabled'}")
+    logger.info("=" * 50)
 
 # ============ HEALTH CHECK ENDPOINT ============
 
@@ -4133,13 +4196,7 @@ async def scheduled_posts_worker():
         await asyncio.sleep(60)  # Check every minute
 
 
-# Start the worker on app startup
-@app.on_event("startup")
-async def start_scheduled_posts_worker():
-    """Start the scheduled posts background worker"""
-    asyncio.create_task(scheduled_posts_worker())
-    logger.info("Scheduled posts worker started")
-
+# Scheduled posts worker is now started in the main startup_event handler
 
 # ============ STORY CLEANUP BACKGROUND WORKER ============
 
@@ -4153,12 +4210,7 @@ async def story_cleanup_worker():
             logger.error(f"Story cleanup worker error: {e}")
 
 
-@app.on_event("startup")
-async def start_story_cleanup_worker():
-    """Start the story cleanup background worker"""
-    asyncio.create_task(story_cleanup_worker())
-    logger.info("Story cleanup worker started")
-
+# Story cleanup worker is now started in the main startup_event handler
 
 # ============ TIPS/DONATIONS ENDPOINTS ============
 
@@ -7969,11 +8021,6 @@ async def get_post_collaborators(
     
     return {"collaborators": collaborator_users}
 
-
-# Health check at root
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
 
 # Manual metrics endpoint (Prometheus)
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
