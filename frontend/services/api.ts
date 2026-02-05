@@ -1,5 +1,18 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import type {
+  ApiHeaders,
+  ApiRequestOptions,
+  User,
+  SessionResponse,
+  Post,
+  Comment,
+  Message,
+  Notification,
+  Product,
+  StreamTokenResponse,
+  SuccessResponse,
+} from './api.types';
 
 // Get dev host from Expo Constants
 const guessDevHost = () => {
@@ -68,10 +81,10 @@ export const getAuthToken = () => authToken;
 
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 
-const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
+const apiRequest = async <T = any>(endpoint: string, options: RequestInit = {}): Promise<T> => {
   initializeUrls(); // Ensure URLs are initialized
   
-  const headers: any = {};
+  const headers: ApiHeaders = {};
   
   // Only set Content-Type if body is not FormData
   if (options.body && !(options.body instanceof FormData)) {
@@ -124,37 +137,37 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
 
     // Handle empty responses
     const text = await response.text();
-    if (!text) return null;
+    if (!text) return null as T;
     
     try {
-      return JSON.parse(text);
+      return JSON.parse(text) as T;
     } catch {
-      return text;
+      return text as T;
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId);
     
     // Handle timeout
-    if (error.name === 'AbortError') {
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Request timeout. Please check your connection.');
     }
     
     // Handle network errors
-    if (error.message === 'Network request failed') {
+    if (error instanceof Error && error.message === 'Network request failed') {
       throw new Error('Network error. Please check your connection.');
     }
     
-    if (__DEV__) {
+    if (__DEV__ && error instanceof Error) {
       console.error('API Request Failed:', { url, error: error.message });
     }
     throw error;
   }
 };
 
-const apiFormRequest = async (endpoint: string, formData: FormData) => {
+const apiFormRequest = async <T = any>(endpoint: string, formData: FormData): Promise<T> => {
   initializeUrls(); // Ensure URLs are initialized
   
-  const headers: any = {};
+  const headers: ApiHeaders = {};
 
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
@@ -192,14 +205,14 @@ const apiFormRequest = async (endpoint: string, formData: FormData) => {
     }
 
     return response.json();
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId);
     
-    if (error.name === 'AbortError') {
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Upload timeout. Please try again.');
     }
     
-    if (__DEV__) {
+    if (__DEV__ && error instanceof Error) {
       console.error('API Form Request Failed:', { url, error: error.message });
     }
     throw error;
@@ -208,33 +221,52 @@ const apiFormRequest = async (endpoint: string, formData: FormData) => {
 
 export const api = {
   // Auth
-  createSession: (sessionId: string) => apiRequest(`/auth/session?session_id=${sessionId}`),
-  getMe: () => apiRequest('/auth/me'),
-  logout: () => apiRequest('/auth/logout', { method: 'POST' }),
+  createSession: (sessionId: string): Promise<SessionResponse> => 
+    apiRequest<SessionResponse>(`/auth/session?session_id=${sessionId}`),
+  getMe: (): Promise<User> => 
+    apiRequest<User>('/auth/me'),
+  logout: (): Promise<SuccessResponse> => 
+    apiRequest<SuccessResponse>('/auth/logout', { method: 'POST' }),
 
   // Users
-  getUser: (userId: string) => apiRequest(`/users/${userId}`),
-  getUserStats: (userId: string) => apiRequest(`/users/${userId}/stats`),
-  getPostsByUser: (userId: string, limit = 18, skip = 0) => apiRequest(`/posts?user_id=${userId}&limit=${limit}&skip=${skip}`),
-  getPostsByUserMedia: (userId: string, mediaType: string, limit = 18, skip = 0) => apiRequest(`/posts/media?user_id=${userId}&media_type=${mediaType}&limit=${limit}&skip=${skip}`),
+  getUser: (userId: string): Promise<User> => 
+    apiRequest<User>(`/users/${userId}`),
+  getUserStats: (userId: string): Promise<any> => 
+    apiRequest(`/users/${userId}/stats`),
+  getPostsByUser: (userId: string, limit = 18, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts?user_id=${userId}&limit=${limit}&skip=${skip}`),
+  getPostsByUserMedia: (userId: string, mediaType: string, limit = 18, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts/media?user_id=${userId}&media_type=${mediaType}&limit=${limit}&skip=${skip}`),
   // Aliases for ProfileContentTabs component
-  getUserPosts: (userId: string, limit = 18, skip = 0) => apiRequest(`/posts?user_id=${userId}&limit=${limit}&skip=${skip}`),
-  getUserMedia: (userId: string, mediaType: "image" | "video" | "audio", limit = 18, skip = 0) => apiRequest(`/posts/media?user_id=${userId}&media_type=${mediaType}&limit=${limit}&skip=${skip}`),
-  updateProfile: (data: any) => apiRequest('/users/me', {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  }),
-  followUser: (userId: string) => apiRequest(`/users/${userId}/follow`, { method: 'POST' }),
+  getUserPosts: (userId: string, limit = 18, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts?user_id=${userId}&limit=${limit}&skip=${skip}`),
+  getUserMedia: (userId: string, mediaType: "image" | "video" | "audio", limit = 18, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts/media?user_id=${userId}&media_type=${mediaType}&limit=${limit}&skip=${skip}`),
+  updateProfile: (data: Partial<User>): Promise<SuccessResponse> => 
+    apiRequest<SuccessResponse>('/users/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  followUser: (userId: string): Promise<SuccessResponse> => 
+    apiRequest<SuccessResponse>(`/users/${userId}/follow`, { method: 'POST' }),
 
   // Posts
-  getPosts: (limit = 20, skip = 0) => apiRequest(`/posts?limit=${limit}&skip=${skip}`),
-  getMyPosts: (limit = 50, skip = 0) => apiRequest(`/posts/me?limit=${limit}&skip=${skip}`),
-  getPostById: (postId: string) => apiRequest(`/posts/${postId}`),
-  getFeed: (limit = 20, skip = 0) => apiRequest(`/posts/feed?limit=${limit}&skip=${skip}`),
-  getExplore: (limit = 20, skip = 0) => apiRequest(`/posts/explore?limit=${limit}&skip=${skip}`),
-  createPost: (formData: FormData) => apiFormRequest('/posts', formData),
-  likePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'POST' }),
-  deletePost: (postId: string) => apiRequest(`/posts/${postId}`, { method: 'DELETE' }),
+  getPosts: (limit = 20, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts?limit=${limit}&skip=${skip}`),
+  getMyPosts: (limit = 50, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts/me?limit=${limit}&skip=${skip}`),
+  getPostById: (postId: string): Promise<Post> => 
+    apiRequest<Post>(`/posts/${postId}`),
+  getFeed: (limit = 20, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts/feed?limit=${limit}&skip=${skip}`),
+  getExplore: (limit = 20, skip = 0): Promise<Post[]> => 
+    apiRequest<Post[]>(`/posts/explore?limit=${limit}&skip=${skip}`),
+  createPost: (formData: FormData): Promise<SuccessResponse> => 
+    apiFormRequest<SuccessResponse>('/posts', formData),
+  likePost: (postId: string): Promise<SuccessResponse> => 
+    apiRequest<SuccessResponse>(`/posts/${postId}/like`, { method: 'POST' }),
+  deletePost: (postId: string): Promise<SuccessResponse> => 
+    apiRequest<SuccessResponse>(`/posts/${postId}`, { method: 'DELETE' }),
   updatePost: (postId: string, data: { content: string }) => apiRequest(`/posts/${postId}`, {
     method: 'PUT',
     body: JSON.stringify(data),
