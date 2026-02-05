@@ -7,11 +7,13 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
 import { api } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
 import MediaDisplay from "../../components/MediaDisplay";
 
 export default function PostViewScreen() {
