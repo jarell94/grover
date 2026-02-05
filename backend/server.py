@@ -223,11 +223,15 @@ async def create_indexes():
     await safe_create_index(db.users, "email", unique=True, background=True, name="users_email_unique")
     await safe_create_index(db.users, [("name", "text")], background=True, name="users_name_text")
     await safe_create_index(db.users, "is_premium", background=True, name="users_is_premium")
+    await safe_create_index(db.users, "is_verified", background=True, name="users_is_verified")
+    await safe_create_index(db.users, "verification_type", background=True, name="users_verification_type")
     
     # ========== POSTS COLLECTION ==========
     await safe_create_index(db.posts, "post_id", unique=True, background=True, name="posts_post_id_unique")
     await safe_create_index(db.posts, [("user_id", 1), ("created_at", -1)], background=True, name="posts_user_created")
     await safe_create_index(db.posts, [("created_at", -1)], background=True, name="posts_created_desc")
+    await safe_create_index(db.posts, "collaborators", background=True, sparse=True, name="posts_collaborators")
+    await safe_create_index(db.posts, "is_collaboration", background=True, name="posts_is_collaboration")
     await safe_create_index(db.posts, [("likes_count", -1), ("created_at", -1)], background=True, name="posts_popular")
     await safe_create_index(db.posts, [("user_id", 1), ("media_type", 1), ("created_at", -1)], background=True, name="posts_user_media")
     await safe_create_index(db.posts, "original_post_id", background=True, sparse=True, name="posts_original_post")
@@ -444,6 +448,12 @@ class User(BaseModel):
     is_premium: bool = False
     is_private: bool = False
     monetization_enabled: bool = False  # Creator monetization toggle (tips, subscriptions, paid content)
+    # Verification fields
+    is_verified: bool = False
+    verification_type: Optional[str] = None  # "verified", "creator", "business"
+    verified_at: Optional[datetime] = None
+    verification_note: Optional[str] = None
+    # Social links
     website: Optional[str] = None
     twitter: Optional[str] = None
     instagram: Optional[str] = None
@@ -476,6 +486,10 @@ class Post(BaseModel):
     is_repost: bool = False
     original_post_id: Optional[str] = None  # If this is a repost, reference to original
     repost_comment: Optional[str] = None  # User's commentary on the repost
+    # Collaboration fields
+    is_collaboration: bool = False
+    collaborators: List[str] = []  # List of user_ids (co-authors)
+    collaborator_status: Optional[dict] = {}  # {user_id: "pending"|"accepted"|"declined"}
     # Poll data (optional)
     has_poll: bool = False
     poll_question: Optional[str] = None
@@ -638,6 +652,10 @@ async def create_session(session_id: str):
                     "is_premium": False,
                     "is_private": False,
                     "monetization_enabled": False,  # Monetization OFF by default
+                    "is_verified": False,  # Verification OFF by default
+                    "verification_type": None,
+                    "verified_at": None,
+                    "verification_note": None,
                     "created_at": datetime.now(timezone.utc)
                 })
             else:
@@ -1159,6 +1177,7 @@ async def create_post(
     poll_duration_hours: Optional[int] = Form(24),
     is_exclusive: Optional[bool] = Form(False),
     min_tier_id: Optional[str] = Form(None),
+    collaborators: Optional[str] = Form(None),  # Comma-separated user_ids
     current_user: User = Depends(require_auth)
 ):
     # Security: Sanitize and validate content
@@ -1205,6 +1224,22 @@ async def create_post(
     if tagged_users:
         tagged_user_list = [u.strip() for u in tagged_users.split(',') if u.strip()]
     
+    # Parse collaborators
+    collaborator_list = []
+    collaborator_status_dict = {}
+    is_collaboration = False
+    if collaborators:
+        collaborator_list = [u.strip() for u in collaborators.split(',') if u.strip()]
+        # Remove duplicates and self
+        collaborator_list = [u for u in collaborator_list if u != current_user.user_id]
+        collaborator_list = list(set(collaborator_list))
+        
+        if collaborator_list:
+            is_collaboration = True
+            # Set all collaborators to pending initially
+            for collab_id in collaborator_list:
+                collaborator_status_dict[collab_id] = "pending"
+    
     # Parse poll data
     has_poll = False
     poll_options_list = None
@@ -1235,6 +1270,9 @@ async def create_post(
         "has_poll": has_poll,
         "is_exclusive": is_exclusive or False,
         "min_tier_id": min_tier_id if is_exclusive else None,
+        "is_collaboration": is_collaboration,
+        "collaborators": collaborator_list,
+        "collaborator_status": collaborator_status_dict,
         "created_at": datetime.now(timezone.utc)
     }
     
@@ -1256,7 +1294,22 @@ async def create_post(
                 post_id
             )
     
-    return {"post_id": post_id, "message": "Post created", "is_exclusive": is_exclusive}
+    # Create notifications for collaborators
+    for collab_id in collaborator_list:
+        await create_notification(
+            collab_id,
+            "collaboration_invite",
+            f"{current_user.name} invited you to collaborate on a post",
+            post_id
+        )
+    
+    return {
+        "post_id": post_id, 
+        "message": "Post created", 
+        "is_exclusive": is_exclusive,
+        "is_collaboration": is_collaboration,
+        "collaborators": collaborator_list
+    }
 
 @api_router.post("/posts/{post_id}/react")
 async def react_to_post(
@@ -6850,6 +6903,242 @@ async def typing(sid, data):
     
     if conversation_id and user_id:
         await sio.emit('user_typing', {"user_id": user_id}, room=f"conversation_{conversation_id}", skip_sid=sid)
+
+
+# ============ VERIFICATION BADGES ENDPOINTS ============
+
+@api_router.post("/admin/verify-user/{user_id}")
+async def verify_user(
+    user_id: str,
+    verification_type: str = "verified",  # "verified", "creator", "business"
+    note: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Verify a user account (admin only)"""
+    # TODO: Add admin check when admin role is implemented
+    # For now, only allow self-verification for testing
+    # if not current_user.is_admin:
+    #     raise HTTPException(status_code=403, detail="Admin access required")
+    
+    if verification_type not in ["verified", "creator", "business"]:
+        raise HTTPException(status_code=400, detail="Invalid verification type")
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "is_verified": True,
+            "verification_type": verification_type,
+            "verified_at": datetime.now(timezone.utc),
+            "verification_note": note
+        }}
+    )
+    
+    # Notify user
+    await create_notification(
+        user_id,
+        "verification",
+        f"Your account has been verified as {verification_type}! ✓",
+        None
+    )
+    
+    return {"message": "User verified successfully", "verification_type": verification_type}
+
+
+@api_router.delete("/admin/verify-user/{user_id}")
+async def unverify_user(
+    user_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Remove verification from a user (admin only)"""
+    # TODO: Add admin check when admin role is implemented
+    # if not current_user.is_admin:
+    #     raise HTTPException(status_code=403, detail="Admin access required")
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "is_verified": False,
+            "verification_type": None,
+            "verified_at": None,
+            "verification_note": None
+        }}
+    )
+    
+    return {"message": "Verification removed"}
+
+
+@api_router.get("/users/verified")
+async def get_verified_users(
+    verification_type: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get list of verified users"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    query = {"is_verified": True}
+    if verification_type:
+        query["verification_type"] = verification_type
+    
+    users = await db.users.find(
+        query,
+        {"_id": 0, "email": 0, "paypal_email": 0}  # Don't expose sensitive data
+    ).sort("verified_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return users
+
+
+# ============ COLLABORATION POSTS ENDPOINTS ============
+
+@api_router.post("/posts/{post_id}/accept-collaboration")
+async def accept_collaboration(
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Accept a collaboration invite on a post"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("is_collaboration"):
+        raise HTTPException(status_code=400, detail="Not a collaboration post")
+    
+    if current_user.user_id not in post.get("collaborators", []):
+        raise HTTPException(status_code=403, detail="You are not invited to collaborate on this post")
+    
+    collaborator_status = post.get("collaborator_status", {})
+    if collaborator_status.get(current_user.user_id) == "accepted":
+        return {"message": "Already accepted"}
+    
+    # Update status to accepted
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$set": {f"collaborator_status.{current_user.user_id}": "accepted"}}
+    )
+    
+    # Notify post creator
+    post_creator = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0, "name": 1})
+    await create_notification(
+        post["user_id"],
+        "collaboration_accepted",
+        f"{current_user.name} accepted your collaboration invite",
+        post_id
+    )
+    
+    return {"message": "Collaboration accepted"}
+
+
+@api_router.post("/posts/{post_id}/decline-collaboration")
+async def decline_collaboration(
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Decline a collaboration invite on a post"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("is_collaboration"):
+        raise HTTPException(status_code=400, detail="Not a collaboration post")
+    
+    if current_user.user_id not in post.get("collaborators", []):
+        raise HTTPException(status_code=403, detail="You are not invited to collaborate on this post")
+    
+    # Remove from collaborators list
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {
+            "$pull": {"collaborators": current_user.user_id},
+            "$unset": {f"collaborator_status.{current_user.user_id}": ""}
+        }
+    )
+    
+    # Check if any collaborators left
+    updated_post = await db.posts.find_one({"post_id": post_id})
+    if not updated_post.get("collaborators"):
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$set": {"is_collaboration": False, "collaborator_status": {}}}
+        )
+    
+    return {"message": "Collaboration declined"}
+
+
+@api_router.get("/posts/collaborations")
+async def get_my_collaborations(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get posts where I'm a collaborator"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    posts = await db.posts.find(
+        {
+            "is_collaboration": True,
+            "collaborators": current_user.user_id,
+            f"collaborator_status.{current_user.user_id}": "accepted"
+        },
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich posts with user data
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # Get collaborator details
+        collaborator_users = []
+        for collab_id in post.get("collaborators", []):
+            collab_user = await db.users.find_one(
+                {"user_id": collab_id},
+                {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "is_verified": 1, "verification_type": 1}
+            )
+            if collab_user:
+                collab_user["status"] = post.get("collaborator_status", {}).get(collab_id, "pending")
+                collaborator_users.append(collab_user)
+        
+        post["collaborator_details"] = collaborator_users
+    
+    return posts
+
+
+@api_router.get("/posts/{post_id}/collaborators")
+async def get_post_collaborators(
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get collaborator details for a post"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("is_collaboration"):
+        return {"collaborators": []}
+    
+    collaborator_users = []
+    for collab_id in post.get("collaborators", []):
+        collab_user = await db.users.find_one(
+            {"user_id": collab_id},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "is_verified": 1, "verification_type": 1}
+        )
+        if collab_user:
+            collab_user["status"] = post.get("collaborator_status", {}).get(collab_id, "pending")
+            collaborator_users.append(collab_user)
+    
+    return {"collaborators": collaborator_users}
+
 
 # Health check at root
 @app.get("/health")
