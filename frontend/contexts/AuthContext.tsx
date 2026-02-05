@@ -86,39 +86,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('Extracted session_id:', sessionId ? sessionId.substring(0, 10) + '...' : 'null');
 
       if (sessionId) {
-        console.log('Calling API to create session...');
-        const response = await api.createSession(sessionId);
-        console.log('Session created successfully, response:', JSON.stringify(response));
-        const { session_token, ...userData } = response;
+        console.log('✓ Found session_id, authenticating...', sessionId.substring(0, 10) + '...');
         
-        // Store token FIRST
-        await AsyncStorage.setItem('session_token', session_token);
-        setAuthToken(session_token);
-        
-        // Then set user state - this will trigger navigation
-        console.log('Setting user state:', userData.email);
-        setUser(userData);
-        
-        // Set user in Sentry for error tracking
-        setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
-        addBreadcrumb('User logged in', 'auth', { userId: userData.user_id });
-        
-        console.log('Login successful for user:', userData.email);
-        
-        // Connect socket
         try {
-          await socketService.connect(userData.user_id);
-        } catch (error) {
-          console.error('Socket connection failed:', error);
+          const response = await api.createSession(sessionId);
+          console.log('✓ Session created successfully');
+          
+          const { session_token, ...userData } = response;
+          
+          // Store token FIRST
+          await AsyncStorage.setItem('session_token', session_token);
+          setAuthToken(session_token);
+          
+          // Then set user state - this will trigger navigation
+          console.log('✓ User authenticated:', userData.email);
+          setUser(userData);
+          
+          // Set user in Sentry for error tracking
+          setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
+          addBreadcrumb('User logged in', 'auth', { userId: userData.user_id });
+          
+          console.log('✓ Login successful for user:', userData.email);
+          
+          // Connect socket
+          try {
+            await socketService.connect(userData.user_id);
+            console.log('✓ Socket connected');
+          } catch (socketError) {
+            console.warn('✗ Socket connection failed (non-critical):', socketError);
+          }
+          
+          return true;
+        } catch (apiError: any) {
+          console.error('✗ API createSession failed:', {
+            error: apiError.message,
+            sessionIdPreview: sessionId.substring(0, 10) + '...',
+            hint: 'Check if backend is running and EXPO_PUBLIC_BACKEND_URL is configured'
+          });
+          throw apiError;
         }
-        
-        return true;
       } else {
-        console.warn('No session_id found in redirect URL');
+        console.warn('✗ No session_id found in redirect URL');
         return false;
       }
     } catch (error) {
-      console.error('Process redirect error:', error);
+      console.error('✗ Process redirect error:', {
+        error: error instanceof Error ? error.message : String(error),
+        url: url.substring(0, 100) + (url.length > 100 ? '...' : ''),
+        hasSessionId: url.includes('session_id'),
+        hint: 'This could be due to: 1) Backend not running, 2) Network error, 3) Invalid session_id, 4) EXPO_PUBLIC_BACKEND_URL misconfigured'
+      });
+      
       // Clear any partial state
       await AsyncStorage.removeItem('session_token');
       setAuthToken(null);
@@ -143,12 +161,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           await socketService.connect(userData.user_id);
         } catch (error) {
-          console.error('Socket connection failed:', error);
+          console.warn('✗ Socket connection failed during auth check (non-critical):', error);
         }
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      console.error('✗ Auth check failed:', error instanceof Error ? error.message : String(error));
       await AsyncStorage.removeItem('session_token');
+      setAuthToken(null);
     } finally {
       setLoading(false);
     }
