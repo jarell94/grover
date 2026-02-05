@@ -146,22 +146,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Socket connection failed:', error);
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Enhanced error logging with detailed information
-      const errorMessage = error?.message || 'Unknown error';
-      const errorName = error?.name || 'Error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorName = error instanceof Error ? error.name : 'Error';
       console.error('Auth check failed:', {
         message: errorMessage,
         type: errorName,
         timestamp: new Date().toISOString(),
       });
       
-      // Check if it's a network-related error
+      // Check if it's a network-related error (case-insensitive)
+      const errorMessageLower = errorMessage.toLowerCase();
       const isNetworkError = 
-        errorMessage.includes('Network error') || 
-        errorMessage.includes('network') ||
-        errorMessage.includes('timeout') ||
-        errorMessage.includes('connection') ||
+        errorMessageLower.includes('network') ||
+        errorMessageLower.includes('timeout') ||
+        errorMessageLower.includes('connection') ||
         errorName === 'AbortError';
       
       if (isNetworkError) {
