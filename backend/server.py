@@ -3,6 +3,9 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from motor.motor_asyncio import AsyncIOMotorClient
 import socketio
 import os
@@ -12,9 +15,10 @@ import base64
 import uuid
 import re
 import time
+import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field, validator
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from PIL import Image
@@ -98,10 +102,19 @@ ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
 
 ROOT_DIR = Path(__file__).parent
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+# MongoDB connection - use .get() with validation for safer access
+mongo_url = os.environ.get('MONGO_URL')
+if not mongo_url:
+    logger.error("MONGO_URL environment variable is not set!")
+    raise ValueError("MONGO_URL environment variable is required")
+
+db_name = os.environ.get('DB_NAME')
+if not db_name:
+    logger.error("DB_NAME environment variable is not set!")
+    raise ValueError("DB_NAME environment variable is required")
+
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
 # ============ SECURITY HELPER FUNCTIONS ============
 
@@ -116,14 +129,42 @@ def validate_id(id_value: str, id_type: str = "ID") -> str:
     return id_value
 
 def sanitize_string(value: str, max_length: int = MAX_INPUT_LENGTH, field_name: str = "input") -> str:
-    """Sanitize string input"""
+    """Sanitize string input to prevent XSS attacks"""
     if not isinstance(value, str):
         return ""
     # Trim whitespace and limit length
     value = value.strip()[:max_length]
-    # Remove potential script tags and dangerous characters
+    
+    # Remove script tags and their content
     value = re.sub(r'<script[^>]*>.*?</script>', '', value, flags=re.IGNORECASE | re.DOTALL)
+    
+    # Define dangerous tags list (extracted to avoid duplication)
+    DANGEROUS_TAGS = ['iframe', 'object', 'embed', 'form', 'input', 'link', 'meta', 'base', 'applet']
+    dangerous_tags_pattern = '|'.join(DANGEROUS_TAGS)
+    
+    # Remove dangerous tags that can execute scripts or load external content
+    value = re.sub(
+        rf'<({dangerous_tags_pattern})[^>]*>.*?</\1>|<({dangerous_tags_pattern})[^>]*/?>',
+        '', 
+        value, 
+        flags=re.IGNORECASE | re.DOTALL
+    )
+    
+    # Remove event handlers (onclick, onerror, onload, onmouseover, etc.)
+    event_handlers = r'\s*on\w+\s*=\s*["\']?[^"\'>\s]*["\']?'
+    value = re.sub(event_handlers, '', value, flags=re.IGNORECASE)
+    
+    # Remove dangerous protocols
     value = re.sub(r'javascript:', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'vbscript:', '', value, flags=re.IGNORECASE)
+    
+    # Remove ALL data: URLs except image types (comprehensive pattern)
+    # This catches both base64 and plain text data URLs
+    value = re.sub(r'data:(?!image/)[^,;]*[,;]', '', value, flags=re.IGNORECASE)
+    
+    # Remove any remaining HTML tags (final safeguard)
+    value = re.sub(r'<.*?>', '', value)
+    
     return value
 
 async def validate_file_upload(file: UploadFile, allowed_types: list = None, max_size: int = MAX_FILE_SIZE) -> bytes:
@@ -148,13 +189,34 @@ async def validate_file_upload(file: UploadFile, allowed_types: list = None, max
     
     return content
 
-# CORS configuration from environment
+# ============ CORS CONFIGURATION ============
+# CORS (Cross-Origin Resource Sharing) configuration from environment variable
+# 
+# SECURITY BEST PRACTICES:
+# - In PRODUCTION: Always set ALLOWED_ORIGINS to specific domains (e.g., "https://myapp.com,https://www.myapp.com")
+# - In DEVELOPMENT: Can use "*" for testing, but never in production
+# - Wildcard "*" allows any website to make requests to your API, which is a security risk
+# 
+# Example .env configuration:
+#   ALLOWED_ORIGINS=https://myapp.com,https://www.myapp.com
+#
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-# In development, allow all origins; in production, specify domains
+
+# Validate CORS configuration and warn about insecure settings
 if ALLOWED_ORIGINS == ["*"]:
     cors_origins = ["*"]
+    if ENVIRONMENT == "production":
+        logger.error("=" * 80)
+        logger.error("SECURITY WARNING: Wildcard CORS (*) is enabled in PRODUCTION!")
+        logger.error("This allows any website to make requests to your API.")
+        logger.error("Set ALLOWED_ORIGINS environment variable to specific domains.")
+        logger.error("Example: ALLOWED_ORIGINS=https://myapp.com,https://www.myapp.com")
+        logger.error("=" * 80)
+    else:
+        logger.warning("CORS: Wildcard (*) enabled for development. Ensure ALLOWED_ORIGINS is set in production.")
 else:
     cors_origins = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+    logger.info(f"CORS: Configured for origins: {', '.join(cors_origins)}")
 
 # Socket.IO setup with configured CORS
 sio = socketio.AsyncServer(
@@ -173,11 +235,72 @@ app = FastAPI(
 )
 api_router = APIRouter(prefix="/api")
 
+# Setup rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Setup Prometheus metrics
 setup_metrics(app)
 
 # Add GZip compression middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next) -> JSONResponse:
+    """Add security headers to all responses
+    
+    Args:
+        request: The incoming request
+        call_next: The next middleware/handler in the chain
+        
+    Returns:
+        JSONResponse: Response with security headers added
+    """
+    response = await call_next(request)
+    
+    # Prevent clickjacking attacks
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    # Prevent MIME type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    # Enable XSS protection (for older browsers)
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    
+    # Control referrer information
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # HTTPS enforcement - Strict-Transport-Security (HSTS)
+    # Forces browsers to use HTTPS for all future requests to this domain
+    # max-age=31536000 = 1 year, includeSubDomains applies to all subdomains
+    if ENVIRONMENT == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    # Content Security Policy - restrictive but allows necessary resources
+    # SECURITY NOTE: This CSP includes 'unsafe-inline' and 'unsafe-eval' for compatibility
+    # with React and modern frameworks. These directives weaken XSS protection.
+    # TODO: For production hardening, consider:
+    #   1. Using nonces or hashes for inline scripts/styles instead of 'unsafe-inline'
+    #   2. Removing 'unsafe-eval' if not required by your build pipeline
+    #   3. Testing thoroughly with your actual frontend to determine minimum required permissions
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Allows inline scripts - SECURITY TRADEOFF
+        "style-src 'self' 'unsafe-inline'",  # Allows inline styles - can be exploited for data exfiltration
+        "img-src 'self' data: https: blob:",  # Allow images from various sources
+        "font-src 'self' data:",
+        "connect-src 'self' https:",  # Allow API calls
+        "media-src 'self' https: blob:",  # Allow media from cloud storage
+        "object-src 'none'",  # Block plugins
+        "frame-ancestors 'none'",  # Prevent framing (same as X-Frame-Options)
+        "base-uri 'self'",  # Restrict base tag
+        "form-action 'self'"  # Restrict form submissions
+    ]
+    response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+    
+    return response
 
 # CORS - configurable via environment
 app.add_middleware(
@@ -318,10 +441,11 @@ async def startup_event():
 # ============ HEALTH CHECK ENDPOINT ============
 
 @api_router.get("/health")
-async def health_check():
-    """
-    Health check endpoint for deployment monitoring.
-    Returns status of all services.
+async def health_check() -> Dict[str, Any]:
+    """Health check endpoint for deployment monitoring
+    
+    Returns:
+        Dict[str, Any]: Health status of all services
     """
     health_status = {
         "status": "healthy",
@@ -376,8 +500,17 @@ async def readiness_check():
 
 # ============ HELPER FUNCTIONS ============
 
-async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
-    """Create a notification only if user has that type enabled"""
+async def create_notification(
+    user_id: str, 
+    notification_type: str, 
+    content: str, 
+    related_id: str = None
+) -> Optional[str]:
+    """Create a notification only if user has that type enabled
+    
+    Returns:
+        Optional[str]: notification_id if created, None otherwise
+    """
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         return
@@ -410,6 +543,9 @@ async def create_notification(user_id: str, notification_type: str, content: str
             notification_data["related_id"] = related_id
         
         await db.notifications.insert_one(notification_data)
+        return notification_data["notification_id"]
+    
+    return None
 
 # ============ MODELS ============
 
@@ -567,7 +703,15 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Optio
         logger.error(f"Auth error: {e}")
         return None
 
-async def require_auth(current_user: Optional[User] = Depends(get_current_user)):
+async def require_auth(current_user: Optional[User] = Depends(get_current_user)) -> User:
+    """Require authentication, raises 401 if not authenticated
+    
+    Returns:
+        User: The authenticated user
+        
+    Raises:
+        HTTPException: 401 if user is not authenticated
+    """
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return current_user
@@ -575,12 +719,17 @@ async def require_auth(current_user: Optional[User] = Depends(get_current_user))
 # ============ AUTH ENDPOINTS ============
 
 @api_router.get("/media/status")
-async def get_media_status():
-    """Get media upload service status"""
+async def get_media_status() -> Dict[str, Any]:
+    """Get media upload service status
+    
+    Returns:
+        Dict[str, Any]: Status of media service configuration
+    """
     return get_media_service_status()
 
 @api_router.get("/auth/session")
-async def create_session(session_id: str):
+@limiter.limit("5/minute")
+async def create_session(request: Request, session_id: str):
     """Exchange session_id for user data and create session"""
     # Validate session_id format
     if not session_id or len(session_id) > 500:
@@ -623,6 +772,20 @@ async def create_session(session_id: str):
             
             # Create or update session (avoid duplicate key error)
             session_token = user_data["session_token"]
+            
+            # Validate session token format for security
+            # Session tokens should be alphanumeric with possible hyphens/underscores only
+            # Dots are excluded to prevent potential path traversal if token is used in file operations
+            if not session_token or not isinstance(session_token, str):
+                raise HTTPException(status_code=400, detail="Invalid session token format")
+            
+            if len(session_token) < 20 or len(session_token) > 500:
+                raise HTTPException(status_code=400, detail="Session token length invalid")
+            
+            # Check if token contains only safe characters (alphanumeric, hyphens, underscores)
+            if not re.match(r'^[a-zA-Z0-9_-]+$', session_token):
+                raise HTTPException(status_code=400, detail="Session token contains invalid characters")
+            
             try:
                 await db.user_sessions.update_one(
                     {"session_token": session_token},
@@ -642,7 +805,8 @@ async def create_session(session_id: str):
             except Exception as session_error:
                 # Handle race condition - if E11000 occurs, session already exists, which is fine
                 if "E11000" in str(session_error) or "duplicate key" in str(session_error):
-                    logger.warning(f"Session already exists for token (race condition handled): {session_token[:10]}...")
+                    # Don't log any part of the token for security
+                    logger.warning("Session already exists for token (race condition handled)")
                 else:
                     logger.error(f"Session error: {session_error}")
                     raise
@@ -655,15 +819,21 @@ async def create_session(session_id: str):
                 "session_token": session_token
             }
     except Exception as e:
-        logger.error(f"Session error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Session creation error: {type(e).__name__}: {str(e)}")
+        # Don't expose internal error details to client
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to create session. Please try again or contact support."
+        )
 
 @api_router.get("/auth/me")
-async def get_me(current_user: User = Depends(require_auth)):
+@limiter.limit("100/minute")
+async def get_me(request: Request, current_user: User = Depends(require_auth)):
     return current_user
 
 @api_router.post("/auth/logout")
-async def logout(current_user: User = Depends(require_auth), authorization: str = Header(None)):
+@limiter.limit("5/minute")
+async def logout(request: Request, current_user: User = Depends(require_auth), authorization: str = Header(None)):
     token = authorization.replace("Bearer ", "")
     await db.user_sessions.delete_one({"session_token": token})
     return {"message": "Logged out"}
@@ -792,35 +962,43 @@ async def update_notification_settings(
     notify_mentions: Optional[bool] = None,
     notify_reposts: Optional[bool] = None,
     current_user: User = Depends(require_auth)
-):
-    """Update notification preferences"""
-    update_data = {}
-    if notify_followers is not None:
-        update_data["notify_followers"] = notify_followers
-    if notify_likes is not None:
-        update_data["notify_likes"] = notify_likes
-    if notify_comments is not None:
-        update_data["notify_comments"] = notify_comments
-    if notify_messages is not None:
-        update_data["notify_messages"] = notify_messages
-    if notify_sales is not None:
-        update_data["notify_sales"] = notify_sales
-    if notify_mentions is not None:
-        update_data["notify_mentions"] = notify_mentions
-    if notify_reposts is not None:
-        update_data["notify_reposts"] = notify_reposts
+) -> Dict[str, Any]:
+    """Update notification preferences
     
-    if update_data:
-        await db.users.update_one(
-            {"user_id": current_user.user_id},
-            {"$set": update_data}
-        )
+    Returns:
+        Dict[str, Any]: Success message and updated settings
+    """
+    # Build settings dictionary and filter out None values
+    settings = {
+        "notify_followers": notify_followers,
+        "notify_likes": notify_likes,
+        "notify_comments": notify_comments,
+        "notify_messages": notify_messages,
+        "notify_sales": notify_sales,
+        "notify_mentions": notify_mentions,
+        "notify_reposts": notify_reposts,
+    }
+    
+    # Early return if nothing to update
+    update_data = {k: v for k, v in settings.items() if v is not None}
+    
+    if not update_data:
+        return {"message": "No settings to update", "settings": {}}
+    
+    await db.users.update_one(
+        {"user_id": current_user.user_id},
+        {"$set": update_data}
+    )
     
     return {"message": "Notification settings updated", "settings": update_data}
 
 @api_router.get("/users/me/notification-settings")
-async def get_notification_settings(current_user: User = Depends(require_auth)):
-    """Get current notification preferences"""
+async def get_notification_settings(current_user: User = Depends(require_auth)) -> Dict[str, bool]:
+    """Get current notification preferences
+    
+    Returns:
+        Dict[str, bool]: User's notification settings
+    """
     user = await db.users.find_one({"user_id": current_user.user_id}, {"_id": 0})
     return {
         "notify_followers": user.get("notify_followers", True),
@@ -1127,7 +1305,9 @@ async def get_post_by_id(post_id: str, current_user: User = Depends(require_auth
     return post
 
 @api_router.post("/posts")
+@limiter.limit("10/minute")
 async def create_post(
+    request: Request,
     content: Optional[str] = Form(""),  # Allow empty content for media-only posts
     media: Optional[UploadFile] = File(None),
     tagged_users: Optional[str] = Form(None),
@@ -1959,7 +2139,9 @@ async def get_my_products(current_user: User = Depends(require_auth)):
     return products
 
 @api_router.post("/products")
+@limiter.limit("10/minute")
 async def create_product(
+    request: Request,
     name: str = Form(...),
     description: str = Form(...),
     price: float = Form(...),
@@ -2464,7 +2646,9 @@ async def send_post_in_dm(
     return {"message_id": message_id, "message": "Post sent"}
 
 @api_router.post("/messages/send-voice")
+@limiter.limit("10/minute")
 async def send_voice_message(
+    request: Request,
     receiver_id: str,
     audio: UploadFile,
     duration: int = Form(...),
@@ -2496,7 +2680,9 @@ async def send_voice_message(
     return {"message_id": message_id, "message": "Voice message sent"}
 
 @api_router.post("/messages/send-video")
+@limiter.limit("10/minute")
 async def send_video_message(
+    request: Request,
     receiver_id: str,
     video: UploadFile,
     thumbnail: Optional[UploadFile] = None,
@@ -2567,18 +2753,38 @@ async def create_group(
     current_user: User = Depends(require_auth)
 ):
     """Create a group chat"""
+    # Sanitize and validate group name and description
+    name = sanitize_string(name, max_length=MAX_NAME_LENGTH, field_name="group name")
+    if not name or len(name) < 1:
+        raise HTTPException(status_code=400, detail="Group name is required")
+    
+    if description:
+        description = sanitize_string(description, max_length=MAX_INPUT_LENGTH, field_name="description")
+    
+    # Parse and validate member IDs
     member_list = [m.strip() for m in member_ids.split(',') if m.strip()]
     
     if len(member_list) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 members allowed")
     
-    # Add creator to members
-    if current_user.user_id not in member_list:
-        member_list.append(current_user.user_id)
+    # Validate each member ID format
+    validated_members = []
+    for member_id in member_list:
+        try:
+            validated_id = validate_id(member_id, "member_id")
+            validated_members.append(validated_id)
+        except HTTPException:
+            logger.warning(f"Invalid member ID skipped: {member_id}")
+            continue  # Skip invalid IDs rather than failing the entire request
     
+    # Add creator to members
+    if current_user.user_id not in validated_members:
+        validated_members.append(current_user.user_id)
+    
+    # Validate photo if provided
     photo_base64 = None
     if photo:
-        photo_content = await photo.read()
+        photo_content = await validate_file_upload(photo, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
         photo_base64 = base64.b64encode(photo_content).decode('utf-8')
     
     group_id = f"group_{uuid.uuid4().hex[:12]}"
@@ -2590,13 +2796,13 @@ async def create_group(
         "photo": photo_base64,
         "creator_id": current_user.user_id,
         "admin_ids": [current_user.user_id],
-        "member_ids": member_list,
+        "member_ids": validated_members,
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc)
     })
     
     # Notify members
-    for member_id in member_list:
+    for member_id in validated_members:
         if member_id != current_user.user_id:
             await create_notification(member_id, "group_invite", f"{current_user.name} added you to '{name}'", group_id)
     
@@ -2727,9 +2933,23 @@ async def create_community(
     current_user: User = Depends(require_auth)
 ):
     """Create an interest-based community"""
+    # Sanitize and validate community name, description, and category
+    name = sanitize_string(name, max_length=MAX_NAME_LENGTH, field_name="community name")
+    if not name or len(name) < 1:
+        raise HTTPException(status_code=400, detail="Community name is required")
+    
+    description = sanitize_string(description, max_length=MAX_INPUT_LENGTH, field_name="description")
+    if not description or len(description) < 1:
+        raise HTTPException(status_code=400, detail="Community description is required")
+    
+    category = sanitize_string(category, max_length=MAX_NAME_LENGTH, field_name="category")
+    if not category or len(category) < 1:
+        raise HTTPException(status_code=400, detail="Community category is required")
+    
+    # Validate cover image if provided
     cover_base64 = None
     if cover_image:
-        cover_content = await cover_image.read()
+        cover_content = await validate_file_upload(cover_image, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
         cover_base64 = base64.b64encode(cover_content).decode('utf-8')
     
     community_id = f"community_{uuid.uuid4().hex[:12]}"
@@ -2874,7 +3094,18 @@ async def initiate_call(
     call_id = f"call_{uuid.uuid4().hex[:12]}"
     channel_name = call_id
     
-    # In production, generate Agora token here
+    # Generate proper Agora token with 1 hour expiration
+    # Use SHA-256 hash of user_id to create a numeric UID for Agora (more secure than MD5)
+    uid = int(hashlib.sha256(current_user.user_id.encode()).hexdigest()[:8], 16)
+    agora_token = generate_agora_token(channel_name, uid, role='publisher', expire_seconds=3600)
+    
+    # If token generation fails, return error instead of using temp token
+    if not agora_token:
+        raise HTTPException(
+            status_code=503, 
+            detail="Voice/video calling not available. Please contact support."
+        )
+    
     call_data = {
         "call_id": call_id,
         "caller_id": current_user.user_id,
@@ -2882,7 +3113,7 @@ async def initiate_call(
         "type": call_type,
         "status": "ringing",
         "channel_name": channel_name,
-        "agora_token": "temp_token",
+        "agora_token": agora_token,
         "started_at": datetime.now(timezone.utc)
     }
     
@@ -2899,7 +3130,7 @@ async def initiate_call(
     return {
         "call_id": call_id,
         "channel_name": channel_name,
-        "token": "temp_token"
+        "token": agora_token
     }
 
 @api_router.post("/calls/{call_id}/answer")
@@ -6041,6 +6272,9 @@ app_with_socketio = socketio.ASGIApp(sio, app)
 async def shutdown_db_client():
     await close_cache()
     client.close()
+    # Clean up media service resources
+    from media_service import shutdown_executor
+    shutdown_executor()
 
 if __name__ == "__main__":
     import uvicorn

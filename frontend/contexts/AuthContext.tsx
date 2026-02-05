@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { makeRedirectUri } from 'expo-auth-session';
@@ -10,6 +11,50 @@ import { setUser as setSentryUser, addBreadcrumb } from '../utils/sentry';
 
 // Ensure any incomplete auth sessions are dismissed
 WebBrowser.maybeCompleteAuthSession();
+
+// Secure storage helper functions
+// Use SecureStore for sensitive data (tokens) and AsyncStorage for non-sensitive data
+const SECURE_TOKEN_KEY = 'session_token';
+
+async function storeToken(token: string): Promise<void> {
+  try {
+    if (Platform.OS === 'web') {
+      // SecureStore not available on web, fallback to AsyncStorage
+      await AsyncStorage.setItem(SECURE_TOKEN_KEY, token);
+    } else {
+      // Use SecureStore on native platforms (iOS/Android) for encrypted storage
+      await SecureStore.setItemAsync(SECURE_TOKEN_KEY, token);
+    }
+  } catch (error) {
+    console.error('Failed to store token securely');
+    throw error;
+  }
+}
+
+async function getToken(): Promise<string | null> {
+  try {
+    if (Platform.OS === 'web') {
+      return await AsyncStorage.getItem(SECURE_TOKEN_KEY);
+    } else {
+      return await SecureStore.getItemAsync(SECURE_TOKEN_KEY);
+    }
+  } catch (error) {
+    console.error('Failed to retrieve token');
+    return null;
+  }
+}
+
+async function deleteToken(): Promise<void> {
+  try {
+    if (Platform.OS === 'web') {
+      await AsyncStorage.removeItem(SECURE_TOKEN_KEY);
+    } else {
+      await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY);
+    }
+  } catch (error) {
+    console.error('Failed to delete token');
+  }
+}
 
 interface User {
   user_id: string;
@@ -43,16 +88,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const processRedirectUrl = useCallback(async (url: string): Promise<boolean> => {
     // Prevent duplicate processing
     if (isProcessingAuth.current) {
-      console.log('Already processing auth, skipping...');
+      // Don't log sensitive auth flow details
       return false;
     }
     
     try {
-      console.log('Processing redirect URL:', url);
       isProcessingAuth.current = true;
       
       const parsed = Linking.parse(url);
-      console.log('Parsed URL:', JSON.stringify(parsed, null, 2));
       
       // Try multiple ways to extract session_id
       let sessionId: string | null = parsed.queryParams?.session_id as string || null;
@@ -83,44 +126,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      console.log('Extracted session_id:', sessionId ? sessionId.substring(0, 10) + '...' : 'null');
-
+      // Don't log session ID or any part of it for security
       if (sessionId) {
-        console.log('Calling API to create session...');
         const response = await api.createSession(sessionId);
-        console.log('Session created successfully, response:', JSON.stringify(response));
         const { session_token, ...userData } = response;
         
-        // Store token FIRST
-        await AsyncStorage.setItem('session_token', session_token);
+        // Store token securely using SecureStore on native platforms
+        await storeToken(session_token);
         setAuthToken(session_token);
         
         // Then set user state - this will trigger navigation
-        console.log('Setting user state:', userData.email);
         setUser(userData);
         
-        // Set user in Sentry for error tracking
+        // Set user in Sentry for error tracking (no sensitive data)
         setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
         addBreadcrumb('User logged in', 'auth', { userId: userData.user_id });
-        
-        console.log('Login successful for user:', userData.email);
         
         // Connect socket
         try {
           await socketService.connect(userData.user_id);
         } catch (error) {
-          console.error('Socket connection failed:', error);
+          console.error('Socket connection failed');
         }
         
         return true;
       } else {
-        console.warn('No session_id found in redirect URL');
         return false;
       }
     } catch (error) {
-      console.error('Process redirect error:', error);
+      console.error('Authentication failed');
       // Clear any partial state
-      await AsyncStorage.removeItem('session_token');
+      await deleteToken();
       setAuthToken(null);
       return false;
     } finally {
@@ -130,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkAuth = useCallback(async () => {
     try {
-      const token = await AsyncStorage.getItem('session_token');
+      const token = await getToken();
       if (token) {
         setAuthToken(token);
         const userData = await api.getMe();
@@ -147,8 +183,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
-      await AsyncStorage.removeItem('session_token');
+      console.error('Auth check failed');
+      await deleteToken();
     } finally {
       setLoading(false);
     }
@@ -281,9 +317,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await api.logout();
     } catch (error) {
-      console.error('Logout API error:', error);
+      console.error('Logout API error');
     } finally {
-      await AsyncStorage.removeItem('session_token');
+      await deleteToken();
       setAuthToken(null);
       setUser(null);
       socketService.disconnect();
