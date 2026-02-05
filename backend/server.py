@@ -129,9 +129,17 @@ def sanitize_string(value: str, max_length: int = MAX_INPUT_LENGTH, field_name: 
     # Remove script tags and their content
     value = re.sub(r'<script[^>]*>.*?</script>', '', value, flags=re.IGNORECASE | re.DOTALL)
     
+    # Define dangerous tags list (extracted to avoid duplication)
+    DANGEROUS_TAGS = ['iframe', 'object', 'embed', 'form', 'input', 'link', 'meta', 'base', 'applet']
+    dangerous_tags_pattern = '|'.join(DANGEROUS_TAGS)
+    
     # Remove dangerous tags that can execute scripts or load external content
-    dangerous_tags = r'<(iframe|object|embed|form|input|link|meta|base|applet)[^>]*>.*?</\1>|<(iframe|object|embed|form|input|link|meta|base|applet)[^>]*/?>'
-    value = re.sub(dangerous_tags, '', value, flags=re.IGNORECASE | re.DOTALL)
+    value = re.sub(
+        rf'<({dangerous_tags_pattern})[^>]*>.*?</\1>|<({dangerous_tags_pattern})[^>]*/?>',
+        '', 
+        value, 
+        flags=re.IGNORECASE | re.DOTALL
+    )
     
     # Remove event handlers (onclick, onerror, onload, onmouseover, etc.)
     event_handlers = r'\s*on\w+\s*=\s*["\']?[^"\'>\s]*["\']?'
@@ -140,16 +148,13 @@ def sanitize_string(value: str, max_length: int = MAX_INPUT_LENGTH, field_name: 
     # Remove dangerous protocols
     value = re.sub(r'javascript:', '', value, flags=re.IGNORECASE)
     value = re.sub(r'vbscript:', '', value, flags=re.IGNORECASE)
-    value = re.sub(r'data:text/html', 'data:text/plain', value, flags=re.IGNORECASE)
-    # Remove data: URLs that could contain scripts (but allow data:image)
-    value = re.sub(r'data:(?!image/)[^,]*;base64,', '', value, flags=re.IGNORECASE)
     
-    # Encode common HTML entities that could be used to bypass filters
-    value = value.replace('&lt;', '<').replace('&gt;', '>')
-    value = value.replace('&quot;', '"').replace('&#', '&amp;#')
+    # Remove ALL data: URLs except image types (comprehensive pattern)
+    # This catches both base64 and plain text data URLs
+    value = re.sub(r'data:(?!image/)[^,;]*[,;]', '', value, flags=re.IGNORECASE)
     
-    # Remove any remaining dangerous patterns
-    value = re.sub(r'<.*?>', '', value)  # Strip remaining HTML tags
+    # Remove any remaining HTML tags (final safeguard)
+    value = re.sub(r'<.*?>', '', value)
     
     return value
 
@@ -251,11 +256,16 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     
     # Content Security Policy - restrictive but allows necessary resources
-    # Note: Adjust these directives based on your actual frontend needs
+    # SECURITY NOTE: This CSP includes 'unsafe-inline' and 'unsafe-eval' for compatibility
+    # with React and modern frameworks. These directives weaken XSS protection.
+    # TODO: For production hardening, consider:
+    #   1. Using nonces or hashes for inline scripts/styles instead of 'unsafe-inline'
+    #   2. Removing 'unsafe-eval' if not required by your build pipeline
+    #   3. Testing thoroughly with your actual frontend to determine minimum required permissions
     csp_directives = [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Allow inline scripts for React/modern frameworks
-        "style-src 'self' 'unsafe-inline'",  # Allow inline styles
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Allows inline scripts - SECURITY TRADEOFF
+        "style-src 'self' 'unsafe-inline'",  # Allows inline styles - can be exploited for data exfiltration
         "img-src 'self' data: https: blob:",  # Allow images from various sources
         "font-src 'self' data:",
         "connect-src 'self' https:",  # Allow API calls
@@ -716,16 +726,16 @@ async def create_session(request: Request, session_id: str):
             session_token = user_data["session_token"]
             
             # Validate session token format for security
-            # Session tokens should be alphanumeric with possible hyphens/underscores
-            # and within a reasonable length
+            # Session tokens should be alphanumeric with possible hyphens/underscores only
+            # Dots are excluded to prevent potential path traversal if token is used in file operations
             if not session_token or not isinstance(session_token, str):
                 raise HTTPException(status_code=400, detail="Invalid session token format")
             
             if len(session_token) < 20 or len(session_token) > 500:
                 raise HTTPException(status_code=400, detail="Session token length invalid")
             
-            # Check if token contains only safe characters (alphanumeric, hyphens, underscores, dots)
-            if not re.match(r'^[a-zA-Z0-9._-]+$', session_token):
+            # Check if token contains only safe characters (alphanumeric, hyphens, underscores)
+            if not re.match(r'^[a-zA-Z0-9_-]+$', session_token):
                 raise HTTPException(status_code=400, detail="Session token contains invalid characters")
             
             try:
@@ -3022,8 +3032,8 @@ async def initiate_call(
     channel_name = call_id
     
     # Generate proper Agora token with 1 hour expiration
-    # Use hash of user_id to create a numeric UID for Agora
-    uid = int(hashlib.md5(current_user.user_id.encode()).hexdigest()[:8], 16)
+    # Use SHA-256 hash of user_id to create a numeric UID for Agora (more secure than MD5)
+    uid = int(hashlib.sha256(current_user.user_id.encode()).hexdigest()[:8], 16)
     agora_token = generate_agora_token(channel_name, uid, role='publisher', expire_seconds=3600)
     
     # If token generation fails, return error instead of using temp token
