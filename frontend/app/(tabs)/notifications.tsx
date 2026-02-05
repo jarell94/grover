@@ -359,24 +359,55 @@ export default function NotificationsScreen() {
         </View>
       </View>
 
-      {/* Filter Chips */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[styles.filterChip, !unreadOnly && styles.filterChipActive]}
-          onPress={() => unreadOnly && handleToggleFilter()}
+      {/* Filter Section */}
+      <View style={styles.filterSection}>
+        {/* Unread Toggle */}
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[styles.filterChip, !unreadOnly && styles.filterChipActive]}
+            onPress={() => unreadOnly && handleToggleFilter()}
+          >
+            <Text style={[styles.filterChipText, !unreadOnly && styles.filterChipTextActive]}>
+              All
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterChip, unreadOnly && styles.filterChipActive]}
+            onPress={() => !unreadOnly && handleToggleFilter()}
+          >
+            <Text style={[styles.filterChipText, unreadOnly && styles.filterChipTextActive]}>
+              Unread {unreadCount > 0 && `(${unreadCount})`}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Type Filter Chips */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          style={styles.typeFilterScroll}
+          contentContainerStyle={styles.typeFilterContent}
         >
-          <Text style={[styles.filterChipText, !unreadOnly && styles.filterChipTextActive]}>
-            All
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.filterChip, unreadOnly && styles.filterChipActive]}
-          onPress={() => !unreadOnly && handleToggleFilter()}
-        >
-          <Text style={[styles.filterChipText, unreadOnly && styles.filterChipTextActive]}>
-            Unread {unreadCount > 0 && `(${unreadCount})`}
-          </Text>
-        </TouchableOpacity>
+          {FILTER_OPTIONS.map((option) => {
+            const isActive = typeFilter === option.key;
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.typeFilterChip, isActive && styles.typeFilterChipActive]}
+                onPress={() => handleTypeFilterChange(option.key)}
+              >
+                <Ionicons 
+                  name={option.icon as any} 
+                  size={16} 
+                  color={isActive ? '#fff' : Colors.textSecondary} 
+                />
+                <Text style={[styles.typeFilterText, isActive && styles.typeFilterTextActive]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <SectionList
