@@ -128,11 +128,44 @@ export default function PostViewScreen() {
           Post
         </Text>
 
-        {/* placeholder for future actions (share / report / save) */}
-        <TouchableOpacity style={styles.headerBtn} onPress={() => {}}>
+        {/* Options Menu Button */}
+        <TouchableOpacity style={styles.headerBtn} onPress={() => setShowMenu(!showMenu)}>
           <Ionicons name="ellipsis-horizontal" size={22} color={Colors.text} />
         </TouchableOpacity>
       </View>
+
+      {/* Dropdown Menu */}
+      {showMenu && (
+        <View style={styles.menuOverlay}>
+          <TouchableOpacity 
+            style={styles.menuBackdrop} 
+            activeOpacity={1} 
+            onPress={() => setShowMenu(false)} 
+          />
+          <View style={styles.menu}>
+            {isOwner && (
+              <>
+                <TouchableOpacity style={styles.menuItem} onPress={handleEdit}>
+                  <Ionicons name="pencil-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.menuItemText}>Edit Post</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
+                  <Ionicons name="trash-outline" size={20} color={Colors.error} />
+                  <Text style={[styles.menuItemText, { color: Colors.error }]}>Delete Post</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+              <Ionicons name="share-outline" size={20} color={Colors.text} />
+              <Text style={styles.menuItemText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+              <Ionicons name="flag-outline" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.menuItemText, { color: Colors.textSecondary }]}>Report</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <ScrollView
         style={styles.scroll}
