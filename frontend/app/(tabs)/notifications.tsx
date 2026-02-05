@@ -178,6 +178,18 @@ const routeNotification = (n: Notification) => {
 
 // ==================== Component ====================
 
+// Notification type filter options
+const FILTER_OPTIONS = [
+  { key: 'all', label: 'All', icon: 'notifications' },
+  { key: 'like', label: 'Likes', icon: 'heart' },
+  { key: 'comment', label: 'Comments', icon: 'chatbubble' },
+  { key: 'follow', label: 'Follows', icon: 'person-add' },
+  { key: 'sale', label: 'Sales', icon: 'cash' },
+  { key: 'mention', label: 'Mentions', icon: 'at' },
+] as const;
+
+type FilterKey = typeof FILTER_OPTIONS[number]['key'];
+
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -186,14 +198,16 @@ export default function NotificationsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<FilterKey>('all');
   
   const skipRef = useRef(0);
 
   const loadNotifications = useCallback(async (isRefresh = false) => {
     const skip = isRefresh ? 0 : skipRef.current;
+    const filterType = typeFilter === 'all' ? undefined : typeFilter;
     
     try {
-      const response = await api.getNotifications(PAGE_SIZE, skip, unreadOnly);
+      const response = await api.getNotifications(PAGE_SIZE, skip, unreadOnly, filterType);
       const newNotifications = response?.notifications || [];
       
       if (isRefresh) {
@@ -212,14 +226,14 @@ export default function NotificationsScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [unreadOnly]);
+  }, [unreadOnly, typeFilter]);
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
       skipRef.current = 0;
       loadNotifications(true);
-    }, [unreadOnly])
+    }, [unreadOnly, typeFilter])
   );
 
   const handleRefresh = useCallback(() => {
