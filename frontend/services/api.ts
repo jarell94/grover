@@ -590,4 +590,21 @@ export const api = {
     apiRequest(`/posts/collaborations?limit=${limit}&skip=${skip}`),
   getPostCollaborators: (postId: string) =>
     apiRequest(`/posts/${postId}/collaborators`),
+
+  // Message Reactions
+  addMessageReaction: (messageId: string, emoji: string) =>
+    apiRequest(`/messages/${messageId}/reactions`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
+    }),
+  getMessageReactions: (messageId: string) =>
+    apiRequest(`/messages/${messageId}/reactions`),
+  removeMessageReaction: (messageId: string, emoji: string) =>
+    apiRequest(`/messages/${messageId}/reactions/${emoji}`, { method: 'DELETE' }),
+
+  // Read Receipts & Status
+  markMessageRead: (messageId: string) =>
+    apiRequest(`/messages/${messageId}/read`, { method: 'POST' }),
+  getUnreadCount: (conversationId: string) =>
+    apiRequest(`/conversations/${conversationId}/unread-count`),
 };
