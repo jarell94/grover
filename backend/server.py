@@ -2666,18 +2666,38 @@ async def create_group(
     current_user: User = Depends(require_auth)
 ):
     """Create a group chat"""
+    # Sanitize and validate group name and description
+    name = sanitize_string(name, max_length=MAX_NAME_LENGTH, field_name="group name")
+    if not name or len(name) < 1:
+        raise HTTPException(status_code=400, detail="Group name is required")
+    
+    if description:
+        description = sanitize_string(description, max_length=MAX_INPUT_LENGTH, field_name="description")
+    
+    # Parse and validate member IDs
     member_list = [m.strip() for m in member_ids.split(',') if m.strip()]
     
     if len(member_list) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 members allowed")
     
-    # Add creator to members
-    if current_user.user_id not in member_list:
-        member_list.append(current_user.user_id)
+    # Validate each member ID format
+    validated_members = []
+    for member_id in member_list:
+        try:
+            validated_id = validate_id(member_id, "member_id")
+            validated_members.append(validated_id)
+        except HTTPException:
+            logger.warning(f"Invalid member ID skipped: {member_id}")
+            continue  # Skip invalid IDs rather than failing the entire request
     
+    # Add creator to members
+    if current_user.user_id not in validated_members:
+        validated_members.append(current_user.user_id)
+    
+    # Validate photo if provided
     photo_base64 = None
     if photo:
-        photo_content = await photo.read()
+        photo_content = await validate_file_upload(photo, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
         photo_base64 = base64.b64encode(photo_content).decode('utf-8')
     
     group_id = f"group_{uuid.uuid4().hex[:12]}"
@@ -2689,13 +2709,13 @@ async def create_group(
         "photo": photo_base64,
         "creator_id": current_user.user_id,
         "admin_ids": [current_user.user_id],
-        "member_ids": member_list,
+        "member_ids": validated_members,
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc)
     })
     
     # Notify members
-    for member_id in member_list:
+    for member_id in validated_members:
         if member_id != current_user.user_id:
             await create_notification(member_id, "group_invite", f"{current_user.name} added you to '{name}'", group_id)
     
@@ -2826,9 +2846,23 @@ async def create_community(
     current_user: User = Depends(require_auth)
 ):
     """Create an interest-based community"""
+    # Sanitize and validate community name, description, and category
+    name = sanitize_string(name, max_length=MAX_NAME_LENGTH, field_name="community name")
+    if not name or len(name) < 1:
+        raise HTTPException(status_code=400, detail="Community name is required")
+    
+    description = sanitize_string(description, max_length=MAX_INPUT_LENGTH, field_name="description")
+    if not description or len(description) < 1:
+        raise HTTPException(status_code=400, detail="Community description is required")
+    
+    category = sanitize_string(category, max_length=MAX_NAME_LENGTH, field_name="category")
+    if not category or len(category) < 1:
+        raise HTTPException(status_code=400, detail="Community category is required")
+    
+    # Validate cover image if provided
     cover_base64 = None
     if cover_image:
-        cover_content = await cover_image.read()
+        cover_content = await validate_file_upload(cover_image, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE)
         cover_base64 = base64.b64encode(cover_content).decode('utf-8')
     
     community_id = f"community_{uuid.uuid4().hex[:12]}"
