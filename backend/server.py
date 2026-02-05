@@ -2809,18 +2809,23 @@ async def remove_group_member(
 
 # ============ MESSAGE REACTIONS ENDPOINTS ============
 
+# Allowed emoji reactions (shared constant)
+ALLOWED_REACTION_EMOJIS = ["❤️", "😂", "😮", "😢", "👍", "🔥", "🎉", "👏", "🙏", "💯"]
+
+class MessageReactionData(BaseModel):
+    emoji: str
+
 @api_router.post("/messages/{message_id}/reactions")
 async def add_message_reaction(
     message_id: str,
-    emoji: str,
+    data: MessageReactionData,
     current_user: User = Depends(require_auth)
 ):
     """Add or remove emoji reaction to a message"""
     validate_id(message_id, "message_id")
     
-    # Validate emoji (limit to common emojis to prevent abuse)
-    allowed_emojis = ["❤️", "😂", "😮", "😢", "👍", "🔥", "🎉", "👏", "🙏", "💯"]
-    if emoji not in allowed_emojis:
+    # Validate emoji
+    if data.emoji not in ALLOWED_REACTION_EMOJIS:
         raise HTTPException(status_code=400, detail="Invalid emoji")
     
     # Check if message exists
@@ -2835,7 +2840,7 @@ async def add_message_reaction(
     existing = await db.message_reactions.find_one({
         "message_id": message_id,
         "user_id": current_user.user_id,
-        "emoji": emoji
+        "emoji": data.emoji
     })
     
     if existing:
@@ -2849,7 +2854,7 @@ async def add_message_reaction(
             "reaction_id": reaction_id,
             "message_id": message_id,
             "user_id": current_user.user_id,
-            "emoji": emoji,
+            "emoji": data.emoji,
             "created_at": datetime.now(timezone.utc)
         })
         action = "added"
@@ -2860,7 +2865,7 @@ async def add_message_reaction(
             await create_notification(
                 target_message["sender_id"],
                 "message_reaction",
-                f"{current_user.name} reacted {emoji} to your message",
+                f"{current_user.name} reacted {data.emoji} to your message",
                 message_id
             )
     
@@ -2887,14 +2892,14 @@ async def add_message_reaction(
         await sio.emit('message:reaction', {
             "message_id": message_id,
             "user_id": current_user.user_id,
-            "emoji": emoji,
+            "emoji": data.emoji,
             "action": action,
             "reaction_counts": reaction_counts
         }, room=f"conversation_{conversation_id}")
     
     return {
         "action": action,
-        "emoji": emoji,
+        "emoji": data.emoji,
         "reaction_counts": reaction_counts
     }
 
@@ -2985,7 +2990,10 @@ async def mark_message_read(
         if group_message:
             await db.group_messages.update_one(
                 {"message_id": message_id},
-                {"$addToSet": {"read_by": current_user.user_id}}
+                {
+                    "$addToSet": {"read_by": current_user.user_id},
+                    "$set": {f"read_at.{current_user.user_id}": datetime.now(timezone.utc)}
+                }
             )
             
             # Emit Socket.IO event

@@ -23,13 +23,13 @@ export const TypingIndicator: React.FC<TypingIndicatorProps> = ({
           Animated.timing(dotValue, {
             toValue: 1,
             duration: 400,
-            easing: Easing.inOut(Easing.ease),
+            easing: Easing.ease,
             useNativeDriver: true,
           }),
           Animated.timing(dotValue, {
             toValue: 0,
             duration: 400,
-            easing: Easing.inOut(Easing.ease),
+            easing: Easing.ease,
             useNativeDriver: true,
           }),
         ])
