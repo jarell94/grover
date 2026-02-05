@@ -7027,7 +7027,6 @@ async def accept_collaboration(
     )
     
     # Notify post creator
-    post_creator = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0, "name": 1})
     await create_notification(
         post["user_id"],
         "collaboration_accepted",

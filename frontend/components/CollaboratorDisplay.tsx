@@ -42,25 +42,27 @@ export default function CollaboratorDisplay({
   return (
     <View style={styles.container}>
       <Ionicons name="people" size={fontSize + 2} color={Colors.textSecondary} />
-      <Text style={[styles.text, { fontSize }]}>
-        with{' '}
+      <View style={styles.textContainer}>
+        <Text style={[styles.text, { fontSize }]}>with </Text>
         {displayCollaborators.map((collab: any, index: number) => (
-          <Text key={collab.user_id}>
+          <View key={collab.user_id} style={styles.collaboratorItem}>
             <TouchableOpacity onPress={() => router.push(`/profile/${collab.user_id}`)}>
-              <Text style={styles.collaboratorName}>{collab.name}</Text>
+              <Text style={[styles.collaboratorName, { fontSize }]}>{collab.name}</Text>
             </TouchableOpacity>
             {collab.is_verified && (
               <VerificationBadge verificationType={collab.verification_type} size={size} />
             )}
-            {index < displayCollaborators.length - 1 && ', '}
-          </Text>
+            {index < displayCollaborators.length - 1 && (
+              <Text style={[styles.text, { fontSize }]}>, </Text>
+            )}
+          </View>
         ))}
         {remainingCount > 0 && (
-          <Text style={styles.more}>
+          <Text style={[styles.more, { fontSize }]}>
             {' '}and {remainingCount} other{remainingCount > 1 ? 's' : ''}
           </Text>
         )}
-      </Text>
+      </View>
     </View>
   );
 }
@@ -72,9 +74,18 @@ const styles = StyleSheet.create({
     gap: 4,
     marginTop: 2,
   },
+  textContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  collaboratorItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
   text: {
     color: Colors.textSecondary,
-    flexWrap: 'wrap',
   },
   collaboratorName: {
     color: Colors.text,
