@@ -491,8 +491,17 @@ async def readiness_check():
 
 # ============ HELPER FUNCTIONS ============
 
-async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
-    """Create a notification only if user has that type enabled"""
+async def create_notification(
+    user_id: str, 
+    notification_type: str, 
+    content: str, 
+    related_id: str = None
+) -> Optional[str]:
+    """Create a notification only if user has that type enabled
+    
+    Returns:
+        Optional[str]: notification_id if created, None otherwise
+    """
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         return
@@ -525,6 +534,9 @@ async def create_notification(user_id: str, notification_type: str, content: str
             notification_data["related_id"] = related_id
         
         await db.notifications.insert_one(notification_data)
+        return notification_data["notification_id"]
+    
+    return None
 
 # ============ MODELS ============
 
@@ -6231,6 +6243,9 @@ app_with_socketio = socketio.ASGIApp(sio, app)
 async def shutdown_db_client():
     await close_cache()
     client.close()
+    # Clean up media service resources
+    from media_service import shutdown_executor
+    shutdown_executor()
 
 if __name__ == "__main__":
     import uvicorn

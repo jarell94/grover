@@ -493,7 +493,9 @@ async def upload_media(
                 result["width"] = img.width
                 result["height"] = img.height
                 result["format"] = img.format.lower() if img.format else "jpeg"
-            except:
+            except (IOError, OSError, ValueError) as e:
+                # Silently continue if image metadata can't be extracted
+                logger.debug(f"Could not extract image metadata: {e}")
                 pass
         
         # Create base64 data URI
@@ -563,7 +565,9 @@ def get_optimized_url(
             return f"{parts[0]}/upload/{transform_str}/{parts[1]}"
         
         return url
-    except:
+    except (AttributeError, IndexError, TypeError) as e:
+        # Return original URL if transformation fails
+        logger.debug(f"Could not transform image URL: {e}")
         return url
 
 
@@ -581,7 +585,9 @@ def get_video_thumbnail_url(url: str, time_offset: float = 0.0) -> str:
             return f"{parts[0]}/upload/{transforms}/{parts[1]}"
         
         return url
-    except:
+    except (AttributeError, IndexError, TypeError) as e:
+        # Return original URL if transformation fails
+        logger.debug(f"Could not transform video thumbnail URL: {e}")
         return url
 
 
@@ -599,8 +605,20 @@ def get_video_preview_url(url: str, quality: str = "low") -> str:
             return f"{parts[0]}/upload/{transforms}/{parts[1]}"
         
         return url
-    except:
+    except (AttributeError, IndexError, TypeError) as e:
+        # Return original URL if transformation fails
+        logger.debug(f"Could not transform video preview URL: {e}")
         return url
+
+
+# ============ CLEANUP ============
+
+def shutdown_executor():
+    """Shut down thread pool executor on application shutdown"""
+    global _executor
+    if _executor:
+        _executor.shutdown(wait=True)
+        logger.info("Media service executor shut down successfully")
 
 
 # ============ STATUS ============
