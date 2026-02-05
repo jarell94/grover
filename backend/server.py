@@ -714,6 +714,20 @@ async def create_session(request: Request, session_id: str):
             
             # Create or update session (avoid duplicate key error)
             session_token = user_data["session_token"]
+            
+            # Validate session token format for security
+            # Session tokens should be alphanumeric with possible hyphens/underscores
+            # and within a reasonable length
+            if not session_token or not isinstance(session_token, str):
+                raise HTTPException(status_code=400, detail="Invalid session token format")
+            
+            if len(session_token) < 20 or len(session_token) > 500:
+                raise HTTPException(status_code=400, detail="Session token length invalid")
+            
+            # Check if token contains only safe characters (alphanumeric, hyphens, underscores, dots)
+            if not re.match(r'^[a-zA-Z0-9._-]+$', session_token):
+                raise HTTPException(status_code=400, detail="Session token contains invalid characters")
+            
             try:
                 await db.user_sessions.update_one(
                     {"session_token": session_token},
