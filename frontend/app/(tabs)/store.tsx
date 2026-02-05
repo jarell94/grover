@@ -37,6 +37,7 @@ const getProductImageSource = (image_url?: string) => {
 };
 
 export default function StoreScreen() {
+  const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -48,6 +49,9 @@ export default function StoreScreen() {
   const [price, setPrice] = useState('');
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Check if current user owns the selected product
+  const isProductOwner = user?.user_id && selectedProduct?.user_id === user.user_id;
 
   useFocusEffect(
     useCallback(() => {
