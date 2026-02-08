@@ -378,6 +378,9 @@ async def readiness_check():
 
 # ============ HELPER FUNCTIONS ============
 
+def generate_notification_id() -> str:
+    return f"notif_{uuid.uuid4().hex[:12]}"
+
 async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
     """Create a notification only if user has that type enabled"""
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -401,7 +404,7 @@ async def create_notification(user_id: str, notification_type: str, content: str
     # Check if user has this notification type enabled (default to True)
     if user.get(pref_field, True):
         notification_data = {
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "notification_id": generate_notification_id(),
             "user_id": user_id,
             "type": notification_type,
             "content": content,
@@ -2006,7 +2009,7 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
         
         # Create notification for comment owner
         if comment["user_id"] != current_user.user_id:
-            notification_id = f"notif_{uuid.uuid4().hex[:12]}"
+            notification_id = generate_notification_id()
             await db.notifications.insert_one({
                 "notification_id": notification_id,
                 "user_id": comment["user_id"],
@@ -2505,13 +2508,21 @@ async def create_order(
     })
     
     # Create notification
+    notification_id = generate_notification_id()
     await db.notifications.insert_one({
-        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "notification_id": notification_id,
         "user_id": product["user_id"],
         "type": "purchase",
         "content": f"{current_user.name} purchased {product['name']}",
         "read": False,
         "created_at": datetime.now(timezone.utc)
+    })
+    await emit_activity_event(product["user_id"], {
+        "notification_id": notification_id,
+        "type": "purchase",
+        "content": f"{current_user.name} purchased {product['name']}",
+        "related_id": order_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     })
     
     return {"order_id": order_id, "message": "Order created"}
@@ -3462,7 +3473,7 @@ async def create_and_send_notification(
     send_push: bool = True
 ):
     """Create in-app notification and optionally send push notification"""
-    notification_id = f"notif_{uuid.uuid4().hex[:12]}"
+    notification_id = generate_notification_id()
     
     notification_data = {
         "notification_id": notification_id,
@@ -6219,6 +6230,7 @@ async def get_poll_results(post_id: str, current_user: User = Depends(require_au
 # ============ SOCKET.IO HANDLERS ============
 
 active_users = {}
+active_users_lock = asyncio.Lock()
 stream_viewers = {}  # {stream_id: {user_id: sid}}
 
 @sio.event
@@ -6371,17 +6383,19 @@ async def handle_end_stream(sid, data):
 @sio.event
 async def disconnect(sid):
     logger.info(f"Client {sid} disconnected")
-    for user_id in list(active_users.keys()):
-        if active_users[user_id] == sid:
-            del active_users[user_id]
-            break
+    async with active_users_lock:
+        for user_id in list(active_users.keys()):
+            if active_users[user_id] == sid:
+                del active_users[user_id]
+                break
 
 @sio.event
 async def register_user(sid, data):
     user_id = data.get("user_id")
     if user_id:
         sio.enter_room(sid, f"user_{user_id}")
-        active_users[user_id] = sid
+        async with active_users_lock:
+            active_users[user_id] = sid
         await emit_live_metrics(user_id, reason="initial")
 
 @sio.event
@@ -6391,7 +6405,8 @@ async def join_conversation(sid, data):
     
     if conversation_id and user_id:
         sio.enter_room(sid, f"conversation_{conversation_id}")
-        active_users[user_id] = sid
+        async with active_users_lock:
+            active_users[user_id] = sid
         logger.info(f"User {user_id} joined conversation {conversation_id}")
 
 @sio.event

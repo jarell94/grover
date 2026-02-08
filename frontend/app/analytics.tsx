@@ -333,9 +333,10 @@ export default function AnalyticsScreen() {
       setLiveMetrics(payload);
     });
     const offActivity = socketService.onActivityEvent((event) => {
+      const randomSuffix = Math.random().toString(36).slice(2, 8);
       const eventWithId = {
         ...event,
-        id: event.notification_id || event.transaction_id || `${event.type}-${event.created_at}`,
+        id: event.notification_id || event.transaction_id || `${event.type}-${event.created_at}-${randomSuffix}`,
       };
       setActivityFeed((prev) => {
         const updated = [eventWithId, ...prev];
