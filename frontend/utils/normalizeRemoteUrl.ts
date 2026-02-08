@@ -93,7 +93,7 @@ export function getCloudinaryVideoThumbnail(videoUrl: string): string {
   const path = ["/video/upload/", "/video/fetch/"].find((segment) =>
     videoUrl.includes(segment)
   );
-  if (!path) return videoUrl;
+  if (!path) return applyCdnBase(videoUrl);
 
   // Replace /video/upload/ with /video/upload/so_0,f_jpg/ for first frame thumbnail
   return videoUrl

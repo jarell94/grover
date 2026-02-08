@@ -281,6 +281,7 @@ class CacheService:
         return await self.delete(f"notif_count:{user_id}")
 
     def _analytics_key(self, user_id: str, metric: str) -> str:
+        """Build analytics cache key format: analytics:{metric}:{user_id}."""
         return f"analytics:{metric}:{user_id}"
 
     async def get_analytics(self, user_id: str, metric: str) -> Optional[Any]:

@@ -124,7 +124,14 @@ VIDEO_TRANSFORMATIONS = {
 # ============ HELPER FUNCTIONS ============
 
 def apply_cdn_url(url: str) -> str:
-    """Swap asset URL to CDN base when configured."""
+    """
+    Swap asset URL to CDN base when configured.
+
+    Args:
+        url: Original asset URL.
+    Returns:
+        CDN-rewritten URL if ASSET_CDN_URL is set; otherwise the original URL.
+    """
     if not ASSET_CDN_URL or not url:
         return url
     if not (url.startswith("http://") or url.startswith("https://")):
@@ -151,7 +158,16 @@ def apply_cdn_url(url: str) -> str:
         return url
 
 def is_cloudinary_url(url: str, media_type: str) -> bool:
-    """Check if URL matches Cloudinary delivery patterns."""
+    """
+    Check if URL matches Cloudinary delivery patterns.
+
+    Args:
+        url: Asset URL to evaluate.
+        media_type: "image" or "video".
+    Returns:
+        True when the URL is a Cloudinary delivery URL or matches Cloudinary
+        path patterns while Cloudinary is configured.
+    """
     if not url:
         return False
 

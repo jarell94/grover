@@ -4293,7 +4293,6 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
 
     # Get date range (7 days: today + previous 6 days)
     end_date = datetime.now(timezone.utc)
-    start_date = (end_date - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     posts_pipeline = [
         {"$match": {"user_id": current_user.user_id}},
@@ -4331,6 +4330,7 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
     total_tips = tips_result[0]["total"] if tips_result else 0
     
+    start_date = (end_date - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
     follower_growth_pipeline = [
         {"$match": {
             "following_id": current_user.user_id,
