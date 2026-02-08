@@ -4929,6 +4929,22 @@ async def get_active_stories(current_user: User = Depends(require_auth)):
     
     return list(stories_by_user.values())
 
+@api_router.get("/stories/me")
+async def get_my_stories(current_user: User = Depends(require_auth)):
+    """Get current user's stories (both active and expired)"""
+    stories = await db.stories.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Add view counts and viewer info
+    for story in stories:
+        view_count = await db.story_views.count_documents({"story_id": story["story_id"]})
+        story["view_count"] = view_count
+        story["is_expired"] = story.get("expires_at", datetime.now(timezone.utc)) < datetime.now(timezone.utc)
+    
+    return {"stories": stories, "total": len(stories)}
+
 @api_router.post("/stories/{story_id}/view")
 async def view_story(story_id: str, current_user: User = Depends(require_auth)):
     """Record a story view"""
