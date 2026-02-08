@@ -2713,6 +2713,8 @@ async def create_stripe_tip(
     payer = await get_user_record(current_user.user_id)
     customer_id = await get_or_create_stripe_customer(payer)
     split = calculate_revenue_split(payload.amount, "tips")
+    if split["platform_fee"] < 0:
+        raise HTTPException(status_code=400, detail="Invalid platform fee")
     tip_id = f"tip_{uuid.uuid4().hex[:12]}"
     intent = stripe.PaymentIntent.create(
         amount=stripe_amount(payload.amount, min_amount=MIN_TIP_AMOUNT),
@@ -2820,6 +2822,8 @@ async def create_stripe_order(
     customer_id = await get_or_create_stripe_customer(buyer)
     amount = product["price"] * payload.quantity
     split = calculate_revenue_split(amount, "products")
+    if split["platform_fee"] < 0:
+        raise HTTPException(status_code=400, detail="Invalid platform fee")
     order_id = f"order_{uuid.uuid4().hex[:12]}"
 
     intent = stripe.PaymentIntent.create(
@@ -2860,6 +2864,8 @@ async def create_stripe_refund(
     current_user: User = Depends(require_auth)
 ):
     require_stripe_configured()
+    if payload.amount is not None and payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Refund amount must be greater than zero")
     refund_amount = stripe_amount(payload.amount, min_amount=0) if payload.amount is not None else None
     refund = stripe.Refund.create(
         payment_intent=payload.payment_intent_id,
