@@ -154,15 +154,24 @@ def is_cloudinary_url(url: str, media_type: str) -> bool:
     """Check if URL matches Cloudinary delivery patterns."""
     if not url:
         return False
-    if "cloudinary" in url:
+
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+        path = parsed.path or ""
+    except Exception:
+        hostname = ""
+        path = ""
+
+    if hostname.endswith("cloudinary.com"):
         return True
     if not CLOUDINARY_CONFIGURED:
         return False
 
     if media_type == "image":
-        return "/image/upload/" in url or "/image/fetch/" in url
+        return "/image/upload/" in path or "/image/fetch/" in path
     if media_type == "video":
-        return "/video/upload/" in url or "/video/fetch/" in url
+        return "/video/upload/" in path or "/video/fetch/" in path
     return False
 
 def get_media_type_from_content_type(content_type: str) -> str:

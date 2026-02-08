@@ -15,6 +15,7 @@ def test_get_optimized_url_supports_custom_domain(monkeypatch):
     monkeypatch.setattr(media_service, "CLOUDINARY_CONFIGURED", True)
 
     url = "https://cdn.images.example.com/image/upload/v1/sample.jpg"
+    assert media_service.is_cloudinary_url(url, "image")
     optimized = media_service.get_optimized_url(url, width=400)
 
     assert "/image/upload/f_auto,q_auto,w_400/" in optimized

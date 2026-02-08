@@ -23,9 +23,7 @@ const applyCdnBase = (url: string): string => {
 
     const original = new URL(url);
     const cdnPath = cdn.pathname.replace(/\/$/, "");
-    const originalPath = original.pathname.startsWith("/")
-      ? original.pathname
-      : `/${original.pathname}`;
+    const originalPath = original.pathname;
     const newPath = cdnPath ? `${cdnPath}${originalPath}` : originalPath;
 
     return `${cdn.origin}${newPath}${original.search}${original.hash}`;
