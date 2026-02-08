@@ -12,6 +12,7 @@ import {
   Switch,
   Linking,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -175,14 +176,24 @@ export default function ProfileScreen() {
         text: 'Logout', 
         onPress: async () => {
           await logout();
-          router.replace('/');
+          // Don't navigate here - let the AuthContext and index page handle navigation
+          // router.replace('/') can cause race conditions
         }, 
         style: 'destructive' 
       },
     ]);
   };
 
-  if (!user) return null;
+  // Show loading state instead of null to prevent navigation issues
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </View>
+    );
+  }
 
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => (
