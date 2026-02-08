@@ -64,7 +64,9 @@ async def test_edit_message_updates_content(mock_db, override_auth):
     args, _kwargs = mock_db.messages.update_one.await_args
     assert args[0] == {"message_id": "msg_123"}
     assert args[1]["$set"]["content"] == "Updated"
-    assert args[1]["$push"]["edit_history"]["content"] == "Hello"
+    edit_history = args[1]["$push"]["edit_history"]
+    assert edit_history["content"] == "Hello"
+    assert "timestamp" in edit_history
     mock_db.conversations.update_one.assert_awaited_once()
 
 

@@ -190,7 +190,10 @@ export default function ChatScreen() {
       try {
         const response = await api.editMessage(editingMessageId, trimmed);
         if (!response?.edited_at || !response?.content) {
-          throw new Error("Edit response missing required fields: edited_at or content");
+          const missing = [];
+          if (!response?.edited_at) missing.push("edited_at");
+          if (!response?.content) missing.push("content");
+          throw new Error(`Edit response missing required fields: ${missing.join(", ")}`);
         }
         setMessages((prev) =>
           prev.map((message) =>
@@ -264,7 +267,11 @@ export default function ChatScreen() {
 
     return (
       <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
-        <Pressable onLongPress={() => startEdit(item)} disabled={!editable}>
+        <Pressable
+          onLongPress={() => startEdit(item)}
+          disabled={!editable}
+          accessibilityLabel="Long press to edit message"
+        >
           <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
             <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
               {item.content}
