@@ -118,7 +118,6 @@ export default function ChatScreen() {
       }, SCROLL_TO_MESSAGE_DELAY_MS);
       return () => clearTimeout(timeoutId);
     }
-    return undefined;
   }, [focusMessageId, sortedMessages]);
 
   const markRead = async () => {
