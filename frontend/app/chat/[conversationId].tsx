@@ -10,18 +10,25 @@ import {
   Platform,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
 import { api } from "../../services/api";
 import socketService from "../../services/socket";
+import ForwardMessageModal from "../../components/ForwardMessageModal";
 
 interface Message {
   message_id: string;
   sender_id: string;
   content: string;
   created_at: string;
+  forwarded_from?: string;
+  original_sender_name?: string;
+  forward_comment?: string;
+  media_url?: string;
+  media_type?: string;
 }
 
 const NEAR_BOTTOM_PX = 120;
@@ -42,6 +49,10 @@ export default function ChatScreen() {
 
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [newMsgCount, setNewMsgCount] = useState(0);
+
+  // Forward modal state
+  const [forwardModalVisible, setForwardModalVisible] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
   const typingStopTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -195,20 +206,65 @@ export default function ChatScreen() {
     }
   };
 
+  const handleLongPress = (message: Message) => {
+    Alert.alert(
+      'Message Options',
+      'What would you like to do?',
+      [
+        {
+          text: 'Forward',
+          onPress: () => {
+            setSelectedMessage(message);
+            setForwardModalVisible(true);
+          },
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
   const renderMessage = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === userId;
 
     return (
-      <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
+      <TouchableOpacity
+        style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}
+        onLongPress={() => handleLongPress(item)}
+        delayLongPress={500}
+      >
         <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
-          <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
-            {item.content}
-          </Text>
+          {/* Show forwarded indicator */}
+          {item.forwarded_from && item.original_sender_name && (
+            <View style={styles.forwardedHeader}>
+              <Ionicons name="arrow-redo" size={12} color={Colors.textSecondary} />
+              <Text style={styles.forwardedText}>
+                Forwarded from @{item.original_sender_name}
+              </Text>
+            </View>
+          )}
+
+          {/* Show forward comment if present */}
+          {item.forward_comment && (
+            <Text style={[styles.forwardComment, isMe ? styles.myText : styles.theirText]}>
+              {item.forward_comment}
+            </Text>
+          )}
+
+          {/* Original message content */}
+          {item.content && (
+            <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
+              {item.content}
+            </Text>
+          )}
         </View>
         <Text style={styles.timestamp}>
           {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -218,6 +274,18 @@ export default function ChatScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
+      {/* Forward Modal */}
+      <ForwardMessageModal
+        visible={forwardModalVisible}
+        message={selectedMessage}
+        onClose={() => {
+          setForwardModalVisible(false);
+          setSelectedMessage(null);
+        }}
+        onSuccess={() => {
+          // Optionally reload messages or show success
+        }}
+      />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
@@ -369,4 +437,26 @@ const styles = StyleSheet.create({
     borderColor: `${Colors.primary}AA`,
   },
   newMsgPillText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+
+  // Forwarded message styles
+  forwardedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    opacity: 0.7,
+  },
+  forwardedText: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginLeft: 4,
+    fontStyle: "italic",
+  },
+  forwardComment: {
+    fontSize: 14,
+    marginBottom: 8,
+    fontWeight: "500",
+  },
 });

@@ -670,6 +670,12 @@ class Message(BaseModel):
     content: str
     read: bool = False
     created_at: datetime
+    # Forwarding support
+    forwarded_from: Optional[str] = None  # Original sender user_id
+    original_sender_name: Optional[str] = None  # For display
+    forward_comment: Optional[str] = None  # Optional comment added
+    media_url: Optional[str] = None  # For media forwarding
+    media_type: Optional[str] = None  # image/video/voice/gif
 
 class Notification(BaseModel):
     notification_id: str
@@ -2797,6 +2803,214 @@ async def send_gif_message(
     })
     
     return {"message_id": message_id, "message": "GIF sent"}
+
+# ============ MESSAGE FORWARDING ENDPOINTS ============
+
+@api_router.post("/messages/forward")
+async def forward_message(
+    message_id: str = Form(...),
+    recipient_ids: str = Form(...),  # Comma-separated list of user_ids or group_ids
+    comment: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Forward a message to multiple contacts or groups"""
+    validate_id(message_id, "message_id")
+    
+    # Get original message
+    original_msg = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not original_msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Parse recipient IDs
+    recipients = [r.strip() for r in recipient_ids.split(',') if r.strip()]
+    if not recipients:
+        raise HTTPException(status_code=400, detail="No recipients specified")
+    
+    if len(recipients) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 recipients allowed")
+    
+    # Get original sender info
+    original_sender = await db.users.find_one({"user_id": original_msg["sender_id"]}, {"_id": 0})
+    original_sender_name = original_sender["name"] if original_sender else "Unknown"
+    
+    forwarded_message_ids = []
+    
+    for recipient_id in recipients:
+        try:
+            # Check if it's a group (starts with "group_") or a user
+            if recipient_id.startswith("group_"):
+                # Forward to group
+                group = await db.groups.find_one({"group_id": recipient_id}, {"_id": 0})
+                if not group:
+                    continue
+                
+                # Check if user is member
+                if current_user.user_id not in group.get("member_ids", []):
+                    continue
+                
+                # Create group message
+                fwd_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+                await db.group_messages.insert_one({
+                    "message_id": fwd_msg_id,
+                    "group_id": recipient_id,
+                    "sender_id": current_user.user_id,
+                    "content": original_msg.get("content", ""),
+                    "forwarded_from": original_msg["sender_id"],
+                    "original_sender_name": original_sender_name,
+                    "forward_comment": comment,
+                    "media_url": original_msg.get("media_url"),
+                    "media_type": original_msg.get("media_type"),
+                    "read_by": [current_user.user_id],
+                    "created_at": datetime.now(timezone.utc)
+                })
+                
+                forwarded_message_ids.append(fwd_msg_id)
+                
+            else:
+                # Forward to individual user
+                # Find or create conversation
+                conv = await db.conversations.find_one({
+                    "participants": {"$all": [current_user.user_id, recipient_id]}
+                }, {"_id": 0})
+                
+                if not conv:
+                    conv_id = f"conv_{uuid.uuid4().hex[:12]}"
+                    await db.conversations.insert_one({
+                        "conversation_id": conv_id,
+                        "participants": [current_user.user_id, recipient_id],
+                        "last_message": "Forwarded message",
+                        "last_message_at": datetime.now(timezone.utc),
+                        "created_at": datetime.now(timezone.utc)
+                    })
+                else:
+                    conv_id = conv["conversation_id"]
+                    # Update conversation
+                    await db.conversations.update_one(
+                        {"conversation_id": conv_id},
+                        {
+                            "$set": {
+                                "last_message": "Forwarded message",
+                                "last_message_at": datetime.now(timezone.utc)
+                            }
+                        }
+                    )
+                
+                # Create forwarded message
+                fwd_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+                await db.messages.insert_one({
+                    "message_id": fwd_msg_id,
+                    "conversation_id": conv_id,
+                    "sender_id": current_user.user_id,
+                    "content": original_msg.get("content", ""),
+                    "forwarded_from": original_msg["sender_id"],
+                    "original_sender_name": original_sender_name,
+                    "forward_comment": comment,
+                    "media_url": original_msg.get("media_url"),
+                    "media_type": original_msg.get("media_type"),
+                    "read": False,
+                    "created_at": datetime.now(timezone.utc)
+                })
+                
+                forwarded_message_ids.append(fwd_msg_id)
+                
+                # Create notification
+                await create_notification(
+                    recipient_id,
+                    "message",
+                    f"{current_user.name} forwarded you a message",
+                    fwd_msg_id
+                )
+        except Exception as e:
+            logger.warning(f"Failed to forward to {recipient_id}: {e}")
+            continue
+    
+    return {
+        "success": True,
+        "forwarded_count": len(forwarded_message_ids),
+        "message_ids": forwarded_message_ids
+    }
+
+@api_router.post("/messages/forward-to-story")
+async def forward_message_to_story(
+    message_id: str = Form(...),
+    current_user: User = Depends(require_auth)
+):
+    """Share a message as a story"""
+    validate_id(message_id, "message_id")
+    
+    # Get original message
+    original_msg = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not original_msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Get original sender info
+    original_sender = await db.users.find_one({"user_id": original_msg["sender_id"]}, {"_id": 0})
+    original_sender_name = original_sender["name"] if original_sender else "Unknown"
+    
+    # Create story
+    story_id = f"story_{uuid.uuid4().hex[:12]}"
+    story_data = {
+        "story_id": story_id,
+        "user_id": current_user.user_id,
+        "type": original_msg.get("media_type", "text"),
+        "content": original_msg.get("content", ""),
+        "media_url": original_msg.get("media_url"),
+        "caption": f"Forwarded from {original_sender_name}",
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
+        "created_at": datetime.now(timezone.utc),
+        "is_highlighted": False,
+        "view_count": 0
+    }
+    
+    await db.stories.insert_one(story_data)
+    
+    return {
+        "success": True,
+        "story_id": story_id,
+        "message": "Message shared to story"
+    }
+
+@api_router.get("/messages/forward-recipients")
+async def get_forward_recipients(current_user: User = Depends(require_auth)):
+    """Get list of contacts and groups for forwarding"""
+    recipients = []
+    
+    # Get conversations (contacts)
+    conversations = await db.conversations.find(
+        {"participants": current_user.user_id},
+        {"_id": 0}
+    ).sort("last_message_at", -1).to_list(100)
+    
+    for conv in conversations:
+        other_user_id = [p for p in conv["participants"] if p != current_user.user_id]
+        if other_user_id:
+            other_user = await db.users.find_one(
+                {"user_id": other_user_id[0]},
+                {"_id": 0, "user_id": 1, "name": 1, "profile_picture": 1}
+            )
+            if other_user:
+                recipients.append({
+                    "id": other_user["user_id"],
+                    "name": other_user["name"],
+                    "type": "user",
+                    "profile_picture": other_user.get("profile_picture")
+                })
+    
+    # Get groups
+    groups = await db.groups.find(
+        {"member_ids": current_user.user_id},
+        {"_id": 0, "group_id": 1, "name": 1, "photo": 1}
+    ).sort("updated_at", -1).to_list(50)
+    
+    for group in groups:
+        recipients.append({
+            "id": group["group_id"],
+            "name": group["name"],
+            "type": "group",
+            "profile_picture": group.get("photo")
+        })
+    
+    return {"recipients": recipients}
 
 # ============ GROUP CHATS ENDPOINTS ============
 

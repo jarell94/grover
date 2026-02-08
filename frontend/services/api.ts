@@ -613,4 +613,34 @@ export const api = {
     apiRequest(`/messages/${messageId}/read`, { method: 'POST' }),
   getUnreadCount: (conversationId: string) =>
     apiRequest(`/conversations/${conversationId}/unread-count`),
+
+  // Message Forwarding
+  forwardMessage: (messageId: string, recipientIds: string, comment?: string) => {
+    const formData = new FormData();
+    formData.append('message_id', messageId);
+    formData.append('recipient_ids', recipientIds);
+    if (comment) formData.append('comment', comment);
+    
+    return apiRequest('/messages/forward', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        // Let browser set Content-Type for FormData
+      } as any,
+    });
+  },
+  forwardMessageToStory: (messageId: string) => {
+    const formData = new FormData();
+    formData.append('message_id', messageId);
+    
+    return apiRequest('/messages/forward-to-story', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        // Let browser set Content-Type for FormData
+      } as any,
+    });
+  },
+  getForwardRecipients: () =>
+    apiRequest('/messages/forward-recipients'),
 };
