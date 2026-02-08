@@ -81,3 +81,7 @@ agenthub/agents/youtube/db
 # Environment files - NOTE: .env files are NOT ignored for Emergent deployments
 # *.env  <- Intentionally NOT ignored - needed for deployment
 # *.env.*  <- Intentionally NOT ignored - needed for deployment
+-e 
+# Environment files
+*.env
+*.env.*
