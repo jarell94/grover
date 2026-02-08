@@ -113,7 +113,7 @@ export default function ChatScreen() {
         try {
           flatListRef.current?.scrollToIndex({ index, animated: true });
         } catch (error) {
-          if (__DEV__) console.warn("scrollToIndex failed", error);
+          if (__DEV__) console.warn("scrollToIndex failed", { error, index, focusMessageId });
         }
       }, SCROLL_TO_MESSAGE_DELAY_MS);
       return () => clearTimeout(timeoutId);
