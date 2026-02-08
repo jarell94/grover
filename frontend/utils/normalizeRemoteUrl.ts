@@ -19,7 +19,7 @@ const applyCdnBase = (url: string): string => {
 
   try {
     const cdn = new URL(cdnBase);
-    if (!cdn.origin || cdn.origin === "null") return url;
+    if (!cdn.origin) return url;
 
     const original = new URL(url);
     const cdnPath = cdn.pathname.replace(/\/$/, "");

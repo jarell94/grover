@@ -579,7 +579,8 @@ async def upload_media(
         result["thumbnail_url"] = apply_cdn_url(result["thumbnail_url"])
     if result.get("optimized_urls"):
         result["optimized_urls"] = {
-            key: apply_cdn_url(value) for key, value in result["optimized_urls"].items()
+            key: apply_cdn_url(value) if value else value
+            for key, value in result["optimized_urls"].items()
         }
 
     return result
