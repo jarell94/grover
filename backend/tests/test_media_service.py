@@ -12,6 +12,7 @@ def test_apply_cdn_url_swaps_origin(monkeypatch):
 
 def test_get_optimized_url_supports_custom_domain(monkeypatch):
     monkeypatch.setattr(media_service, "ASSET_CDN_URL", "")
+    monkeypatch.setattr(media_service, "CLOUDINARY_CONFIGURED", True)
 
     url = "https://cdn.images.example.com/image/upload/v1/sample.jpg"
     optimized = media_service.get_optimized_url(url, width=400)

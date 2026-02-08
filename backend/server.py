@@ -4291,7 +4291,7 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     if cached:
         return cached
 
-    # Get date range (last 30 days)
+    # Get date range (last 7 days)
     end_date = datetime.now(timezone.utc)
     start_date = (end_date - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -4345,8 +4345,8 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     follower_growth_map = {item["_id"]: item["new_followers"] for item in follower_growth_data}
 
     follower_growth = []
-    for i in range(6, -1, -1):
-        day = end_date - timedelta(days=i)
+    for i in range(7):
+        day = end_date - timedelta(days=(6 - i))
         day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
         key = day_start.strftime("%Y-%m-%d")
         follower_growth.append({

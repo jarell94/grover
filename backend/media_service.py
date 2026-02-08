@@ -150,6 +150,21 @@ def apply_cdn_url(url: str) -> str:
     except Exception:
         return url
 
+def is_cloudinary_url(url: str, media_type: str) -> bool:
+    """Check if URL matches Cloudinary delivery patterns."""
+    if not url:
+        return False
+    if "cloudinary" in url:
+        return True
+    if not CLOUDINARY_CONFIGURED:
+        return False
+
+    if media_type == "image":
+        return "/image/upload/" in url or "/image/fetch/" in url
+    if media_type == "video":
+        return "/video/upload/" in url or "/video/fetch/" in url
+    return False
+
 def get_media_type_from_content_type(content_type: str) -> str:
     """Determine media type from content type header"""
     if not content_type:
@@ -580,7 +595,7 @@ def get_optimized_url(
     
     Uses LRU cache for performance
     """
-    if not url or "/image/upload/" not in url:
+    if not url or not is_cloudinary_url(url, "image"):
         return apply_cdn_url(url)
     
     try:
@@ -596,10 +611,11 @@ def get_optimized_url(
         
         transform_str = ",".join(transforms)
         
-        parts = url.split("/upload/")
-        if len(parts) == 2:
-            return apply_cdn_url(f"{parts[0]}/upload/{transform_str}/{parts[1]}")
-        
+        for path in ("/image/upload/", "/image/fetch/"):
+            if path in url:
+                prefix, _, suffix = url.partition(path)
+                return apply_cdn_url(f"{prefix}{path}{transform_str}/{suffix}")
+
         return apply_cdn_url(url)
     except:
         return apply_cdn_url(url)
@@ -607,17 +623,18 @@ def get_optimized_url(
 
 def get_video_thumbnail_url(url: str, time_offset: float = 0.0) -> str:
     """Get thumbnail image from Cloudinary video"""
-    if not url or "/video/upload/" not in url:
+    if not url or not is_cloudinary_url(url, "video"):
         return apply_cdn_url(url)
     
     try:
         offset = f"so_{time_offset}" if time_offset > 0 else "so_0"
         transforms = f"{offset},f_jpg,q_auto,w_400,h_400,c_fill"
         
-        parts = url.split("/upload/")
-        if len(parts) == 2:
-            return apply_cdn_url(f"{parts[0]}/upload/{transforms}/{parts[1]}")
-        
+        for path in ("/video/upload/", "/video/fetch/"):
+            if path in url:
+                prefix, _, suffix = url.partition(path)
+                return apply_cdn_url(f"{prefix}{path}{transforms}/{suffix}")
+
         return apply_cdn_url(url)
     except:
         return apply_cdn_url(url)
@@ -625,17 +642,18 @@ def get_video_thumbnail_url(url: str, time_offset: float = 0.0) -> str:
 
 def get_video_preview_url(url: str, quality: str = "low") -> str:
     """Get compressed video preview URL (Cloudinary only)"""
-    if not url or "/video/upload/" not in url:
+    if not url or not is_cloudinary_url(url, "video"):
         return apply_cdn_url(url)
     
     try:
         width = 480 if quality == "low" else 720
         transforms = f"f_mp4,vc_h264,q_auto:{quality},w_{width}"
         
-        parts = url.split("/upload/")
-        if len(parts) == 2:
-            return apply_cdn_url(f"{parts[0]}/upload/{transforms}/{parts[1]}")
-        
+        for path in ("/video/upload/", "/video/fetch/"):
+            if path in url:
+                prefix, _, suffix = url.partition(path)
+                return apply_cdn_url(f"{prefix}{path}{transforms}/{suffix}")
+
         return apply_cdn_url(url)
     except:
         return apply_cdn_url(url)

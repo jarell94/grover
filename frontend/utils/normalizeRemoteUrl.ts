@@ -89,25 +89,30 @@ export function isValidMediaUrl(url: string): boolean {
  * Generate Cloudinary video thumbnail URL from video URL
  */
 export function getCloudinaryVideoThumbnail(videoUrl: string): string {
-  if (!videoUrl.includes("/video/upload/")) return "";
-  
+  const path = ["/video/upload/", "/video/fetch/"].find((segment) =>
+    videoUrl.includes(segment)
+  );
+  if (!path) return videoUrl;
+
   // Replace /video/upload/ with /video/upload/so_0,f_jpg/ for first frame thumbnail
-  return videoUrl.replace(
-    "/video/upload/",
-    "/video/upload/so_0,f_jpg,w_400,h_400,c_fill/"
-  ).replace(/\.(mp4|mov|webm|avi)$/i, ".jpg");
+  return videoUrl
+    .replace(path, `${path}so_0,f_jpg,w_400,h_400,c_fill/`)
+    .replace(/\.(mp4|mov|webm|avi)$/i, ".jpg");
 }
 
 /**
  * Generate Cloudinary optimized image URL
  */
 export function getCloudinaryOptimizedImage(imageUrl: string, width = 800): string {
-  if (!imageUrl.includes("/image/upload/")) return imageUrl;
+  const path = ["/image/upload/", "/image/fetch/"].find((segment) =>
+    imageUrl.includes(segment)
+  );
+  if (!path) return imageUrl;
   
   // Add transformation for auto format and quality
   return imageUrl.replace(
-    "/image/upload/",
-    `/image/upload/f_auto,q_auto,w_${width}/`
+    path,
+    `${path}f_auto,q_auto,w_${width}/`
   );
 }
 
