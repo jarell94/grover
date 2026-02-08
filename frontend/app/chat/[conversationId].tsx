@@ -98,7 +98,10 @@ export default function ChatScreen() {
     if (!userId || message.sender_id !== userId) return false;
     if (!message.content?.trim()) return false;
     const createdAt = Date.parse(message.created_at);
-    if (!Number.isFinite(createdAt)) return false;
+    if (!Number.isFinite(createdAt)) {
+      if (__DEV__) console.warn("Invalid message timestamp", message.created_at);
+      return false;
+    }
     return Date.now() - createdAt <= EDIT_WINDOW_MS;
   };
 
@@ -186,13 +189,16 @@ export default function ChatScreen() {
     if (editingMessageId) {
       try {
         const response = await api.editMessage(editingMessageId, trimmed);
+        if (!response?.edited_at) {
+          throw new Error("Missing edited_at in response");
+        }
         setMessages((prev) =>
           prev.map((message) =>
             message.message_id === editingMessageId
               ? {
                   ...message,
                   content: response?.content || trimmed,
-                  edited_at: response?.edited_at || new Date().toISOString(),
+                  edited_at: response.edited_at,
                 }
               : message
           )

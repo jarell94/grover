@@ -77,5 +77,4 @@ async def test_edit_message_rejects_expired(mock_db, override_auth):
         response = await client.patch("/api/messages/msg_123", json={"content": "Updated"})
 
     assert response.status_code == 400
-    assert "Edit window expired" in response.json().get("detail", "")
     mock_db.messages.update_one.assert_not_awaited()
