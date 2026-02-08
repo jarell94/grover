@@ -2516,13 +2516,14 @@ async def edit_message(
     if now - created_at > MESSAGE_EDIT_WINDOW:
         raise HTTPException(status_code=400, detail="Edit window expired")
 
-    previous_timestamp = message.get("edited_at") or created_at
+    previous_edit_timestamp = message.get("edited_at") or created_at
     update_ops = {
         "$set": {"content": new_content, "edited_at": now},
         "$push": {
             "edit_history": {
                 "content": message.get("content", ""),
-                "previous_timestamp": previous_timestamp,
+                # Timestamp when the replaced content was last set (created or edited)
+                "previous_timestamp": previous_edit_timestamp,
                 "replaced_at": now
             }
         }

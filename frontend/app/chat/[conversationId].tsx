@@ -99,7 +99,7 @@ export default function ChatScreen() {
     if (!userId || message.sender_id !== userId) return false;
     if (!message.content?.trim()) return false;
     const createdAt = new Date(message.created_at).getTime();
-    if (!Number.isFinite(createdAt)) {
+    if (Number.isNaN(createdAt) || !Number.isFinite(createdAt)) {
       if (__DEV__) console.warn("Invalid message timestamp", message.created_at);
       return false;
     }
@@ -195,6 +195,9 @@ export default function ChatScreen() {
         if (!response?.edited_at) missing.push("edited_at");
         if (!response?.content) missing.push("content");
         if (missing.length) {
+          if (__DEV__) {
+            console.error("Edit response missing fields", missing);
+          }
           throw new Error(`Edit response missing required fields: ${missing.join(", ")}`);
         }
         if (response.message_id !== editingMessageId) {
