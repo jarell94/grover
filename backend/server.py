@@ -2520,7 +2520,11 @@ async def edit_message(
     update_ops = {
         "$set": {"content": new_content, "edited_at": now},
         "$push": {
-            "edit_history": {"content": message.get("content", ""), "edited_at": previous_edited_at}
+            "edit_history": {
+                "content": message.get("content", ""),
+                "edited_at": previous_edited_at,
+                "timestamp": now
+            }
         }
     }
     await db.messages.update_one({"message_id": message_id}, update_ops)

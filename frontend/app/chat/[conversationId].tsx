@@ -97,7 +97,7 @@ export default function ChatScreen() {
   const canEditMessage = (message: Message) => {
     if (!userId || message.sender_id !== userId) return false;
     if (!message.content?.trim()) return false;
-    const createdAt = Date.parse(message.created_at);
+    const createdAt = new Date(message.created_at).getTime();
     if (!Number.isFinite(createdAt)) {
       if (__DEV__) console.warn("Invalid message timestamp", message.created_at);
       return false;
@@ -190,7 +190,7 @@ export default function ChatScreen() {
       try {
         const response = await api.editMessage(editingMessageId, trimmed);
         if (!response?.edited_at || !response?.content) {
-          throw new Error("Invalid edit response");
+          throw new Error("Edit response missing required fields: edited_at or content");
         }
         setMessages((prev) =>
           prev.map((message) =>
@@ -342,7 +342,7 @@ export default function ChatScreen() {
         {editingMessageId && (
           <View style={styles.editingBanner}>
             <Text style={styles.editingText}>Editing message</Text>
-            <TouchableOpacity onPress={cancelEdit} hitSlop={8}>
+            <TouchableOpacity onPress={cancelEdit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={styles.editingCancel}>Cancel</Text>
             </TouchableOpacity>
           </View>
