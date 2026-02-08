@@ -1,0 +1,196 @@
+{
+  "summary": {
+    "total": 26,
+    "passed": 21,
+    "failed": 3,
+    "warnings": 2,
+    "success_rate": 80.76923076923077
+  },
+  "detailed_results": [
+    {
+      "test": "Health Check",
+      "status": "PASS",
+      "details": "Status: healthy, Services: ['mongodb', 'cloudinary', 'agora', 'paypal', 'redis']",
+      "timestamp": "2026-02-08T06:45:39.129281",
+      "response_data": null
+    },
+    {
+      "test": "Readiness Check",
+      "status": "PASS",
+      "details": "Service is ready",
+      "timestamp": "2026-02-08T06:45:39.139358",
+      "response_data": null
+    },
+    {
+      "test": "Media Service Status",
+      "status": "PASS",
+      "details": "Cloudinary configured: False",
+      "timestamp": "2026-02-08T06:45:39.149379",
+      "response_data": null
+    },
+    {
+      "test": "Authentication Flow",
+      "status": "FAIL",
+      "details": "Unexpected status: 520",
+      "timestamp": "2026-02-08T06:45:39.277689",
+      "response_data": {
+        "detail": "400: Invalid session ID"
+      }
+    },
+    {
+      "test": "Auth Protection",
+      "status": "PASS",
+      "details": "All 4 endpoints properly protected",
+      "timestamp": "2026-02-08T06:45:39.354354",
+      "response_data": null
+    },
+    {
+      "test": "Session Validation",
+      "status": "PASS",
+      "details": "Rejects overly long session ID",
+      "timestamp": "2026-02-08T06:45:39.402048",
+      "response_data": null
+    },
+    {
+      "test": "Posts Auth Protection",
+      "status": "PASS",
+      "details": "All posts endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.523925",
+      "response_data": null
+    },
+    {
+      "test": "User Auth Protection",
+      "status": "PASS",
+      "details": "All user endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.599977",
+      "response_data": null
+    },
+    {
+      "test": "Comments Auth Protection",
+      "status": "PASS",
+      "details": "All comments endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.632939",
+      "response_data": null
+    },
+    {
+      "test": "Notifications Auth Protection",
+      "status": "FAIL",
+      "details": "Some notifications endpoints not protected",
+      "timestamp": "2026-02-08T06:45:39.690277",
+      "response_data": null
+    },
+    {
+      "test": "File Upload Security",
+      "status": "PASS",
+      "details": "Media upload requires authentication",
+      "timestamp": "2026-02-08T06:45:39.698877",
+      "response_data": null
+    },
+    {
+      "test": "Pagination Limits",
+      "status": "PASS",
+      "details": "Pagination endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.705322",
+      "response_data": null
+    },
+    {
+      "test": "Payment Security",
+      "status": "PASS",
+      "details": "Payment endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.712568",
+      "response_data": null
+    },
+    {
+      "test": "Streaming Security",
+      "status": "PASS",
+      "details": "All streaming endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.742665",
+      "response_data": null
+    },
+    {
+      "test": "Stories Security",
+      "status": "FAIL",
+      "details": "Some stories endpoints not protected",
+      "timestamp": "2026-02-08T06:45:39.764987",
+      "response_data": null
+    },
+    {
+      "test": "Products Security",
+      "status": "PASS",
+      "details": "All products endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.833802",
+      "response_data": null
+    },
+    {
+      "test": "Discounts Security",
+      "status": "PASS",
+      "details": "All discount endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.902480",
+      "response_data": null
+    },
+    {
+      "test": "Analytics Security",
+      "status": "PASS",
+      "details": "All analytics endpoints require authentication",
+      "timestamp": "2026-02-08T06:45:39.957119",
+      "response_data": null
+    },
+    {
+      "test": "404 Error Handling",
+      "status": "PASS",
+      "details": "Invalid endpoints return 404",
+      "timestamp": "2026-02-08T06:45:39.986797",
+      "response_data": null
+    },
+    {
+      "test": "Malformed JSON",
+      "status": "PASS",
+      "details": "Properly handles malformed JSON (status: 401)",
+      "timestamp": "2026-02-08T06:45:39.994104",
+      "response_data": null
+    },
+    {
+      "test": "SQL Injection Prevention",
+      "status": "PASS",
+      "details": "No server errors from injection attempts",
+      "timestamp": "2026-02-08T06:45:40.025347",
+      "response_data": null
+    },
+    {
+      "test": "XSS Prevention",
+      "status": "PASS",
+      "details": "No server errors from XSS attempts",
+      "timestamp": "2026-02-08T06:45:40.150098",
+      "response_data": null
+    },
+    {
+      "test": "Empty Request Handling",
+      "status": "PASS",
+      "details": "Properly handles empty requests (status: 401)",
+      "timestamp": "2026-02-08T06:45:40.158215",
+      "response_data": null
+    },
+    {
+      "test": "Oversized Request Handling",
+      "status": "PASS",
+      "details": "Properly handles large requests (status: 401)",
+      "timestamp": "2026-02-08T06:45:40.166347",
+      "response_data": null
+    },
+    {
+      "test": "Rate Limiting",
+      "status": "INFO",
+      "details": "No rate limiting detected (may be configured differently)",
+      "timestamp": "2026-02-08T06:45:40.366440",
+      "response_data": null
+    },
+    {
+      "test": "CORS Headers",
+      "status": "WARN",
+      "details": "CORS headers not detected",
+      "timestamp": "2026-02-08T06:45:40.373052",
+      "response_data": null
+    }
+  ],
+  "timestamp": "2026-02-08T06:45:40.373231"
+}
