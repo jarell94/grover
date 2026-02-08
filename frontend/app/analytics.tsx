@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -56,6 +56,14 @@ type ActivityEventPayload = {
   created_at: string;
   id?: string;
   amount?: number;
+};
+
+const generateActivityId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  return `event-${Date.now()}-${randomSuffix}`;
 };
 
 // Simple mini chart component
@@ -276,15 +284,6 @@ export default function AnalyticsScreen() {
   const [engagementData, setEngagementData] = useState<any>(null);
   const [liveMetrics, setLiveMetrics] = useState<LiveMetricsPayload | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityEventPayload[]>([]);
-  const activityCounter = useRef(0);
-
-  const generateActivityId = () => {
-    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-      return crypto.randomUUID();
-    }
-    const randomSuffix = Math.random().toString(36).slice(2, 10);
-    return `event-${Date.now()}-${randomSuffix}`;
-  };
 
   const formatNumber = useCallback((n: any) => {
     const num = Number(n);
