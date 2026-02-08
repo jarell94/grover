@@ -622,7 +622,8 @@ def get_optimized_url(
     """
     Get optimized/transformed URL (Cloudinary only)
     
-    Uses LRU cache for performance
+    Uses LRU cache for performance. If multiple Cloudinary delivery paths are
+    present, the first matching path is used.
     """
     if not url or not is_cloudinary_url(url, "image"):
         return apply_cdn_url(url)
