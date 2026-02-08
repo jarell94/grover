@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { api } from '../services/api';
+import socketService from '../services/socket';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -31,6 +32,28 @@ const Colors = {
   warning: '#F59E0B',
   danger: '#EF4444',
   info: '#0EA5E9',
+};
+
+type LiveMetricsPayload = {
+  user_id: string;
+  followers_count: number;
+  total_posts: number;
+  total_likes: number;
+  total_comments: number;
+  total_shares: number;
+  total_revenue: number;
+  earnings_balance: number;
+  updated_at: string;
+  reason?: string;
+};
+
+type ActivityEventPayload = {
+  notification_id?: string;
+  transaction_id?: string;
+  type: string;
+  content: string;
+  related_id?: string;
+  created_at: string;
 };
 
 // Simple mini chart component
@@ -249,6 +272,8 @@ export default function AnalyticsScreen() {
   const [contentPerformance, setContentPerformance] = useState<any[]>([]);
   const [revenueData, setRevenueData] = useState({ total: 0, tips: 0, sales: 0 });
   const [engagementData, setEngagementData] = useState<any>(null);
+  const [liveMetrics, setLiveMetrics] = useState<LiveMetricsPayload | null>(null);
+  const [activityFeed, setActivityFeed] = useState<ActivityEventPayload[]>([]);
 
   const formatNumber = useCallback((n: any) => {
     const num = Number(n);
@@ -302,6 +327,27 @@ export default function AnalyticsScreen() {
     loadAnalytics();
   }, [loadAnalytics]);
 
+  useEffect(() => {
+    const offLiveMetrics = socketService.onLiveMetrics((payload) => {
+      setLiveMetrics(payload);
+    });
+    const offActivity = socketService.onActivityEvent((event) => {
+      setActivityFeed((prev) => {
+        const updated = [event, ...prev];
+        return updated.slice(0, 10);
+      });
+    });
+    const offMilestone = socketService.onMilestone((event) => {
+      Alert.alert('Milestone reached', event.message);
+    });
+
+    return () => {
+      offLiveMetrics();
+      offActivity();
+      offMilestone();
+    };
+  }, []);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadAnalytics(false);
@@ -309,15 +355,25 @@ export default function AnalyticsScreen() {
 
   // Calculated metrics
   const engagementRate = useMemo(() => {
-    if (!overview) return 0;
-    const totalInteractions = (overview.total_reactions || 0) + (overview.total_comments || 0);
-    const totalViews = overview.total_views || 1;
+    if (!overview && !liveMetrics) return 0;
+    const totalInteractions =
+      (liveMetrics?.total_likes ?? overview?.total_reactions ?? 0) +
+      (liveMetrics?.total_comments ?? overview?.total_comments ?? 0);
+    const totalViews = overview?.total_views || 1;
     return ((totalInteractions / totalViews) * 100).toFixed(1);
-  }, [overview]);
+  }, [overview, liveMetrics]);
 
   const followerGrowth = useMemo(() => {
     return overview?.follower_growth || [];
   }, [overview]);
+
+  const displayTotalPosts = liveMetrics?.total_posts ?? overview?.total_posts;
+  const displayFollowers = liveMetrics?.followers_count ?? overview?.total_followers;
+  const displayReactions = liveMetrics?.total_likes ?? overview?.total_reactions;
+  const displayRevenueTotal = liveMetrics?.total_revenue ?? revenueData.total;
+  const displayLikes = liveMetrics?.total_likes ?? engagementData?.likes ?? overview?.total_reactions ?? 0;
+  const displayComments = liveMetrics?.total_comments ?? engagementData?.comments ?? 0;
+  const displayShares = liveMetrics?.total_shares ?? engagementData?.shares ?? 0;
 
   if (loading) {
     return (
@@ -359,10 +415,46 @@ export default function AnalyticsScreen() {
         {/* Revenue Card */}
         <View style={styles.section}>
           <RevenueCard 
-            revenue={revenueData.total} 
+            revenue={displayRevenueTotal} 
             tips={revenueData.tips} 
             sales={revenueData.sales} 
           />
+        </View>
+
+        {/* Live Updates */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Live Updates</Text>
+            <View style={styles.liveBadge}>
+              <Ionicons name="radio" size={12} color={Colors.success} />
+              <Text style={styles.liveBadgeText}>Live</Text>
+            </View>
+          </View>
+          <View style={styles.statsGrid}>
+            <StatCard
+              icon="people"
+              value={formatNumber(displayFollowers)}
+              label="Followers"
+              color={Colors.success}
+            />
+            <StatCard
+              icon="heart"
+              value={formatNumber(displayLikes)}
+              label="Likes"
+              color={Colors.secondary}
+            />
+            <StatCard
+              icon="cash"
+              value={`$${displayRevenueTotal.toFixed(2)}`}
+              label="Revenue"
+              color={Colors.success}
+            />
+          </View>
+          {liveMetrics?.updated_at && (
+            <Text style={styles.liveTimestamp}>
+              Updated {new Date(liveMetrics.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          )}
         </View>
 
         {/* Quick Stats */}
@@ -371,20 +463,20 @@ export default function AnalyticsScreen() {
           <View style={styles.statsGrid}>
             <StatCard
               icon="document-text"
-              value={formatNumber(overview?.total_posts)}
+              value={formatNumber(displayTotalPosts)}
               label="Total Posts"
               color={Colors.primary}
             />
             <StatCard
               icon="people"
-              value={formatNumber(overview?.total_followers)}
+              value={formatNumber(displayFollowers)}
               label="Followers"
               change={overview?.follower_change}
               color={Colors.success}
             />
             <StatCard
               icon="heart"
-              value={formatNumber(overview?.total_reactions)}
+              value={formatNumber(displayReactions)}
               label="Reactions"
               color={Colors.secondary}
             />
@@ -409,17 +501,17 @@ export default function AnalyticsScreen() {
             <View style={styles.engagementItem}>
               <View style={[styles.engagementDot, { backgroundColor: Colors.secondary }]} />
               <Text style={styles.engagementLabel}>Likes</Text>
-              <Text style={styles.engagementValue}>{formatNumber(engagementData?.likes || overview?.total_reactions || 0)}</Text>
+              <Text style={styles.engagementValue}>{formatNumber(displayLikes)}</Text>
             </View>
             <View style={styles.engagementItem}>
               <View style={[styles.engagementDot, { backgroundColor: Colors.info }]} />
               <Text style={styles.engagementLabel}>Comments</Text>
-              <Text style={styles.engagementValue}>{formatNumber(engagementData?.comments || 0)}</Text>
+              <Text style={styles.engagementValue}>{formatNumber(displayComments)}</Text>
             </View>
             <View style={styles.engagementItem}>
               <View style={[styles.engagementDot, { backgroundColor: Colors.success }]} />
               <Text style={styles.engagementLabel}>Shares</Text>
-              <Text style={styles.engagementValue}>{formatNumber(engagementData?.shares || 0)}</Text>
+              <Text style={styles.engagementValue}>{formatNumber(displayShares)}</Text>
             </View>
             <View style={styles.engagementItem}>
               <View style={[styles.engagementDot, { backgroundColor: Colors.warning }]} />
@@ -427,6 +519,33 @@ export default function AnalyticsScreen() {
               <Text style={styles.engagementValue}>{formatNumber(engagementData?.saves || 0)}</Text>
             </View>
           </View>
+        </View>
+
+        {/* Activity Feed */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Activity Feed</Text>
+            <Text style={styles.liveLabel}>Real-time</Text>
+          </View>
+          {activityFeed.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="notifications-outline" size={48} color={Colors.textSecondary} />
+              <Text style={styles.emptyText}>No activity yet</Text>
+              <Text style={styles.emptySubtext}>Live updates will appear here</Text>
+            </View>
+          ) : (
+            activityFeed.map((event, index) => (
+              <View key={event.notification_id || event.transaction_id || index} style={styles.activityRow}>
+                <Ionicons name="pulse" size={18} color={Colors.info} />
+                <View style={styles.activityContent}>
+                  <Text style={styles.activityText}>{event.content}</Text>
+                  <Text style={styles.activityTime}>
+                    {new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
         </View>
 
         {/* Top Performing Content */}
@@ -589,6 +708,30 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginBottom: 16,
   },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.success + '20',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  liveBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.success,
+  },
+  liveTimestamp: {
+    marginTop: 8,
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  liveLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
   seeAllText: {
     fontSize: 14,
     color: Colors.primary,
@@ -638,6 +781,27 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     gap: 4,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  activityContent: {
+    flex: 1,
+    gap: 4,
+  },
+  activityText: {
+    fontSize: 14,
+    color: Colors.text,
+  },
+  activityTime: {
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   statChangeText: {
     fontSize: 12,

@@ -47,6 +47,35 @@ interface MessageEditedPayload {
   created_at?: string;
 }
 
+interface LiveMetricsPayload {
+  user_id: string;
+  followers_count: number;
+  total_posts: number;
+  total_likes: number;
+  total_comments: number;
+  total_shares: number;
+  total_revenue: number;
+  earnings_balance: number;
+  updated_at: string;
+  reason?: string;
+}
+
+interface ActivityEventPayload {
+  notification_id?: string;
+  transaction_id?: string;
+  type: string;
+  content: string;
+  related_id?: string;
+  created_at: string;
+}
+
+interface MilestonePayload {
+  type: string;
+  value: number;
+  message: string;
+  created_at: string;
+}
+
 class SocketService {
   private socket: Socket | null = null;
   private isConnected: boolean = false;
@@ -80,6 +109,7 @@ class SocketService {
         this.socket.on('connect', () => {
           console.log('✅ Socket connected:', this.socket?.id);
           this.isConnected = true;
+          this.socket?.emit('register_user', { user_id: userId });
           resolve();
         });
 
@@ -156,6 +186,36 @@ class SocketService {
       this.socket.on('message_edited', callback);
       return () => {
         this.socket?.off('message_edited', callback);
+      };
+    }
+    return () => {};
+  }
+
+  onLiveMetrics(callback: (payload: LiveMetricsPayload) => void): () => void {
+    if (this.socket) {
+      this.socket.on('live_metrics', callback);
+      return () => {
+        this.socket?.off('live_metrics', callback);
+      };
+    }
+    return () => {};
+  }
+
+  onActivityEvent(callback: (payload: ActivityEventPayload) => void): () => void {
+    if (this.socket) {
+      this.socket.on('activity_event', callback);
+      return () => {
+        this.socket?.off('activity_event', callback);
+      };
+    }
+    return () => {};
+  }
+
+  onMilestone(callback: (payload: MilestonePayload) => void): () => void {
+    if (this.socket) {
+      this.socket.on('milestone', callback);
+      return () => {
+        this.socket?.off('milestone', callback);
       };
     }
     return () => {};

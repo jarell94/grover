@@ -89,6 +89,7 @@ MAX_INPUT_LENGTH = 10000  # Max characters for text input
 MAX_BIO_LENGTH = 500
 MAX_NAME_LENGTH = 100
 MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
+FOLLOWER_MILESTONES = [10, 50, 100, 250, 500, 1000, 5000, 10000]
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -411,6 +412,83 @@ async def create_notification(user_id: str, notification_type: str, content: str
             notification_data["related_id"] = related_id
         
         await db.notifications.insert_one(notification_data)
+        await emit_activity_event(user_id, {
+            "notification_id": notification_data["notification_id"],
+            "type": notification_type,
+            "content": content,
+            "related_id": related_id,
+            "created_at": notification_data["created_at"].isoformat(),
+        })
+
+
+async def emit_to_user(user_id: str, event: str, payload: dict):
+    """Emit a socket event to a specific user room."""
+    if not user_id:
+        return
+    await sio.emit(event, payload, room=f"user_{user_id}")
+
+
+def is_follower_milestone(count: int) -> bool:
+    return count in FOLLOWER_MILESTONES
+
+
+async def build_live_metrics(user_id: str) -> dict:
+    """Build live metrics payload for sockets."""
+    followers_count = await db.follows.count_documents({"following_id": user_id})
+
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": None,
+            "total_posts": {"$sum": 1},
+            "total_likes": {"$sum": "$likes_count"},
+            "total_comments": {"$sum": "$comments_count"},
+            "total_shares": {"$sum": "$shares_count"},
+        }}
+    ]
+    aggregates = await db.posts.aggregate(pipeline).to_list(1)
+    totals = aggregates[0] if aggregates else {}
+
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "total_earnings": 1, "earnings_balance": 1}
+    )
+    total_revenue = (user or {}).get("total_earnings", 0)
+    earnings_balance = (user or {}).get("earnings_balance", 0)
+
+    return {
+        "user_id": user_id,
+        "followers_count": followers_count,
+        "total_posts": totals.get("total_posts", 0),
+        "total_likes": totals.get("total_likes", 0),
+        "total_comments": totals.get("total_comments", 0),
+        "total_shares": totals.get("total_shares", 0),
+        "total_revenue": total_revenue,
+        "earnings_balance": earnings_balance,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def emit_live_metrics(user_id: str, reason: str = None):
+    payload = await build_live_metrics(user_id)
+    if reason:
+        payload["reason"] = reason
+    await emit_to_user(user_id, "live_metrics", payload)
+
+
+async def emit_activity_event(user_id: str, payload: dict):
+    await emit_to_user(user_id, "activity_event", payload)
+
+
+async def emit_follower_milestone(user_id: str, follower_count: int):
+    if not is_follower_milestone(follower_count):
+        return
+    await emit_to_user(user_id, "milestone", {
+        "type": "followers",
+        "value": follower_count,
+        "message": f"You reached {follower_count} followers!",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
 
 # ============ MODELS ============
 
@@ -854,6 +932,7 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
             "follower_id": current_user.user_id,
             "following_id": user_id
         })
+        await emit_live_metrics(user_id, reason="followers")
         return {"message": "Unfollowed", "following": False}
     else:
         # Follow
@@ -869,6 +948,10 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
             "follow",
             f"{current_user.name} started following you"
         )
+        
+        followers_count = await db.follows.count_documents({"following_id": user_id})
+        await emit_live_metrics(user_id, reason="followers")
+        await emit_follower_milestone(user_id, followers_count)
         
         return {"message": "Followed", "following": True}
 
@@ -1267,7 +1350,7 @@ async def react_to_post(
                 {"post_id": post_id},
                 {"$set": {"reaction_counts": reaction_counts}}
             )
-            
+            await emit_live_metrics(post["user_id"], reason="engagement")
             return {"reacted": False, "reaction_type": None, "reaction_counts": reaction_counts}
         else:
             # Change reaction
@@ -1285,7 +1368,7 @@ async def react_to_post(
                 {"post_id": post_id},
                 {"$set": {"reaction_counts": reaction_counts}}
             )
-            
+            await emit_live_metrics(post["user_id"], reason="engagement")
             return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
     else:
         # New reaction
@@ -1322,6 +1405,8 @@ async def react_to_post(
                 f"{current_user.name} reacted {reaction_emoji} to your post",
                 post_id
             )
+        
+        await emit_live_metrics(post["user_id"], reason="engagement")
         
         return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
 
@@ -1440,6 +1525,8 @@ async def share_post(post_id: str, current_user: User = Depends(require_auth)):
             post_id
         )
     
+    await emit_live_metrics(post["user_id"], reason="engagement")
+
     return {"message": "Post shared", "shares_count": post.get("shares_count", 0) + 1}
 
 @api_router.post("/posts/{post_id}/repost")
@@ -1503,6 +1590,8 @@ async def repost_post(
             repost_id
         )
     
+    await emit_live_metrics(original_post["user_id"], reason="engagement")
+
     return {
         "message": "Post reposted successfully",
         "repost_id": repost_id,
@@ -1875,6 +1964,8 @@ async def create_comment(
                 comment_id
             )
     
+    await emit_live_metrics(post["user_id"], reason="engagement")
+
     return {"comment_id": comment_id, "message": "Comment created"}
 
 @api_router.post("/comments/{comment_id}/like")
@@ -1899,6 +1990,7 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
             {"comment_id": comment_id},
             {"$inc": {"likes_count": -1}}
         )
+        await emit_live_metrics(comment["user_id"], reason="engagement")
         return {"message": "Comment unliked", "liked": False}
     else:
         # Like
@@ -1914,15 +2006,24 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
         
         # Create notification for comment owner
         if comment["user_id"] != current_user.user_id:
+            notification_id = f"notif_{uuid.uuid4().hex[:12]}"
             await db.notifications.insert_one({
-                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "notification_id": notification_id,
                 "user_id": comment["user_id"],
                 "type": "comment_like",
                 "content": f"{current_user.name} liked your comment",
                 "read": False,
                 "created_at": datetime.now(timezone.utc)
             })
+            await emit_activity_event(comment["user_id"], {
+                "notification_id": notification_id,
+                "type": "comment_like",
+                "content": f"{current_user.name} liked your comment",
+                "related_id": comment_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
         
+        await emit_live_metrics(comment["user_id"], reason="engagement")
         return {"message": "Comment liked", "liked": True}
 
 @api_router.delete("/comments/{comment_id}")
@@ -3375,6 +3476,14 @@ async def create_and_send_notification(
     }
     
     await db.notifications.insert_one(notification_data)
+    await emit_activity_event(user_id, {
+        "notification_id": notification_id,
+        "type": notification_type,
+        "content": content,
+        "related_id": related_id,
+        "actor_id": actor_id,
+        "created_at": notification_data["created_at"].isoformat(),
+    })
     
     # Send push notification
     if send_push:
@@ -4011,6 +4120,15 @@ async def record_transaction(
             }
         }
     )
+    
+    await emit_live_metrics(to_user_id, reason="revenue")
+    await emit_activity_event(to_user_id, {
+        "transaction_id": transaction["transaction_id"],
+        "type": "revenue",
+        "content": f"Received ${split['creator_payout']:.2f} ({transaction_type})",
+        "amount": split["creator_payout"],
+        "created_at": transaction["created_at"].isoformat(),
+    })
     
     return transaction
 
@@ -6257,6 +6375,14 @@ async def disconnect(sid):
         if active_users[user_id] == sid:
             del active_users[user_id]
             break
+
+@sio.event
+async def register_user(sid, data):
+    user_id = data.get("user_id")
+    if user_id:
+        sio.enter_room(sid, f"user_{user_id}")
+        active_users[user_id] = sid
+        await emit_live_metrics(user_id, reason="initial")
 
 @sio.event
 async def join_conversation(sid, data):
