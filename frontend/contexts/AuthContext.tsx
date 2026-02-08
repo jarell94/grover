@@ -19,6 +19,15 @@ interface User {
   bio?: string;
   is_premium: boolean;
   is_private: boolean;
+  website?: string;
+  twitter?: string;
+  instagram?: string;
+  linkedin?: string;
+  paypal_email?: string;
+  monetization_enabled?: boolean;
+  follower_count?: number;
+  following_count?: number;
+  post_count?: number;
 }
 
 type LoginArgs = { mode: 'signin' | 'signup' };
