@@ -55,6 +55,7 @@ type ActivityEventPayload = {
   related_id?: string;
   created_at: string;
   id?: string;
+  amount?: number;
 };
 
 // Simple mini chart component
@@ -335,10 +336,9 @@ export default function AnalyticsScreen() {
     });
     const offActivity = socketService.onActivityEvent((event) => {
       activityCounter.current += 1;
-      const timestamp = Date.now();
       const eventWithId = {
         ...event,
-        id: event.notification_id || event.transaction_id || `event-${timestamp}-${activityCounter.current}`,
+        id: event.notification_id || event.transaction_id || `event-${activityCounter.current}`,
       };
       setActivityFeed((prev) => {
         const updated = [eventWithId, ...prev];

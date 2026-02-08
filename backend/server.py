@@ -1978,11 +1978,11 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
 
-    post_owner_id = comment.get("user_id")
+    target_user_id = comment.get("user_id")
     if comment.get("post_id"):
         post = await db.posts.find_one({"post_id": comment["post_id"]}, {"user_id": 1})
         if post:
-            post_owner_id = post.get("user_id", post_owner_id)
+            target_user_id = post.get("user_id", target_user_id)
     
     existing = await db.comment_likes.find_one({
         "user_id": current_user.user_id,
@@ -1999,7 +1999,7 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
             {"comment_id": comment_id},
             {"$inc": {"likes_count": -1}}
         )
-        await emit_live_metrics(post_owner_id, reason="engagement")
+        await emit_live_metrics(target_user_id, reason="engagement")
         return {"message": "Comment unliked", "liked": False}
     else:
         # Like
@@ -2032,7 +2032,7 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         
-        await emit_live_metrics(post_owner_id, reason="engagement")
+        await emit_live_metrics(target_user_id, reason="engagement")
         return {"message": "Comment liked", "liked": True}
 
 @api_router.delete("/comments/{comment_id}")
@@ -6389,14 +6389,15 @@ async def handle_end_stream(sid, data):
 @sio.event
 async def disconnect(sid):
     logger.info(f"Client {sid} disconnected")
-    user_id_to_remove = None
     async with active_users_lock:
-        for user_id, stored_sid in list(active_users.items()):
-            if stored_sid == sid:
-                user_id_to_remove = user_id
-                break
-        if user_id_to_remove:
-            del active_users[user_id_to_remove]
+        items_snapshot = list(active_users.items())
+
+    user_id_to_remove = next((user_id for user_id, stored_sid in items_snapshot if stored_sid == sid), None)
+
+    if user_id_to_remove:
+        async with active_users_lock:
+            if active_users.get(user_id_to_remove) == sid:
+                del active_users[user_id_to_remove]
 
 @sio.event
 async def register_user(sid, data):
