@@ -7,7 +7,7 @@ def test_create_payment_success(monkeypatch):
     class DummyPayment:
         def __init__(self, payload):
             self.payload = payload
-            self.links = [SimpleNamespace(rel="approval_url", href="https://paypal/approve")]
+            self.links = [SimpleNamespace(rel="approval_url", href="https://paypal.com/approve")]
             self.id = "payment-123"
 
         def create(self):
@@ -22,12 +22,15 @@ def test_create_payment_success(monkeypatch):
 
     assert result["success"] is True
     assert result["payment_id"] == "payment-123"
-    assert result["approval_url"] == "https://paypal/approve"
+    assert result["approval_url"] == "https://paypal.com/approve"
 
 
 def test_create_payment_missing_approval_url(monkeypatch):
+    captured = {}
+
     class DummyPayment:
         def __init__(self, payload):
+            captured["payload"] = payload
             self.links = [SimpleNamespace(rel="self", href="https://paypal/self")]
             self.id = "payment-456"
 
@@ -43,6 +46,7 @@ def test_create_payment_missing_approval_url(monkeypatch):
 
     assert result["success"] is False
     assert result["error"] == "No approval_url returned"
+    assert captured["payload"]["transactions"][0]["description"] == "Product Purchase"
 
 
 def test_create_payment_failure(monkeypatch):

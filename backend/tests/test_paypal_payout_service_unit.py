@@ -11,7 +11,6 @@ def test_send_payout_success(monkeypatch):
                 payout_batch_id="batch-123",
                 batch_status="SUCCESS"
             )
-            self.error = {"message": "nope"}
 
         def create(self):
             return True
