@@ -2516,12 +2516,13 @@ async def edit_message(
     if now - created_at > MESSAGE_EDIT_WINDOW:
         raise HTTPException(status_code=400, detail="Edit window expired")
 
-    update_ops = {"$set": {"content": new_content, "edited_at": now}}
-    if "content" in message:
-        previous_edited_at = message.get("edited_at") or created_at
-        update_ops["$push"] = {
+    previous_edited_at = message.get("edited_at") or created_at
+    update_ops = {
+        "$set": {"content": new_content, "edited_at": now},
+        "$push": {
             "edit_history": {"content": message.get("content", ""), "edited_at": previous_edited_at}
         }
+    }
     await db.messages.update_one({"message_id": message_id}, update_ops)
 
     conversation_id = message.get("conversation_id")

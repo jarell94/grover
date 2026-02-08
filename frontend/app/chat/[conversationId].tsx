@@ -189,15 +189,15 @@ export default function ChatScreen() {
     if (editingMessageId) {
       try {
         const response = await api.editMessage(editingMessageId, trimmed);
-        if (!response?.edited_at) {
-          throw new Error("Missing edited_at in response");
+        if (!response?.edited_at || !response?.content) {
+          throw new Error("Invalid edit response");
         }
         setMessages((prev) =>
           prev.map((message) =>
             message.message_id === editingMessageId
               ? {
                   ...message,
-                  content: response?.content || trimmed,
+                  content: response.content,
                   edited_at: response.edited_at,
                 }
               : message
@@ -264,10 +264,7 @@ export default function ChatScreen() {
 
     return (
       <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
-        <Pressable
-          onLongPress={() => editable && startEdit(item)}
-          disabled={!editable}
-        >
+        <Pressable onLongPress={() => startEdit(item)} disabled={!editable}>
           <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
             <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
               {item.content}

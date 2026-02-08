@@ -38,6 +38,15 @@ const getBackendUrl = () => {
 const BACKEND_URL = getBackendUrl();
 console.log('Socket.IO Backend URL:', BACKEND_URL);
 
+interface MessagePayload {
+  message_id: string;
+  conversation_id?: string;
+  sender_id?: string;
+  content?: string;
+  created_at?: string;
+  edited_at?: string | null;
+}
+
 class SocketService {
   private socket: Socket | null = null;
   private isConnected: boolean = false;
@@ -142,7 +151,7 @@ class SocketService {
     return () => {};
   }
 
-  onMessageEdited(callback: (message: any) => void): () => void {
+  onMessageEdited(callback: (message: MessagePayload) => void): () => void {
     if (this.socket) {
       this.socket.on('message_edited', callback);
       return () => {
