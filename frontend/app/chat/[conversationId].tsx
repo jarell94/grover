@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
 import { api } from "../../services/api";
 import socketService from "../../services/socket";
-import { escapeRegExp } from "../../utils/text";
+import { splitHighlightedParts } from "../../utils/text";
 
 interface Message {
   message_id: string;
@@ -81,8 +81,7 @@ export default function ChatScreen() {
 
   const renderHighlightedContent = (text: string, query?: string) => {
     if (!query) return text;
-    const regex = new RegExp(`(${escapeRegExp(query)})`, "gi");
-    const parts = text.split(regex);
+    const parts = splitHighlightedParts(text, query);
     const lower = query.toLowerCase();
     return (
       <Text>
@@ -111,7 +110,11 @@ export default function ChatScreen() {
     const index = sortedMessages.findIndex((message) => message.message_id === focusMessageId);
     if (index >= 0) {
       const timeoutId = setTimeout(() => {
-        flatListRef.current?.scrollToIndex({ index, animated: true });
+        try {
+          flatListRef.current?.scrollToIndex({ index, animated: true });
+        } catch (error) {
+          if (__DEV__) console.warn("scrollToIndex failed", error);
+        }
       }, SCROLL_TO_MESSAGE_DELAY_MS);
       return () => clearTimeout(timeoutId);
     }

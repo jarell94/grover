@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { escapeRegExp } from '../../utils/text';
+import { splitHighlightedParts } from '../../utils/text';
 
 /**
  * Safe time ago formatter with proper Date validation
@@ -232,8 +232,7 @@ export default function MessagesScreen() {
 
   const renderHighlightedText = (text: string, query: string) => {
     if (!query) return <Text style={styles.searchMessageText}>{text}</Text>;
-    const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
-    const parts = text.split(regex);
+    const parts = splitHighlightedParts(text, query);
     const lower = query.toLowerCase();
     return (
       <Text style={styles.searchMessageText}>
