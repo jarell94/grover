@@ -18,6 +18,8 @@ node_modules/
 
 # Testing
 /coverage
+.coverage
+coverage.xml
 
 # Next.js
 /.next/
@@ -41,6 +43,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 dump.rdb
+package-lock.json
 
 # System files
 .DS_Store
