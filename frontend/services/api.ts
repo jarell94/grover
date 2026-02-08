@@ -208,7 +208,7 @@ const apiFormRequest = async (endpoint: string, formData: FormData) => {
 
 export const api = {
   // Auth
-  createSession: (sessionId: string) => apiRequest(`/auth/session?session_id=${sessionId}`),
+  createSession: (sessionId: string, rememberMe: boolean = false) => apiRequest(`/auth/session?session_id=${sessionId}&remember_me=${rememberMe}`),
   getMe: () => apiRequest('/auth/me'),
   logout: () => apiRequest('/auth/logout', { method: 'POST' }),
 

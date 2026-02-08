@@ -726,8 +726,14 @@ async def get_media_status():
     return get_media_service_status()
 
 @api_router.get("/auth/session")
-async def create_session(session_id: str):
-    """Exchange session_id for user data and create session"""
+async def create_session(session_id: str, remember_me: bool = False):
+    """
+    Exchange session_id for user data and create session
+    
+    Args:
+        session_id: OAuth session identifier
+        remember_me: If True, extend session to 30 days instead of 7 days
+    """
     # Validate session_id format
     if not session_id or len(session_id) > 500:
         raise HTTPException(status_code=400, detail="Invalid session ID")
@@ -772,6 +778,8 @@ async def create_session(session_id: str):
                 user_id = existing_user["user_id"]
             
             # Create or update session (avoid duplicate key error)
+            # Set expiration based on remember_me preference
+            session_duration_days = 30 if remember_me else 7
             session_token = user_data["session_token"]
             try:
                 await db.user_sessions.update_one(
@@ -780,8 +788,9 @@ async def create_session(session_id: str):
                         "$set": {
                             "user_id": user_id,
                             "session_token": session_token,
-                            "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
-                            "updated_at": datetime.now(timezone.utc)
+                            "expires_at": datetime.now(timezone.utc) + timedelta(days=session_duration_days),
+                            "updated_at": datetime.now(timezone.utc),
+                            "remember_me": remember_me  # Store preference for reference
                         },
                         "$setOnInsert": {
                             "created_at": datetime.now(timezone.utc)

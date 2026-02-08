@@ -29,6 +29,7 @@ interface AuthContextType {
   login: (args?: LoginArgs) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  setRememberMe: (value: boolean) => Promise<void>;  // NEW
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -87,7 +88,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (sessionId) {
         console.log('Calling API to create session...');
-        const response = await api.createSession(sessionId);
+        // Get remember_me preference from AsyncStorage
+        const rememberMe = await AsyncStorage.getItem('remember_me');
+        const rememberMeBool = rememberMe === 'true';
+        
+        const response = await api.createSession(sessionId, rememberMeBool);
         console.log('Session created successfully, response:', JSON.stringify(response));
         const { session_token, ...userData } = response;
         
@@ -303,8 +308,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const setRememberMe = async (value: boolean) => {
+    try {
+      await AsyncStorage.setItem('remember_me', value.toString());
+      console.log('Remember me preference set to:', value);
+    } catch (error) {
+      console.error('Failed to set remember me preference:', error);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser, setRememberMe }}>
       {children}
     </AuthContext.Provider>
   );

@@ -5,11 +5,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import Checkbox from 'expo-checkbox';
 
 export default function Index() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, setRememberMe } = useAuth();
   const router = useRouter();
   const [loggingIn, setLoggingIn] = React.useState(false);
+  const [rememberMe, setRememberMeState] = React.useState(false);
   const hasNavigated = useRef(false);
 
   useEffect(() => {
@@ -25,6 +27,7 @@ export default function Index() {
     try {
       setLoggingIn(true);
       console.log('Starting signup...');
+      await setRememberMe(rememberMe);  // Store preference before login
       await login({ mode: 'signup' });
       console.log('Signup completed');
     } catch (error) {
@@ -39,6 +42,7 @@ export default function Index() {
     try {
       setLoggingIn(true);
       console.log('Starting signin...');
+      await setRememberMe(rememberMe);  // Store preference before login
       await login({ mode: 'signin' });
       console.log('Signin completed');
     } catch (error) {
@@ -88,6 +92,23 @@ export default function Index() {
           </View>
 
           <View style={styles.authButtonsContainer}>
+            <View style={styles.rememberMeContainer}>
+              <Checkbox
+                value={rememberMe}
+                onValueChange={setRememberMeState}
+                color={rememberMe ? Colors.primary : undefined}
+                style={styles.checkbox}
+              />
+              <TouchableOpacity 
+                onPress={() => setRememberMeState(!rememberMe)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.rememberMeText}>
+                  Keep me logged in for 30 days
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <TouchableOpacity
               style={[styles.loginButton, styles.signUpButton, loggingIn && styles.loginButtonDisabled]}
               onPress={handleGoogleSignUp}
@@ -204,6 +225,23 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 16,
     marginBottom: 16,
+  },
+  rememberMeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+  },
+  rememberMeText: {
+    fontSize: 15,
+    color: '#fff',
+    opacity: 0.95,
   },
   signUpButton: {
     backgroundColor: Colors.primary,
