@@ -93,6 +93,7 @@ MESSAGE_DELETE_WINDOW = timedelta(hours=1)
 FOLLOWER_MILESTONES = [10, 50, 100, 250, 500, 1000, 5000, 10000]
 MAX_CONVERSATIONS_FOR_SEARCH = 200
 MAX_SEARCH_RESULTS = 100
+MAX_USERS_FOR_SEARCH = 200
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -2628,7 +2629,7 @@ async def search_messages(
     users = await db.users.find(
         {"user_id": {"$in": list(set(other_user_ids))}},
         {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
-    ).to_list(200)
+    ).to_list(MAX_USERS_FOR_SEARCH)
     users_map = {u["user_id"]: u for u in users}
 
     query: dict = {

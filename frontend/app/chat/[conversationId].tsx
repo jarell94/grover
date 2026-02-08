@@ -88,12 +88,13 @@ export default function ChatScreen() {
       <Text>
         {parts.map((part, index) => {
           const partLower = part.toLowerCase();
+          const key = `${part}-${index}`;
           return partLower === lower ? (
-            <Text key={index} style={styles.highlightText}>
+            <Text key={key} style={styles.highlightText}>
               {part}
             </Text>
           ) : (
-            part
+            <Text key={key}>{part}</Text>
           );
         })}
       </Text>
