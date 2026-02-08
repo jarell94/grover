@@ -1977,6 +1977,12 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
     comment = await db.comments.find_one({"comment_id": comment_id}, {"_id": 0})
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
+
+    post_owner_id = comment.get("user_id")
+    if comment.get("post_id"):
+        post = await db.posts.find_one({"post_id": comment["post_id"]}, {"user_id": 1})
+        if post:
+            post_owner_id = post.get("user_id", post_owner_id)
     
     existing = await db.comment_likes.find_one({
         "user_id": current_user.user_id,
@@ -1993,7 +1999,7 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
             {"comment_id": comment_id},
             {"$inc": {"likes_count": -1}}
         )
-        await emit_live_metrics(comment["user_id"], reason="engagement")
+        await emit_live_metrics(post_owner_id, reason="engagement")
         return {"message": "Comment unliked", "liked": False}
     else:
         # Like
@@ -2026,7 +2032,7 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         
-        await emit_live_metrics(comment["user_id"], reason="engagement")
+        await emit_live_metrics(post_owner_id, reason="engagement")
         return {"message": "Comment liked", "liked": True}
 
 @api_router.delete("/comments/{comment_id}")

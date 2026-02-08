@@ -337,7 +337,7 @@ export default function AnalyticsScreen() {
       activityCounter.current += 1;
       const eventWithId = {
         ...event,
-        id: event.notification_id || event.transaction_id || `${event.type}-${event.created_at}-${activityCounter.current}`,
+        id: event.notification_id || event.transaction_id || `event-${activityCounter.current}`,
       };
       setActivityFeed((prev) => {
         const updated = [eventWithId, ...prev];
