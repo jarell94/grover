@@ -45,8 +45,8 @@ export default function ChatScreen() {
   const userId = params.userId as string | undefined;
   const otherUserId = params.otherUserId as string | undefined;
   const otherUserName = params.otherUserName as string | undefined;
-  const previewParam = Array.isArray(params.preview) ? params.preview[0] : params.preview;
-  const previewMode = previewParam === PREVIEW_MODE_DELETED || conversationId === PREVIEW_CONVERSATION_ID;
+  const previewValue = Array.isArray(params.preview) ? params.preview[0] : params.preview;
+  const previewMode = previewValue === PREVIEW_MODE_DELETED || conversationId === PREVIEW_CONVERSATION_ID;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -95,7 +95,7 @@ export default function ChatScreen() {
         const now = new Date();
         setMessages([
           {
-            message_id: "preview_deleted",
+            message_id: "preview_deleted_message",
             sender_id: userId || "user_123",
             content: "Message deleted",
             created_at: new Date(now.getTime() - 5 * 60 * 1000).toISOString(),

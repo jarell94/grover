@@ -382,6 +382,11 @@ async def readiness_check():
 def generate_notification_id() -> str:
     return f"notif_{uuid.uuid4().hex[:12]}"
 
+def normalize_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    if value and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
 async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
     """Create a notification only if user has that type enabled"""
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -493,6 +498,19 @@ async def emit_follower_milestone(user_id: str, follower_count: int):
         "message": f"You reached {follower_count} followers!",
         "created_at": datetime.now(timezone.utc).isoformat()
     })
+
+
+async def emit_message_deleted(conversation_id: Optional[str], message_id: str, deleted_at: datetime):
+    if not conversation_id:
+        return
+    await sio.emit("message_deleted", {
+        "message_id": message_id,
+        "conversation_id": conversation_id,
+        "deleted_for_everyone": True,
+        "deleted_at": deleted_at.isoformat(),
+        "content": "Message deleted",
+        "is_deleted": True
+    }, room=f"conversation_{conversation_id}")
 
 # ============ MODELS ============
 
@@ -2638,11 +2656,9 @@ async def edit_message(
     if message.get("deleted_for_everyone"):
         raise HTTPException(status_code=400, detail="Cannot edit a deleted message")
 
-    created_at = message.get("created_at")
+    created_at = normalize_datetime(message.get("created_at"))
     if not created_at:
         raise HTTPException(status_code=400, detail="Message timestamp missing")
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
 
     now = datetime.now(timezone.utc)
     if now - created_at > MESSAGE_EDIT_WINDOW:
@@ -2708,24 +2724,15 @@ async def delete_message(
         if message.get("deleted_for_everyone"):
             conversation_id = message.get("conversation_id")
             deleted_at = message.get("deleted_at")
-            if conversation_id and deleted_at:
-                await sio.emit("message_deleted", {
-                    "message_id": message_id,
-                    "conversation_id": conversation_id,
-                    "deleted_for_everyone": True,
-                    "deleted_at": deleted_at.isoformat(),
-                    "content": "Message deleted",
-                    "is_deleted": True
-                }, room=f"conversation_{conversation_id}")
+            if deleted_at:
+                await emit_message_deleted(conversation_id, message_id, deleted_at)
             return {
                 "message_id": message_id,
                 "deleted_for_everyone": True,
                 "deleted_at": deleted_at
             }
 
-        created_at = message.get("created_at")
-        if created_at and created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
+        created_at = normalize_datetime(message.get("created_at"))
         if not created_at or datetime.now(timezone.utc) - created_at > MESSAGE_DELETE_WINDOW:
             raise HTTPException(status_code=400, detail="Cannot delete for everyone: delete window expired")
         if message.get("read") is True:
@@ -2751,14 +2758,7 @@ async def delete_message(
                     {"$set": {"last_message": "Message deleted"}}
                 )
 
-            await sio.emit("message_deleted", {
-                "message_id": message_id,
-                "conversation_id": conversation_id,
-                "deleted_for_everyone": True,
-                "deleted_at": deleted_at.isoformat(),
-                "content": "Message deleted",
-                "is_deleted": True
-            }, room=f"conversation_{conversation_id}")
+            await emit_message_deleted(conversation_id, message_id, deleted_at)
 
         return {"message_id": message_id, "deleted_for_everyone": True, "deleted_at": deleted_at}
 
