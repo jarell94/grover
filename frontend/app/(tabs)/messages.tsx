@@ -131,6 +131,33 @@ export default function MessagesScreen() {
 
   const onRefresh = () => loadConversations('refresh');
 
+  const normalizeDateInput = (value: string, boundary: 'start' | 'end') => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const isoLike = /^\d{4}-\d{2}-\d{2}T/.test(trimmed);
+    if (isoLike) return trimmed;
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+    if (dateOnly) {
+      return boundary === 'start'
+        ? `${trimmed}T00:00:00+00:00`
+        : `${trimmed}T23:59:59+00:00`;
+    }
+    return trimmed;
+  };
+
+  const resolveSenderId = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const lower = trimmed.toLowerCase();
+    if (lower === 'me' || lower === 'self') return user?.user_id;
+    if (user?.name && user.name.toLowerCase() === lower) return user.user_id;
+    const match = conversations.find((conv) => {
+      const name = conv.other_user?.name || '';
+      return name.toLowerCase() === lower;
+    });
+    return match?.other_user?.user_id || trimmed;
+  };
+
   useEffect(() => {
     const handle = setTimeout(() => {
       const runSearch = async () => {
@@ -142,11 +169,12 @@ export default function MessagesScreen() {
         }
         setSearching(true);
         try {
+          const resolvedSenderId = resolveSenderId(senderFilter);
           const results = await api.searchMessages({
             query: trimmed,
-            senderId: senderFilter.trim() || undefined,
-            startDate: startDate.trim() || undefined,
-            endDate: endDate.trim() || undefined,
+            senderId: resolvedSenderId || undefined,
+            startDate: normalizeDateInput(startDate, 'start'),
+            endDate: normalizeDateInput(endDate, 'end'),
           });
           setSearchResults(Array.isArray(results) ? results : []);
         } catch (error) {
@@ -343,21 +371,21 @@ export default function MessagesScreen() {
         <View style={styles.searchFilters}>
           <TextInput
             style={styles.filterInput}
-            placeholder="Sender ID"
+            placeholder="Sender ID or name"
             placeholderTextColor={Colors.textSecondary}
             value={senderFilter}
             onChangeText={setSenderFilter}
           />
           <TextInput
             style={styles.filterInput}
-            placeholder="Start date (YYYY-MM-DDTHH:MM:SS+00:00)"
+            placeholder="Start date (YYYY-MM-DD)"
             placeholderTextColor={Colors.textSecondary}
             value={startDate}
             onChangeText={setStartDate}
           />
           <TextInput
             style={styles.filterInput}
-            placeholder="End date (YYYY-MM-DDTHH:MM:SS+00:00)"
+            placeholder="End date (YYYY-MM-DD)"
             placeholderTextColor={Colors.textSecondary}
             value={endDate}
             onChangeText={setEndDate}
