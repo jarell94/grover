@@ -369,6 +369,11 @@ export default function ChatScreen() {
     const openMessageActions = () => {
       const actions: { text: string; onPress?: () => void; style?: "destructive" | "cancel" }[] = [];
 
+      if (isDeleted) {
+        Alert.alert("Message options", "", [{ text: "Close", style: "cancel" }]);
+        return;
+      }
+
       if (editable) {
         actions.push({ text: "Edit", onPress: () => startEdit(item) });
       }

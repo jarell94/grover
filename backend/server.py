@@ -2706,13 +2706,17 @@ async def delete_message(
         if message.get("sender_id") != current_user.user_id:
             raise HTTPException(status_code=403, detail="Not authorized to delete for everyone")
         if message.get("deleted_for_everyone"):
-            return {"message_id": message_id, "deleted_for_everyone": True}
+            return {
+                "message_id": message_id,
+                "deleted_for_everyone": True,
+                "deleted_at": message.get("deleted_at")
+            }
 
         created_at = message.get("created_at")
         if created_at and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
         if not created_at or datetime.now(timezone.utc) - created_at > MESSAGE_DELETE_WINDOW:
-            raise HTTPException(status_code=400, detail="Delete window expired")
+            raise HTTPException(status_code=400, detail="Cannot delete for everyone: delete window expired")
         if message.get("read") is True:
             raise HTTPException(status_code=400, detail="Cannot delete for everyone: message has been read")
         if message.get("edited_at") is not None:
