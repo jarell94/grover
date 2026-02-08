@@ -581,6 +581,7 @@ async def emit_message_deleted(conversation_id: Optional[str], message_id: str, 
     }, room=f"conversation_{conversation_id}")
 
 def stripe_amount(amount: float, min_amount: float = 0.01) -> int:
+    """Convert a dollar amount to Stripe's integer cents with minimum validation."""
     if amount < min_amount:
         raise HTTPException(status_code=400, detail=f"Amount must be at least ${min_amount:.2f}")
     return int(round(amount * 100))
@@ -2759,7 +2760,7 @@ async def create_stripe_subscription(
     customer_id = await get_or_create_stripe_customer(payer)
     price_id = await ensure_stripe_price(tier, user_id)
     split = calculate_revenue_split(tier["price"], "subscriptions")
-    platform_fee_percent = (split["platform_fee"] / tier["price"]) * 100 if tier["price"] else 0
+    platform_fee_percent = (split["platform_fee"] / tier["price"]) * 100 if tier.get("price", 0) > 0 else 0
 
     subscription = stripe.Subscription.create(
         customer=customer_id,
@@ -2858,7 +2859,7 @@ async def create_stripe_refund(
     current_user: User = Depends(require_auth)
 ):
     require_stripe_configured()
-    refund_amount = stripe_amount(payload.amount, min_amount=0) if payload.amount and payload.amount > 0 else None
+    refund_amount = stripe_amount(payload.amount, min_amount=0) if payload.amount is not None and payload.amount > 0 else None
     refund = stripe.Refund.create(
         payment_intent=payload.payment_intent_id,
         amount=refund_amount
@@ -2919,7 +2920,7 @@ async def stripe_webhook(request: Request):
     if event_type == "payment_intent.succeeded":
         metadata = data_object.get("metadata", {})
         record_type = metadata.get("type")
-        amount = float(metadata.get("amount") or 0)
+        amount = float(metadata.get("amount", "0"))
         if record_type == "tip":
             tip_id = metadata.get("tip_id")
             await db.tips.update_one(
