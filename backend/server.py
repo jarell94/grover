@@ -101,6 +101,7 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_CONNECT_REFRESH_URL = os.getenv("STRIPE_CONNECT_REFRESH_URL", "http://localhost:3000/stripe/refresh")
 STRIPE_CONNECT_RETURN_URL = os.getenv("STRIPE_CONNECT_RETURN_URL", "http://localhost:3000/stripe/return")
 stripe.api_key = STRIPE_SECRET_KEY
+MIN_TIP_AMOUNT = 1.0
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -2706,8 +2707,8 @@ async def create_stripe_tip(
 ):
     require_stripe_configured()
     validate_id(user_id, "user_id")
-    if payload.amount < 1:
-        raise HTTPException(status_code=400, detail="Minimum tip is $1")
+    if payload.amount < MIN_TIP_AMOUNT:
+        raise HTTPException(status_code=400, detail=f"Minimum tip is ${MIN_TIP_AMOUNT:.0f}")
     await check_monetization_enabled(user_id, "tips")
     creator_account_id = await get_stripe_account_id(user_id)
     payer = await get_user_record(current_user.user_id)
@@ -2715,11 +2716,11 @@ async def create_stripe_tip(
     split = calculate_revenue_split(payload.amount, "tips")
     tip_id = f"tip_{uuid.uuid4().hex[:12]}"
     intent = stripe.PaymentIntent.create(
-        amount=stripe_amount(payload.amount, min_amount=1),
+        amount=stripe_amount(payload.amount, min_amount=MIN_TIP_AMOUNT),
         currency=payload.currency or STRIPE_DEFAULT_CURRENCY,
         customer=customer_id,
         payment_method_types=["card"],
-        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0.01),
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0),
         transfer_data={"destination": creator_account_id},
         metadata={
             "type": "tip",
@@ -2825,7 +2826,7 @@ async def create_stripe_order(
         currency=STRIPE_DEFAULT_CURRENCY,
         customer=customer_id,
         payment_method_types=["card"],
-        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0.01),
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0),
         transfer_data={"destination": seller_account_id},
         metadata={
             "type": "marketplace",
@@ -2863,14 +2864,16 @@ async def create_stripe_refund(
         payment_intent=payload.payment_intent_id,
         amount=refund_amount
     )
-    await db.tips.update_one(
+    tip_update = await db.tips.update_one(
         {"stripe_payment_intent_id": payload.payment_intent_id},
         {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
     )
-    await db.orders.update_one(
+    order_update = await db.orders.update_one(
         {"stripe_payment_intent_id": payload.payment_intent_id},
         {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
     )
+    if tip_update.matched_count == 0 and order_update.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Payment intent not found")
     return {"refund_id": refund.id, "status": refund.status}
 
 @api_router.post("/stripe/payouts")
@@ -2880,24 +2883,24 @@ async def create_stripe_payout(
 ):
     require_stripe_configured()
     account_id = await get_stripe_account_id(current_user.user_id)
-    transfer = stripe.Transfer.create(
+    payout = stripe.Payout.create(
         amount=stripe_amount(payload.amount),
         currency=payload.currency or STRIPE_DEFAULT_CURRENCY,
-        destination=account_id,
-        metadata={"user_id": current_user.user_id}
+        metadata={"user_id": current_user.user_id},
+        stripe_account=account_id
     )
     payout_id = f"payout_{uuid.uuid4().hex[:12]}"
-    status = getattr(transfer, "status", None)
+    status = getattr(payout, "status", None)
     await db.payouts.insert_one({
         "payout_id": payout_id,
         "user_id": current_user.user_id,
         "amount": payload.amount,
         "currency": payload.currency or STRIPE_DEFAULT_CURRENCY,
-        "stripe_transfer_id": transfer.id,
+        "stripe_payout_id": payout.id,
         "status": status or "pending",
         "created_at": datetime.now(timezone.utc)
     })
-    return {"payout_id": payout_id, "stripe_transfer_id": transfer.id, "status": status}
+    return {"payout_id": payout_id, "stripe_payout_id": payout.id, "status": status}
 
 @api_router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
@@ -3000,6 +3003,14 @@ async def stripe_webhook(request: Request):
                     subscription.get("subscription_id"),
                     {"tier_id": subscription.get("tier_id")}
                 )
+
+    if event_type == "invoice.payment_failed":
+        subscription_id = data_object.get("subscription")
+        if subscription_id:
+            await db.creator_subscriptions.update_one(
+                {"stripe_subscription_id": subscription_id},
+                {"$set": {"status": "past_due", "failed_at": datetime.now(timezone.utc)}}
+            )
 
     if event_type == "customer.subscription.deleted":
         subscription_id = data_object.get("id")
