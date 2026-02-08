@@ -62,6 +62,8 @@ interface MessageSearchResult {
   };
 }
 
+const SEARCH_DEBOUNCE_MS = 300;
+
 export default function MessagesScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -153,7 +155,7 @@ export default function MessagesScreen() {
   useEffect(() => {
     const handle = setTimeout(() => {
       runSearch();
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [runSearch]);
 

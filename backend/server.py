@@ -91,6 +91,8 @@ MAX_NAME_LENGTH = 100
 MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
 MESSAGE_DELETE_WINDOW = timedelta(hours=1)
 FOLLOWER_MILESTONES = [10, 50, 100, 250, 500, 1000, 5000, 10000]
+MAX_CONVERSATIONS_FOR_SEARCH = 200
+MAX_SEARCH_RESULTS = 100
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -2610,7 +2612,7 @@ async def search_messages(
     conversations = await db.conversations.find(
         {"participants": current_user.user_id},
         {"_id": 0, "conversation_id": 1, "participants": 1}
-    ).to_list(200)
+    ).to_list(MAX_CONVERSATIONS_FOR_SEARCH)
     conversation_ids = [c["conversation_id"] for c in conversations]
     if not conversation_ids:
         return []
@@ -2656,7 +2658,7 @@ async def search_messages(
             created_filter["$lte"] = end_dt
         query["created_at"] = created_filter
 
-    messages = await db.messages.find(query, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    messages = await db.messages.find(query, {"_id": 0}).sort("created_at", -1).limit(MAX_SEARCH_RESULTS).to_list(MAX_SEARCH_RESULTS)
 
     results = []
     for message in messages:

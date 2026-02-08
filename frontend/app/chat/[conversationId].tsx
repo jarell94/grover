@@ -37,6 +37,7 @@ const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const DELETE_WINDOW_MS = 60 * 60 * 1000;
 const PREVIEW_MODE_DELETED_VALUE = "deleted";
 const PREVIEW_CONVERSATION_ID = "conv_preview";
+const SCROLL_TO_MESSAGE_DELAY_MS = 100;
 
 export default function ChatScreen() {
   const params = useLocalSearchParams();
@@ -110,7 +111,7 @@ export default function ChatScreen() {
     if (index >= 0) {
       setTimeout(() => {
         flatListRef.current?.scrollToIndex({ index, animated: true });
-      }, 100);
+      }, SCROLL_TO_MESSAGE_DELAY_MS);
     }
   }, [focusMessageId, sortedMessages]);
 
