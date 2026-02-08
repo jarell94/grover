@@ -182,7 +182,14 @@ export default function ProfileScreen() {
     ]);
   };
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
 
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => (
