@@ -6393,6 +6393,7 @@ async def disconnect(sid):
 
 @sio.event
 async def register_user(sid, data):
+    """Register a user room for live metrics and activity updates."""
     user_id = data.get("user_id")
     if user_id:
         try:

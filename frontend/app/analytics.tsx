@@ -278,7 +278,7 @@ export default function AnalyticsScreen() {
   const [activityFeed, setActivityFeed] = useState<ActivityEventPayload[]>([]);
   const activityCounter = useRef(0);
 
-  const nextActivityId = () => {
+  const generateActivityId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
       return crypto.randomUUID();
     }
@@ -345,7 +345,7 @@ export default function AnalyticsScreen() {
     const offActivity = socketService.onActivityEvent((event) => {
       const eventWithId = {
         ...event,
-        id: event.notification_id || event.transaction_id || nextActivityId(),
+        id: event.notification_id || event.transaction_id || generateActivityId(),
       };
       setActivityFeed((prev) => {
         const updated = [eventWithId, ...prev];
