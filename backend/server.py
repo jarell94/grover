@@ -88,6 +88,7 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB (increased for video uploads to cloud)
 MAX_INPUT_LENGTH = 10000  # Max characters for text input
 MAX_BIO_LENGTH = 500
 MAX_NAME_LENGTH = 100
+MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -522,6 +523,11 @@ class Message(BaseModel):
     content: str
     read: bool = False
     created_at: datetime
+    edited_at: Optional[datetime] = None
+    edit_history: Optional[List[dict]] = None
+
+class MessageEdit(BaseModel):
+    content: str
 
 class Notification(BaseModel):
     notification_id: str
@@ -2481,6 +2487,69 @@ async def get_messages(user_id: str, current_user: User = Depends(require_auth))
     )
     
     return {"conversation_id": conv["conversation_id"], "messages": messages}
+
+@api_router.patch("/messages/{message_id}")
+async def edit_message(
+    message_id: str,
+    payload: MessageEdit,
+    current_user: User = Depends(require_auth)
+):
+    """Edit a message within the allowed edit window."""
+    validate_id(message_id, "message_id")
+    new_content = sanitize_string(payload.content, MAX_INPUT_LENGTH, "message content")
+    if not new_content:
+        raise HTTPException(status_code=400, detail="Message content cannot be empty")
+
+    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if message.get("sender_id") != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this message")
+
+    created_at = message.get("created_at")
+    if not created_at:
+        raise HTTPException(status_code=400, detail="Message timestamp missing")
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    if now - created_at > MESSAGE_EDIT_WINDOW:
+        raise HTTPException(status_code=400, detail="Edit window expired")
+
+    update_ops = {"$set": {"content": new_content, "edited_at": now}}
+    if "content" in message:
+        update_ops["$push"] = {
+            "edit_history": {"content": message.get("content", ""), "edited_at": now}
+        }
+    await db.messages.update_one({"message_id": message_id}, update_ops)
+
+    conversation_id = message.get("conversation_id")
+    if conversation_id:
+        conversation = await db.conversations.find_one(
+            {"conversation_id": conversation_id},
+            {"_id": 0, "last_message": 1}
+        )
+        if conversation and conversation.get("last_message") == message.get("content"):
+            await db.conversations.update_one(
+                {"conversation_id": conversation_id},
+                {"$set": {"last_message": new_content}}
+            )
+
+        message_data = {
+            "message_id": message_id,
+            "conversation_id": conversation_id,
+            "sender_id": current_user.user_id,
+            "content": new_content,
+            "created_at": created_at.isoformat(),
+            "edited_at": now.isoformat()
+        }
+        await sio.emit("message_edited", message_data, room=f"conversation_{conversation_id}")
+
+    return {
+        "message_id": message_id,
+        "content": new_content,
+        "edited_at": now
+    }
 
 # ============ RICH MESSAGES ENDPOINTS ============
 
@@ -6208,7 +6277,8 @@ async def send_message(sid, data):
         "sender_id": sender_id,
         "content": content,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "edited_at": None
     })
     
     # Update conversation
@@ -6231,7 +6301,8 @@ async def send_message(sid, data):
         "sender_name": sender["name"] if sender else "Unknown",
         "sender_picture": sender["picture"] if sender else None,
         "content": content,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "edited_at": None
     }
     await sio.emit('new_message', message_data, room=f"conversation_{conversation_id}")
 

@@ -142,6 +142,16 @@ class SocketService {
     return () => {};
   }
 
+  onMessageEdited(callback: (message: any) => void): () => void {
+    if (this.socket) {
+      this.socket.on('message_edited', callback);
+      return () => {
+        this.socket?.off('message_edited', callback);
+      };
+    }
+    return () => {};
+  }
+
   onUserTyping(callback: (data: any) => void): () => void {
     if (this.socket) {
       this.socket.on('user_typing', callback);

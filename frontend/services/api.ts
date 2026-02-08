@@ -279,6 +279,10 @@ export const api = {
   // Messages
   getConversations: () => apiRequest('/messages/conversations'),
   getMessages: (userId: string) => apiRequest(`/messages/${userId}`),
+  editMessage: (messageId: string, content: string) => apiRequest(`/messages/${messageId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ content }),
+  }),
 
   // Analytics
   getRevenue: () => apiRequest('/analytics/revenue'),
