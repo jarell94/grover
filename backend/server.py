@@ -2759,8 +2759,9 @@ async def create_stripe_subscription(
     payer = await get_user_record(current_user.user_id)
     customer_id = await get_or_create_stripe_customer(payer)
     price_id = await ensure_stripe_price(tier, user_id)
-    split = calculate_revenue_split(tier["price"], "subscriptions")
-    platform_fee_percent = (split["platform_fee"] / tier["price"]) * 100 if tier.get("price", 0) > 0 else 0
+    tier_price = tier.get("price", 0)
+    split = calculate_revenue_split(tier_price, "subscriptions")
+    platform_fee_percent = (split["platform_fee"] / tier_price) * 100 if tier_price > 0 else 0
 
     subscription = stripe.Subscription.create(
         customer=customer_id,
@@ -2783,7 +2784,7 @@ async def create_stripe_subscription(
         "subscriber_id": current_user.user_id,
         "creator_id": user_id,
         "tier_id": payload.tier_id,
-        "amount": tier["price"],
+        "amount": tier_price,
         "platform_fee": split["platform_fee"],
         "creator_payout": split["creator_payout"],
         "status": "pending",
@@ -2859,7 +2860,7 @@ async def create_stripe_refund(
     current_user: User = Depends(require_auth)
 ):
     require_stripe_configured()
-    refund_amount = stripe_amount(payload.amount, min_amount=0) if payload.amount is not None and payload.amount > 0 else None
+    refund_amount = stripe_amount(payload.amount, min_amount=0) if payload.amount is not None else None
     refund = stripe.Refund.create(
         payment_intent=payload.payment_intent_id,
         amount=refund_amount

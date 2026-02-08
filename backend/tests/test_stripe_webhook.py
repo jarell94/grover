@@ -62,3 +62,17 @@ async def test_stripe_webhook_tip_payment(monkeypatch, mock_db):
     assert response.status_code == 200
     mock_db.tips.update_one.assert_awaited()
     server.record_transaction.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stripe_webhook_invalid_signature(monkeypatch, mock_db):
+    monkeypatch.setattr(server, "STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setattr(server, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(server.stripe, "Webhook", SimpleNamespace(
+        construct_event=lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("invalid signature"))
+    ))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/stripe/webhook", content=b"{}", headers={"stripe-signature": "bad"})
+
+    assert response.status_code == 400

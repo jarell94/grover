@@ -86,3 +86,30 @@ async def test_stripe_setup_intent(monkeypatch, mock_db, override_auth):
 
     assert response.status_code == 200
     assert response.json()["client_secret"] == "seti_secret"
+
+
+@pytest.mark.asyncio
+async def test_stripe_connect_account_existing(monkeypatch, mock_db, override_auth):
+    monkeypatch.setattr(server, "STRIPE_SECRET_KEY", "sk_test")
+    mock_db.users.find_one.return_value = {
+        "user_id": override_auth.user_id,
+        "email": override_auth.email,
+        "name": override_auth.name,
+        "stripe_account_id": "acct_existing",
+    }
+
+    account_create = MagicMock()
+    monkeypatch.setattr(server.stripe, "Account", SimpleNamespace(
+        create=account_create,
+    ))
+    monkeypatch.setattr(server.stripe, "AccountLink", SimpleNamespace(
+        create=lambda **_kwargs: SimpleNamespace(url="https://stripe.test/link")
+    ))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/stripe/connect/account")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["account_id"] == "acct_existing"
+    account_create.assert_not_called()
