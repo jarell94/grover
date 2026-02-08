@@ -38,6 +38,7 @@ export default function ChatScreen() {
   const userId = params.userId as string | undefined;
   const otherUserId = params.otherUserId as string | undefined;
   const otherUserName = params.otherUserName as string | undefined;
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
