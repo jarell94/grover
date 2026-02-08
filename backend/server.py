@@ -4125,8 +4125,8 @@ async def record_transaction(
     await emit_activity_event(to_user_id, {
         "transaction_id": transaction["transaction_id"],
         "type": "revenue",
-        "content": f"Received ${split['creator_payout']:.2f} ({transaction_type})",
-        "amount": split["creator_payout"],
+        "content": f"Received ${transaction['creator_payout']:.2f} ({transaction_type})",
+        "amount": transaction["creator_payout"],
         "created_at": transaction["created_at"].isoformat(),
     })
     

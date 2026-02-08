@@ -54,6 +54,7 @@ type ActivityEventPayload = {
   content: string;
   related_id?: string;
   created_at: string;
+  id?: string;
 };
 
 // Simple mini chart component
@@ -332,8 +333,12 @@ export default function AnalyticsScreen() {
       setLiveMetrics(payload);
     });
     const offActivity = socketService.onActivityEvent((event) => {
+      const eventWithId = {
+        ...event,
+        id: event.notification_id || event.transaction_id || `${event.type}-${event.created_at}`,
+      };
       setActivityFeed((prev) => {
-        const updated = [event, ...prev];
+        const updated = [eventWithId, ...prev];
         return updated.slice(0, 10);
       });
     });
@@ -370,7 +375,7 @@ export default function AnalyticsScreen() {
   const displayTotalPosts = liveMetrics?.total_posts ?? overview?.total_posts;
   const displayFollowers = liveMetrics?.followers_count ?? overview?.total_followers;
   const displayReactions = liveMetrics?.total_likes ?? overview?.total_reactions;
-  const displayRevenueTotal = liveMetrics?.total_revenue ?? revenueData.total;
+  const displayRevenueTotal = Number(liveMetrics?.total_revenue ?? revenueData.total ?? 0);
   const displayLikes = liveMetrics?.total_likes ?? engagementData?.likes ?? overview?.total_reactions ?? 0;
   const displayComments = liveMetrics?.total_comments ?? engagementData?.comments ?? 0;
   const displayShares = liveMetrics?.total_shares ?? engagementData?.shares ?? 0;
@@ -534,8 +539,8 @@ export default function AnalyticsScreen() {
               <Text style={styles.emptySubtext}>Live updates will appear here</Text>
             </View>
           ) : (
-            activityFeed.map((event, index) => (
-              <View key={event.notification_id || event.transaction_id || index} style={styles.activityRow}>
+            activityFeed.map((event) => (
+              <View key={event.id} style={styles.activityRow}>
                 <Ionicons name="pulse" size={18} color={Colors.info} />
                 <View style={styles.activityContent}>
                   <Text style={styles.activityText}>{event.content}</Text>
