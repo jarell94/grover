@@ -2960,33 +2960,54 @@ async def get_call_history(current_user: User = Depends(require_auth)):
 
 @api_router.get("/analytics/revenue")
 async def get_revenue_analytics(current_user: User = Depends(require_auth)):
-    orders = await db.orders.find(
-        {"seller_id": current_user.user_id},
-        {"_id": 0}
-    ).to_list(1000)
-    
-    total_revenue = sum(o["amount"] for o in orders)
-    total_orders = len(orders)
-    
-    return {
-        "total_revenue": total_revenue,
-        "total_orders": total_orders
+    cached = await cache.get_analytics(current_user.user_id, "revenue")
+    if cached:
+        return cached
+
+    pipeline = [
+        {"$match": {"seller_id": current_user.user_id}},
+        {"$group": {
+            "_id": None,
+            "total_revenue": {"$sum": "$amount"},
+            "total_orders": {"$sum": 1}
+        }}
+    ]
+    result = await db.orders.aggregate(pipeline).to_list(1)
+    stats = result[0] if result else {}
+
+    payload = {
+        "total_revenue": stats.get("total_revenue", 0),
+        "total_orders": stats.get("total_orders", 0)
     }
+    await cache.set_analytics(current_user.user_id, "revenue", payload)
+    return payload
 
 @api_router.get("/analytics/engagement")
 async def get_engagement_analytics(current_user: User = Depends(require_auth)):
-    posts_count = await db.posts.count_documents({"user_id": current_user.user_id})
-    
-    posts = await db.posts.find({"user_id": current_user.user_id}, {"_id": 0}).to_list(1000)
-    total_likes = sum(p["likes_count"] for p in posts)
-    
+    cached = await cache.get_analytics(current_user.user_id, "engagement")
+    if cached:
+        return cached
+
+    posts_pipeline = [
+        {"$match": {"user_id": current_user.user_id}},
+        {"$group": {
+            "_id": None,
+            "total_posts": {"$sum": 1},
+            "total_likes": {"$sum": {"$ifNull": ["$likes_count", 0]}}
+        }}
+    ]
+    posts_result = await db.posts.aggregate(posts_pipeline).to_list(1)
+    posts_stats = posts_result[0] if posts_result else {}
+
     followers_count = await db.follows.count_documents({"following_id": current_user.user_id})
-    
-    return {
-        "total_posts": posts_count,
-        "total_likes": total_likes,
+
+    payload = {
+        "total_posts": posts_stats.get("total_posts", 0),
+        "total_likes": posts_stats.get("total_likes", 0),
         "total_followers": followers_count
     }
+    await cache.set_analytics(current_user.user_id, "engagement", payload)
+    return payload
 
 # ============ NOTIFICATION ENDPOINTS ============
 
@@ -4266,18 +4287,38 @@ async def get_transactions(
 @api_router.get("/analytics/overview")
 async def get_analytics_overview(current_user: User = Depends(require_auth)):
     """Get analytics overview for creator"""
+    cached = await cache.get_analytics(current_user.user_id, "overview")
+    if cached:
+        return cached
+
     # Get date range (last 30 days)
     end_date = datetime.now(timezone.utc)
-    # start_date = end_date - timedelta(days=30)  # Reserved for future date filtering
-    
-    # Total posts
-    total_posts = await db.posts.count_documents({"user_id": current_user.user_id})
-    
-    # Total reactions
-    total_reactions = await db.reactions.count_documents({"post_id": {"$regex": "^post_"}})
-    user_posts = await db.posts.find({"user_id": current_user.user_id}, {"post_id": 1}).to_list(1000)
-    post_ids = [p["post_id"] for p in user_posts]
-    total_reactions = await db.reactions.count_documents({"post_id": {"$in": post_ids}})
+    start_date = (end_date - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    posts_pipeline = [
+        {"$match": {"user_id": current_user.user_id}},
+        {"$project": {
+            "reaction_total": {
+                "$sum": {
+                    "$map": {
+                        "input": {"$objectToArray": {"$ifNull": ["$reaction_counts", {}]}},
+                        "as": "rc",
+                        "in": "$$rc.v"
+                    }
+                }
+            }
+        }},
+        {"$group": {
+            "_id": None,
+            "total_posts": {"$sum": 1},
+            "total_reactions": {"$sum": "$reaction_total"}
+        }}
+    ]
+    posts_result = await db.posts.aggregate(posts_pipeline).to_list(1)
+    posts_stats = posts_result[0] if posts_result else {}
+
+    total_posts = posts_stats.get("total_posts", 0)
+    total_reactions = posts_stats.get("total_reactions", 0)
     
     # Total followers
     total_followers = await db.follows.count_documents({"following_id": current_user.user_id})
@@ -4290,34 +4331,46 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
     total_tips = tips_result[0]["total"] if tips_result else 0
     
-    # Get follower growth (last 7 days)
+    follower_growth_pipeline = [
+        {"$match": {
+            "following_id": current_user.user_id,
+            "created_at": {"$gte": start_date}
+        }},
+        {"$project": {
+            "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}}
+        }},
+        {"$group": {"_id": "$day", "new_followers": {"$sum": 1}}}
+    ]
+    follower_growth_data = await db.follows.aggregate(follower_growth_pipeline).to_list(7)
+    follower_growth_map = {item["_id"]: item["new_followers"] for item in follower_growth_data}
+
     follower_growth = []
-    for i in range(7):
+    for i in range(6, -1, -1):
         day = end_date - timedelta(days=i)
         day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(days=1)
-        
-        count = await db.follows.count_documents({
-            "following_id": current_user.user_id,
-            "created_at": {"$gte": day_start, "$lt": day_end}
-        })
-        
+        key = day_start.strftime("%Y-%m-%d")
         follower_growth.append({
             "date": day_start.isoformat(),
-            "new_followers": count
+            "new_followers": follower_growth_map.get(key, 0)
         })
-    
-    return {
+
+    payload = {
         "total_posts": total_posts,
         "total_reactions": total_reactions,
         "total_followers": total_followers,
         "total_revenue": total_tips,
-        "follower_growth": follower_growth[::-1]
+        "follower_growth": follower_growth
     }
+    await cache.set_analytics(current_user.user_id, "overview", payload)
+    return payload
 
 @api_router.get("/analytics/content-performance")
 async def get_content_performance(current_user: User = Depends(require_auth)):
     """Get top performing posts"""
+    cached = await cache.get_analytics(current_user.user_id, "content-performance")
+    if cached:
+        return cached
+
     posts = await db.posts.find(
         {"user_id": current_user.user_id},
         {"_id": 0}
@@ -4330,6 +4383,7 @@ async def get_content_performance(current_user: User = Depends(require_auth)):
         post["total_reactions"] = total_reactions
         post["engagement_score"] = total_reactions + post.get("comments_count", 0) + post.get("shares_count", 0)
     
+    await cache.set_analytics(current_user.user_id, "content-performance", posts)
     return posts
 
 # ============ CATEGORIES ENDPOINTS ============
@@ -4919,6 +4973,10 @@ async def react_to_story(
 @api_router.get("/stories/analytics")
 async def get_story_analytics(current_user: User = Depends(require_auth)):
     """Get analytics for user's stories"""
+    cached = await cache.get_analytics(current_user.user_id, "stories")
+    if cached:
+        return cached
+
     now = datetime.now(timezone.utc)
     week_ago = now - timedelta(days=7)
     
@@ -4962,28 +5020,28 @@ async def get_story_analytics(current_user: User = Depends(require_auth)):
     avg_reactions = total_reactions / total_stories if total_stories > 0 else 0
     
     # Get top viewers (users who view your stories most)
-    top_viewers_pipeline = [
-        {"$match": {"story_id": {"$in": [s["story_id"] for s in stories]}}},
-        {"$group": {"_id": "$user_id", "view_count": {"$sum": 1}}},
-        {"$sort": {"view_count": -1}},
-        {"$limit": 10}
-    ]
-    
-    top_viewers_data = await db.story_views.aggregate(top_viewers_pipeline).to_list(10)
-    
     top_viewers = []
-    for viewer in top_viewers_data:
-        user = await db.users.find_one(
-            {"user_id": viewer["_id"]},
-            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
-        )
-        if user:
-            top_viewers.append({
-                "user": user,
-                "view_count": viewer["view_count"]
-            })
-    
-    return {
+    if stories:
+        top_viewers_pipeline = [
+            {"$match": {"story_id": {"$in": [s["story_id"] for s in stories]}}},
+            {"$group": {"_id": "$user_id", "view_count": {"$sum": 1}}},
+            {"$sort": {"view_count": -1}},
+            {"$limit": 10}
+        ]
+
+        top_viewers_data = await db.story_views.aggregate(top_viewers_pipeline).to_list(10)
+        viewer_ids = [viewer["_id"] for viewer in top_viewers_data]
+        users_map = await batch_fetch_users(db, viewer_ids)
+
+        for viewer in top_viewers_data:
+            user = users_map.get(viewer["_id"])
+            if user:
+                top_viewers.append({
+                    "user": user,
+                    "view_count": viewer["view_count"]
+                })
+
+    payload = {
         "total_stories": total_stories,
         "total_views": total_views,
         "total_reactions": total_reactions,
@@ -4992,6 +5050,8 @@ async def get_story_analytics(current_user: User = Depends(require_auth)):
         "stories": story_details,
         "top_viewers": top_viewers
     }
+    await cache.set_analytics(current_user.user_id, "stories", payload)
+    return payload
 
 
 @api_router.delete("/stories/{story_id}")

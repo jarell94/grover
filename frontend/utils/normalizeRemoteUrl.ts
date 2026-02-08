@@ -1,3 +1,36 @@
+import Constants from "expo-constants";
+
+const getAssetCdnBase = (): string => {
+  return (
+    (typeof process !== "undefined" &&
+      process.env?.EXPO_PUBLIC_ASSET_CDN_URL) ||
+    Constants.expoConfig?.extra?.EXPO_PUBLIC_ASSET_CDN_URL ||
+    ""
+  );
+};
+
+const applyCdnBase = (url: string): string => {
+  const cdnBase = getAssetCdnBase();
+  if (!cdnBase) return url;
+
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    return url;
+  }
+
+  try {
+    const cdn = new URL(cdnBase);
+    if (!cdn.origin || cdn.origin === "null") return url;
+
+    const original = new URL(url);
+    const cdnPath = cdn.pathname.replace(/\/$/, "");
+    const newPath = cdnPath ? `${cdnPath}${original.pathname}` : original.pathname;
+
+    return `${cdn.origin}${newPath}${original.search}${original.hash}`;
+  } catch {
+    return url;
+  }
+};
+
 /**
  * Normalize remote URLs to ensure they have proper scheme
  * Handles Cloudinary URLs that might be missing https://
@@ -17,25 +50,25 @@ export function normalizeRemoteUrl(url?: string): string {
     u.startsWith("blob:") ||
     u.startsWith("data:")
   ) {
-    return u;
+    return applyCdnBase(u);
   }
 
   // Protocol-relative URLs (//example.com/...)
   if (u.startsWith("//")) {
-    return `https:${u}`;
+    return applyCdnBase(`https:${u}`);
   }
 
   // Cloudinary URLs missing scheme
   if (u.startsWith("res.cloudinary.com/") || u.includes("cloudinary.com/")) {
-    return `https://${u}`;
+    return applyCdnBase(`https://${u}`);
   }
 
   // Other URLs that look like they need https
   if (u.includes(".com/") || u.includes(".io/") || u.includes(".net/")) {
-    return `https://${u}`;
+    return applyCdnBase(`https://${u}`);
   }
 
-  return u; // fallback - return as-is
+  return applyCdnBase(u); // fallback - return as-is
 }
 
 /**
@@ -56,7 +89,7 @@ export function isValidMediaUrl(url: string): boolean {
  * Generate Cloudinary video thumbnail URL from video URL
  */
 export function getCloudinaryVideoThumbnail(videoUrl: string): string {
-  if (!videoUrl.includes("cloudinary.com")) return "";
+  if (!videoUrl.includes("/video/upload/")) return "";
   
   // Replace /video/upload/ with /video/upload/so_0,f_jpg/ for first frame thumbnail
   return videoUrl.replace(
@@ -69,11 +102,21 @@ export function getCloudinaryVideoThumbnail(videoUrl: string): string {
  * Generate Cloudinary optimized image URL
  */
 export function getCloudinaryOptimizedImage(imageUrl: string, width = 800): string {
-  if (!imageUrl.includes("cloudinary.com")) return imageUrl;
+  if (!imageUrl.includes("/image/upload/")) return imageUrl;
   
   // Add transformation for auto format and quality
   return imageUrl.replace(
     "/image/upload/",
     `/image/upload/f_auto,q_auto,w_${width}/`
   );
+}
+
+/**
+ * Normalize and optimize image URLs for faster loading.
+ */
+export function normalizeImageUrl(url?: string, width = 800): string {
+  if (!url) return "";
+
+  const normalized = normalizeRemoteUrl(url);
+  return getCloudinaryOptimizedImage(normalized, width);
 }
