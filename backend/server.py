@@ -98,10 +98,30 @@ ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
 
 ROOT_DIR = Path(__file__).parent
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# Initialize logger early
+logger = logging.getLogger(__name__)
+
+# MongoDB connection with proper error handling
+mongo_url = os.getenv('MONGO_URL')
+if not mongo_url:
+    raise RuntimeError(
+        "MONGO_URL environment variable is required. "
+        "Please set it to your MongoDB connection string (e.g., mongodb://localhost:27017)"
+    )
+
+db_name = os.getenv('DB_NAME')
+if not db_name:
+    raise RuntimeError(
+        "DB_NAME environment variable is required. "
+        "Please set it to your database name (e.g., grover)"
+    )
+
+try:
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[db_name]
+    logger.info(f"MongoDB client initialized for database: {db_name}")
+except Exception as e:
+    raise RuntimeError(f"Failed to connect to MongoDB: {e}")
 
 # ============ SECURITY HELPER FUNCTIONS ============
 
@@ -148,6 +168,43 @@ async def validate_file_upload(file: UploadFile, allowed_types: list = None, max
     
     return content
 
+def validate_username(username: str) -> str:
+    """
+    Validate username format.
+    Rules:
+    - 3-30 characters
+    - Alphanumeric, hyphens, underscores only
+    - Must start and end with alphanumeric
+    - No consecutive special characters
+    """
+    if not username or not isinstance(username, str):
+        raise HTTPException(status_code=400, detail="Username is required")
+    
+    username = username.strip().lower()
+    
+    if len(username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(username) > 30:
+        raise HTTPException(status_code=400, detail="Username must be at most 30 characters")
+    
+    # Check format: alphanumeric, hyphens, underscores only
+    if not re.match(r'^[a-z0-9][a-z0-9_-]*[a-z0-9]$', username):
+        raise HTTPException(
+            status_code=400, 
+            detail="Username must start and end with a letter or number, and contain only letters, numbers, hyphens, and underscores"
+        )
+    
+    # No consecutive special characters
+    if '--' in username or '__' in username or '_-' in username or '-_' in username:
+        raise HTTPException(status_code=400, detail="Username cannot contain consecutive special characters")
+    
+    # Reserved usernames
+    reserved = ['admin', 'api', 'app', 'grover', 'system', 'support', 'help', 'about', 'settings', 'auth', 'login', 'logout', 'signup', 'register']
+    if username in reserved:
+        raise HTTPException(status_code=400, detail="This username is reserved")
+    
+    return username
+
 # CORS configuration from environment
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 # In development, allow all origins; in production, specify domains
@@ -188,9 +245,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Logging configuration - environment-aware
+log_level = logging.DEBUG if ENVIRONMENT == "development" else logging.INFO
+logging.basicConfig(
+    level=log_level,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Console output
+    ]
+)
+logger.info(f"Logging initialized at {log_level} level for environment: {ENVIRONMENT}")
 
 # ============ DATABASE INDEXES ============
 
@@ -221,13 +285,19 @@ async def create_indexes():
     # ========== USERS COLLECTION ==========
     await safe_create_index(db.users, "user_id", unique=True, background=True, name="users_user_id_unique")
     await safe_create_index(db.users, "email", unique=True, background=True, name="users_email_unique")
+    await safe_create_index(db.users, "username", unique=True, background=True, sparse=True, name="users_username_unique")
     await safe_create_index(db.users, [("name", "text")], background=True, name="users_name_text")
     await safe_create_index(db.users, "is_premium", background=True, name="users_is_premium")
+    await safe_create_index(db.users, "is_verified", background=True, name="users_is_verified")
+    await safe_create_index(db.users, "verification_type", background=True, name="users_verification_type")
+    await safe_create_index(db.users, "is_admin", background=True, name="users_is_admin")
     
     # ========== POSTS COLLECTION ==========
     await safe_create_index(db.posts, "post_id", unique=True, background=True, name="posts_post_id_unique")
     await safe_create_index(db.posts, [("user_id", 1), ("created_at", -1)], background=True, name="posts_user_created")
     await safe_create_index(db.posts, [("created_at", -1)], background=True, name="posts_created_desc")
+    await safe_create_index(db.posts, "collaborators", background=True, sparse=True, name="posts_collaborators")
+    await safe_create_index(db.posts, "is_collaboration", background=True, name="posts_is_collaboration")
     await safe_create_index(db.posts, [("likes_count", -1), ("created_at", -1)], background=True, name="posts_popular")
     await safe_create_index(db.posts, [("user_id", 1), ("media_type", 1), ("created_at", -1)], background=True, name="posts_user_media")
     await safe_create_index(db.posts, "original_post_id", background=True, sparse=True, name="posts_original_post")
@@ -261,6 +331,12 @@ async def create_indexes():
     await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
     await safe_create_index(db.conversations, "participants", background=True, name="conversations_participants")
     await safe_create_index(db.conversations, [("participants", 1), ("updated_at", -1)], background=True, name="conversations_participants_updated")
+    await safe_create_index(db.conversations, [("is_group", 1), ("updated_at", -1)], background=True, name="conversations_group_updated")
+    
+    # ========== MESSAGE REACTIONS COLLECTION ==========
+    await safe_create_index(db.message_reactions, "reaction_id", unique=True, background=True, name="message_reactions_id_unique")
+    await safe_create_index(db.message_reactions, [("message_id", 1), ("user_id", 1)], unique=True, background=True, name="message_reactions_msg_user_unique")
+    await safe_create_index(db.message_reactions, "message_id", background=True, name="message_reactions_message")
     
     # ========== NOTIFICATIONS COLLECTION ==========
     await safe_create_index(db.notifications, "notification_id", unique=True, background=True, name="notifications_id_unique")
@@ -271,6 +347,14 @@ async def create_indexes():
     await safe_create_index(db.stories, "story_id", unique=True, background=True, name="stories_story_id_unique")
     await safe_create_index(db.stories, [("user_id", 1), ("expires_at", 1)], background=True, name="stories_user_expires")
     await safe_create_index(db.stories, "expires_at", expireAfterSeconds=0, background=True, name="stories_ttl")
+    
+    # ========== STORY ARCHIVES COLLECTION ==========
+    await safe_create_index(db.story_archives, "archive_id", unique=True, background=True, name="story_archives_id_unique")
+    await safe_create_index(db.story_archives, [("user_id", 1), ("archived_at", -1)], background=True, name="story_archives_user_archived")
+    
+    # ========== STORY DRAFTS COLLECTION ==========
+    await safe_create_index(db.story_drafts, "draft_id", unique=True, background=True, name="story_drafts_id_unique")
+    await safe_create_index(db.story_drafts, [("user_id", 1), ("updated_at", -1)], background=True, name="story_drafts_user_updated")
     
     # ========== SAVED POSTS COLLECTION ==========
     await safe_create_index(db.saved_posts, [("user_id", 1), ("post_id", 1)], unique=True, background=True, name="saved_posts_unique")
@@ -301,19 +385,71 @@ async def create_indexes():
     await safe_create_index(db.sessions, "user_id", background=True, name="sessions_user")
     await safe_create_index(db.sessions, "expires_at", expireAfterSeconds=0, background=True, name="sessions_ttl")
     
+    # ========== SUBSCRIPTION TIERS COLLECTION ==========
+    await safe_create_index(db.subscription_tiers, "tier_id", unique=True, background=True, name="subscription_tiers_id_unique")
+    await safe_create_index(db.subscription_tiers, [("creator_id", 1), ("active", 1)], background=True, name="subscription_tiers_creator_active")
+    
+    # ========== CREATOR SUBSCRIPTIONS COLLECTION ==========
+    await safe_create_index(db.creator_subscriptions, "subscription_id", unique=True, background=True, name="creator_subscriptions_id_unique")
+    await safe_create_index(db.creator_subscriptions, [("subscriber_id", 1), ("status", 1)], background=True, name="creator_subscriptions_subscriber_status")
+    await safe_create_index(db.creator_subscriptions, [("creator_id", 1), ("status", 1)], background=True, name="creator_subscriptions_creator_status")
+    await safe_create_index(db.creator_subscriptions, [("subscriber_id", 1), ("creator_id", 1)], background=True, name="creator_subscriptions_sub_creator")
+    
+    # ========== SUPPORTER BADGES COLLECTION ==========
+    await safe_create_index(db.supporter_badges, [("user_id", 1), ("creator_id", 1)], unique=True, background=True, name="supporter_badges_user_creator_unique")
+    await safe_create_index(db.supporter_badges, "user_id", background=True, name="supporter_badges_user")
+    
     logger.info(f"Database indexes: {indexes_created} created, {indexes_skipped} already exist")
 
 @app.on_event("startup")
 async def startup_event():
-    """Run on application startup"""
-    await create_indexes()
-    # Initialize Redis cache
-    cache_connected = await init_cache()
-    if cache_connected:
-        logger.info("Redis cache connected")
-    else:
-        logger.warning("Redis cache not available - running without caching")
-    logger.info("Application startup complete")
+    """
+    Run on application startup.
+    Initializes all services, creates database indexes, and starts background workers.
+    """
+    logger.info("Starting application initialization...")
+    
+    # 1. Create database indexes
+    try:
+        await create_indexes()
+        logger.info("✓ Database indexes created/verified")
+    except Exception as e:
+        logger.error(f"✗ Failed to create indexes: {e}")
+        # Don't fail startup, but log the error
+    
+    # 2. Initialize Redis cache
+    try:
+        cache_connected = await init_cache()
+        if cache_connected:
+            logger.info("✓ Redis cache connected")
+        else:
+            logger.warning("⚠ Redis cache not available - running without caching")
+    except Exception as e:
+        logger.warning(f"⚠ Redis initialization failed: {e} - running without caching")
+    
+    # 3. Start scheduled posts worker
+    try:
+        asyncio.create_task(scheduled_posts_worker())
+        logger.info("✓ Scheduled posts worker started")
+    except Exception as e:
+        logger.error(f"✗ Failed to start scheduled posts worker: {e}")
+    
+    # 4. Start story cleanup worker
+    try:
+        asyncio.create_task(story_cleanup_worker())
+        logger.info("✓ Story cleanup worker started")
+    except Exception as e:
+        logger.error(f"✗ Failed to start story cleanup worker: {e}")
+    
+    logger.info("=" * 50)
+    logger.info("Application startup complete!")
+    logger.info(f"Environment: {ENVIRONMENT}")
+    logger.info(f"MongoDB: {db_name}")
+    logger.info(f"Redis: {'Connected' if cache.connected else 'Not available'}")
+    logger.info(f"Cloudinary: {'Configured' if CLOUDINARY_CONFIGURED else 'Not configured'}")
+    logger.info(f"Agora: {'Available' if AGORA_AVAILABLE else 'Not available'}")
+    logger.info(f"Sentry: {'Enabled' if SENTRY_DSN else 'Disabled'}")
+    logger.info("=" * 50)
 
 # ============ HEALTH CHECK ENDPOINT ============
 
@@ -417,11 +553,19 @@ class User(BaseModel):
     user_id: str
     email: str
     name: str
+    username: Optional[str] = None  # Unique, URL-safe identifier (e.g., @johndoe)
     picture: Optional[str] = None
     bio: Optional[str] = ""
     is_premium: bool = False
     is_private: bool = False
+    is_admin: bool = False  # Admin role for platform moderation
     monetization_enabled: bool = False  # Creator monetization toggle (tips, subscriptions, paid content)
+    # Verification fields
+    is_verified: bool = False
+    verification_type: Optional[str] = None  # "verified", "creator", "business"
+    verified_at: Optional[datetime] = None
+    verification_note: Optional[str] = None
+    # Social links
     website: Optional[str] = None
     twitter: Optional[str] = None
     instagram: Optional[str] = None
@@ -454,6 +598,10 @@ class Post(BaseModel):
     is_repost: bool = False
     original_post_id: Optional[str] = None  # If this is a repost, reference to original
     repost_comment: Optional[str] = None  # User's commentary on the repost
+    # Collaboration fields
+    is_collaboration: bool = False
+    collaborators: List[str] = []  # List of user_ids (co-authors)
+    collaborator_status: Optional[dict] = {}  # {user_id: "pending"|"accepted"|"declined"}
     # Poll data (optional)
     has_poll: bool = False
     poll_question: Optional[str] = None
@@ -580,8 +728,14 @@ async def get_media_status():
     return get_media_service_status()
 
 @api_router.get("/auth/session")
-async def create_session(session_id: str):
-    """Exchange session_id for user data and create session"""
+async def create_session(session_id: str, remember_me: bool = False):
+    """
+    Exchange session_id for user data and create session
+    
+    Args:
+        session_id: OAuth session identifier
+        remember_me: If True, extend session to 30 days instead of 7 days
+    """
     # Validate session_id format
     if not session_id or len(session_id) > 500:
         raise HTTPException(status_code=400, detail="Invalid session ID")
@@ -616,12 +770,18 @@ async def create_session(session_id: str):
                     "is_premium": False,
                     "is_private": False,
                     "monetization_enabled": False,  # Monetization OFF by default
+                    "is_verified": False,  # Verification OFF by default
+                    "verification_type": None,
+                    "verified_at": None,
+                    "verification_note": None,
                     "created_at": datetime.now(timezone.utc)
                 })
             else:
                 user_id = existing_user["user_id"]
             
             # Create or update session (avoid duplicate key error)
+            # Set expiration based on remember_me preference
+            session_duration_days = 30 if remember_me else 7
             session_token = user_data["session_token"]
             try:
                 await db.user_sessions.update_one(
@@ -630,8 +790,9 @@ async def create_session(session_id: str):
                         "$set": {
                             "user_id": user_id,
                             "session_token": session_token,
-                            "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
-                            "updated_at": datetime.now(timezone.utc)
+                            "expires_at": datetime.now(timezone.utc) + timedelta(days=session_duration_days),
+                            "updated_at": datetime.now(timezone.utc),
+                            "remember_me": remember_me  # Store preference for reference
                         },
                         "$setOnInsert": {
                             "created_at": datetime.now(timezone.utc)
@@ -734,6 +895,7 @@ async def get_user_media(
 @api_router.put("/users/me")
 async def update_profile(
     name: Optional[str] = None, 
+    username: Optional[str] = None,  # NEW: Username field
     bio: Optional[str] = None, 
     is_private: Optional[bool] = None,
     monetization_enabled: Optional[bool] = None,  # Creator monetization toggle
@@ -749,6 +911,21 @@ async def update_profile(
     # Security: Sanitize and validate all inputs
     if name is not None:
         update_data["name"] = sanitize_string(name, MAX_NAME_LENGTH, "name")
+    
+    # Handle username update with validation and uniqueness check
+    if username is not None:
+        validated_username = validate_username(username)
+        
+        # Check if username is taken by another user
+        existing = await db.users.find_one(
+            {"username": validated_username, "user_id": {"$ne": current_user.user_id}},
+            {"_id": 0, "user_id": 1}
+        )
+        if existing:
+            raise HTTPException(status_code=400, detail="Username is already taken")
+        
+        update_data["username"] = validated_username
+    
     if bio is not None:
         update_data["bio"] = sanitize_string(bio, MAX_BIO_LENGTH, "bio")
     if is_private is not None:
@@ -781,6 +958,25 @@ async def update_profile(
         )
     
     return {"message": "Profile updated"}
+
+@api_router.get("/users/check-username/{username}")
+async def check_username_availability(username: str):
+    """Check if a username is available"""
+    try:
+        validated_username = validate_username(username)
+        existing = await db.users.find_one(
+            {"username": validated_username},
+            {"_id": 0, "user_id": 1}
+        )
+        return {
+            "available": existing is None,
+            "username": validated_username
+        }
+    except HTTPException as e:
+        return {
+            "available": False,
+            "error": e.detail
+        }
 
 @api_router.put("/users/me/notification-settings")
 async def update_notification_settings(
@@ -1135,12 +1331,22 @@ async def create_post(
     poll_question: Optional[str] = Form(None),
     poll_options: Optional[str] = Form(None),  # JSON string
     poll_duration_hours: Optional[int] = Form(24),
+    is_exclusive: Optional[bool] = Form(False),
+    min_tier_id: Optional[str] = Form(None),
+    collaborators: Optional[str] = Form(None),  # Comma-separated user_ids
     current_user: User = Depends(require_auth)
 ):
     # Security: Sanitize and validate content
     content = sanitize_string(content or "", MAX_INPUT_LENGTH, "content")
     location = sanitize_string(location or "", 200, "location") if location else None
     poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
+    
+    # Check if exclusive content requires monetization
+    if is_exclusive and not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="You must enable monetization to create exclusive content."
+        )
     
     # Validate that at least some content exists
     if not content and not media and not poll_question:
@@ -1174,6 +1380,22 @@ async def create_post(
     if tagged_users:
         tagged_user_list = [u.strip() for u in tagged_users.split(',') if u.strip()]
     
+    # Parse collaborators
+    collaborator_list = []
+    collaborator_status_dict = {}
+    is_collaboration = False
+    if collaborators:
+        collaborator_list = [u.strip() for u in collaborators.split(',') if u.strip()]
+        # Remove duplicates and self
+        collaborator_list = [u for u in collaborator_list if u != current_user.user_id]
+        collaborator_list = list(set(collaborator_list))
+        
+        if collaborator_list:
+            is_collaboration = True
+            # Set all collaborators to pending initially
+            for collab_id in collaborator_list:
+                collaborator_status_dict[collab_id] = "pending"
+    
     # Parse poll data
     has_poll = False
     poll_options_list = None
@@ -1202,6 +1424,11 @@ async def create_post(
         "tagged_users": tagged_user_list,
         "location": location,
         "has_poll": has_poll,
+        "is_exclusive": is_exclusive or False,
+        "min_tier_id": min_tier_id if is_exclusive else None,
+        "is_collaboration": is_collaboration,
+        "collaborators": collaborator_list,
+        "collaborator_status": collaborator_status_dict,
         "created_at": datetime.now(timezone.utc)
     }
     
@@ -1223,7 +1450,22 @@ async def create_post(
                 post_id
             )
     
-    return {"post_id": post_id, "message": "Post created"}
+    # Create notifications for collaborators
+    for collab_id in collaborator_list:
+        await create_notification(
+            collab_id,
+            "collaboration_invite",
+            f"{current_user.name} invited you to collaborate on a post",
+            post_id
+        )
+    
+    return {
+        "post_id": post_id, 
+        "message": "Post created", 
+        "is_exclusive": is_exclusive,
+        "is_collaboration": is_collaboration,
+        "collaborators": collaborator_list
+    }
 
 @api_router.post("/posts/{post_id}/react")
 async def react_to_post(
@@ -2715,6 +2957,235 @@ async def remove_group_member(
     
     return {"message": "Member removed"}
 
+# ============ MESSAGE REACTIONS ENDPOINTS ============
+
+# Allowed emoji reactions (shared constant)
+ALLOWED_REACTION_EMOJIS = ["❤️", "😂", "😮", "😢", "👍", "🔥", "🎉", "👏", "🙏", "💯"]
+
+class MessageReactionData(BaseModel):
+    emoji: str
+
+@api_router.post("/messages/{message_id}/reactions")
+async def add_message_reaction(
+    message_id: str,
+    data: MessageReactionData,
+    current_user: User = Depends(require_auth)
+):
+    """Add or remove emoji reaction to a message"""
+    validate_id(message_id, "message_id")
+    
+    # Validate emoji
+    if data.emoji not in ALLOWED_REACTION_EMOJIS:
+        raise HTTPException(status_code=400, detail="Invalid emoji")
+    
+    # Check if message exists
+    message = await db.messages.find_one({"message_id": message_id})
+    group_message = None
+    if not message:
+        group_message = await db.group_messages.find_one({"message_id": message_id})
+        if not group_message:
+            raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Check if reaction already exists
+    existing = await db.message_reactions.find_one({
+        "message_id": message_id,
+        "user_id": current_user.user_id,
+        "emoji": data.emoji
+    })
+    
+    if existing:
+        # Remove reaction (toggle off)
+        await db.message_reactions.delete_one({"_id": existing["_id"]})
+        action = "removed"
+    else:
+        # Add reaction
+        reaction_id = f"react_{uuid.uuid4().hex[:12]}"
+        await db.message_reactions.insert_one({
+            "reaction_id": reaction_id,
+            "message_id": message_id,
+            "user_id": current_user.user_id,
+            "emoji": data.emoji,
+            "created_at": datetime.now(timezone.utc)
+        })
+        action = "added"
+        
+        # Notify message sender (if not self)
+        target_message = message or group_message
+        if target_message["sender_id"] != current_user.user_id:
+            await create_notification(
+                target_message["sender_id"],
+                "message_reaction",
+                f"{current_user.name} reacted {data.emoji} to your message",
+                message_id
+            )
+    
+    # Get updated reaction counts
+    reactions = await db.message_reactions.find(
+        {"message_id": message_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Group by emoji
+    reaction_counts = {}
+    for r in reactions:
+        emoji_key = r["emoji"]
+        if emoji_key not in reaction_counts:
+            reaction_counts[emoji_key] = []
+        reaction_counts[emoji_key].append({
+            "user_id": r["user_id"],
+            "created_at": r["created_at"]
+        })
+    
+    # Emit Socket.IO event for real-time update
+    conversation_id = target_message.get("conversation_id") or target_message.get("group_id")
+    if conversation_id:
+        await sio.emit('message:reaction', {
+            "message_id": message_id,
+            "user_id": current_user.user_id,
+            "emoji": data.emoji,
+            "action": action,
+            "reaction_counts": reaction_counts
+        }, room=f"conversation_{conversation_id}")
+    
+    return {
+        "action": action,
+        "emoji": data.emoji,
+        "reaction_counts": reaction_counts
+    }
+
+@api_router.get("/messages/{message_id}/reactions")
+async def get_message_reactions(
+    message_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get all reactions for a message"""
+    validate_id(message_id, "message_id")
+    
+    reactions = await db.message_reactions.find(
+        {"message_id": message_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Enrich with user data
+    for reaction in reactions:
+        user = await db.users.find_one(
+            {"user_id": reaction["user_id"]},
+            {"_id": 0, "name": 1, "picture": 1}
+        )
+        reaction["user"] = user
+    
+    # Group by emoji
+    grouped = {}
+    for r in reactions:
+        emoji = r["emoji"]
+        if emoji not in grouped:
+            grouped[emoji] = []
+        grouped[emoji].append({
+            "user": r["user"],
+            "created_at": r["created_at"]
+        })
+    
+    return grouped
+
+@api_router.delete("/messages/{message_id}/reactions/{emoji}")
+async def remove_message_reaction(
+    message_id: str,
+    emoji: str,
+    current_user: User = Depends(require_auth)
+):
+    """Remove specific emoji reaction from message"""
+    validate_id(message_id, "message_id")
+    
+    result = await db.message_reactions.delete_one({
+        "message_id": message_id,
+        "user_id": current_user.user_id,
+        "emoji": emoji
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Reaction not found")
+    
+    return {"message": "Reaction removed"}
+
+# ============ READ RECEIPTS & TYPING ENDPOINTS ============
+
+@api_router.post("/messages/{message_id}/read")
+async def mark_message_read(
+    message_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Mark a message as read"""
+    validate_id(message_id, "message_id")
+    
+    # Update direct message
+    message = await db.messages.find_one({"message_id": message_id})
+    if message:
+        if message["sender_id"] != current_user.user_id:
+            await db.messages.update_one(
+                {"message_id": message_id},
+                {"$set": {"read": True, "read_at": datetime.now(timezone.utc)}}
+            )
+            
+            # Emit Socket.IO event
+            conversation_id = message.get("conversation_id")
+            if conversation_id:
+                await sio.emit('message:read', {
+                    "message_id": message_id,
+                    "user_id": current_user.user_id,
+                    "read_at": datetime.now(timezone.utc).isoformat()
+                }, room=f"conversation_{conversation_id}")
+    else:
+        # Update group message
+        group_message = await db.group_messages.find_one({"message_id": message_id})
+        if group_message:
+            await db.group_messages.update_one(
+                {"message_id": message_id},
+                {
+                    "$addToSet": {"read_by": current_user.user_id},
+                    "$set": {f"read_at.{current_user.user_id}": datetime.now(timezone.utc)}
+                }
+            )
+            
+            # Emit Socket.IO event
+            group_id = group_message.get("group_id")
+            if group_id:
+                await sio.emit('message:read', {
+                    "message_id": message_id,
+                    "user_id": current_user.user_id,
+                    "read_at": datetime.now(timezone.utc).isoformat()
+                }, room=f"conversation_{group_id}")
+        else:
+            raise HTTPException(status_code=404, detail="Message not found")
+    
+    return {"message": "Message marked as read"}
+
+@api_router.get("/conversations/{conversation_id}/unread-count")
+async def get_unread_count(
+    conversation_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get unread message count for a conversation"""
+    validate_id(conversation_id, "conversation_id")
+    
+    # Check if it's a group or 1:1 conversation
+    group = await db.groups.find_one({"group_id": conversation_id})
+    if group:
+        # Group chat - count messages not in read_by array
+        count = await db.group_messages.count_documents({
+            "group_id": conversation_id,
+            "sender_id": {"$ne": current_user.user_id},
+            "read_by": {"$ne": current_user.user_id}
+        })
+    else:
+        # 1:1 conversation
+        count = await db.messages.count_documents({
+            "conversation_id": conversation_id,
+            "sender_id": {"$ne": current_user.user_id},
+            "read": False
+        })
+    
+    return {"unread_count": count}
+
 # ============ COMMUNITIES ENDPOINTS ============
 
 @api_router.post("/communities/create")
@@ -2960,18 +3431,114 @@ async def get_call_history(current_user: User = Depends(require_auth)):
 
 @api_router.get("/analytics/revenue")
 async def get_revenue_analytics(current_user: User = Depends(require_auth)):
-    orders = await db.orders.find(
-        {"seller_id": current_user.user_id},
-        {"_id": 0}
-    ).to_list(1000)
-    
-    total_revenue = sum(o["amount"] for o in orders)
-    total_orders = len(orders)
-    
-    return {
-        "total_revenue": total_revenue,
-        "total_orders": total_orders
-    }
+    """Enhanced revenue analytics with breakdown by source"""
+    try:
+        # Marketplace revenue
+        orders = await db.orders.find(
+            {"seller_id": current_user.user_id, "status": "completed"},
+            {"_id": 0, "amount": 1, "created_at": 1}
+        ).to_list(10000)
+        
+        marketplace_revenue = sum(o.get("amount", 0) for o in orders)
+        
+        # Tips revenue
+        tips_pipeline = [
+            {"$match": {"to_user_id": current_user.user_id, "status": "completed"}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]
+        tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
+        tips_revenue = tips_result[0]["total"] if tips_result else 0
+        
+        # Subscription revenue
+        subs_pipeline = [
+            {"$match": {"creator_id": current_user.user_id, "status": "active"}},
+            {"$lookup": {
+                "from": "subscription_tiers",
+                "localField": "tier_id",
+                "foreignField": "tier_id",
+                "as": "tier"
+            }},
+            {"$unwind": "$tier"},
+            {"$group": {"_id": None, "total": {"$sum": "$tier.price"}}}
+        ]
+        subs_result = await db.creator_subscriptions.aggregate(subs_pipeline).to_list(1)
+        subscription_revenue = (subs_result[0]["total"] if subs_result else 0) * 0.85  # 85% payout
+        
+        # Total revenue
+        total_revenue = marketplace_revenue + tips_revenue + subscription_revenue
+        
+        # Time-series data (last 30 days)
+        end_date = datetime.now(timezone.utc)
+        revenue_timeline = []
+        
+        for i in range(30):
+            day = end_date - timedelta(days=i)
+            day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            
+            # Tips revenue for this day
+            tips_pipeline = [
+                {
+                    "$match": {
+                        "to_user_id": current_user.user_id,
+                        "status": "completed",
+                        "created_at": {"$gte": day_start, "$lt": day_end}
+                    }
+                },
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+            ]
+            day_tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
+            day_tips = day_tips_result[0]["total"] if day_tips_result else 0
+            
+            # Orders revenue for this day
+            orders_pipeline = [
+                {
+                    "$match": {
+                        "seller_id": current_user.user_id,
+                        "status": "completed",
+                        "created_at": {"$gte": day_start, "$lt": day_end}
+                    }
+                },
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+            ]
+            day_orders_result = await db.orders.aggregate(orders_pipeline).to_list(1)
+            day_orders = day_orders_result[0]["total"] if day_orders_result else 0
+            
+            revenue_timeline.append({
+                "date": day_start.isoformat(),
+                "tips": round(day_tips, 2),
+                "orders": round(day_orders, 2),
+                "total": round(day_tips + day_orders, 2)
+            })
+        
+        # Calculate growth rate
+        follower_count = await db.follows.count_documents({"following_id": current_user.user_id})
+        avg_revenue_per_follower = total_revenue / follower_count if follower_count > 0 else 0
+        
+        return {
+            "total_revenue": round(total_revenue, 2),
+            "tips": round(tips_revenue, 2),
+            "subscriptions": round(subscription_revenue, 2),
+            "marketplace": round(marketplace_revenue, 2),
+            "total_orders": len(orders),
+            "revenue_timeline": revenue_timeline[::-1],  # Reverse for chronological order
+            "avg_revenue_per_follower": round(avg_revenue_per_follower, 2),
+            "pending_revenue": 0,  # Could track pending payouts
+            "completed_revenue": round(total_revenue, 2)
+        }
+    except Exception as e:
+        logging.error(f"Error getting revenue analytics: {e}")
+        return {
+            "total_revenue": 0,
+            "tips": 0,
+            "subscriptions": 0,
+            "marketplace": 0,
+            "total_orders": 0,
+            "revenue_timeline": [],
+            "avg_revenue_per_follower": 0,
+            "pending_revenue": 0,
+            "completed_revenue": 0
+        }
 
 @api_router.get("/analytics/engagement")
 async def get_engagement_analytics(current_user: User = Depends(require_auth)):
@@ -3716,13 +4283,21 @@ async def scheduled_posts_worker():
         await asyncio.sleep(60)  # Check every minute
 
 
-# Start the worker on app startup
-@app.on_event("startup")
-async def start_scheduled_posts_worker():
-    """Start the scheduled posts background worker"""
-    asyncio.create_task(scheduled_posts_worker())
-    logger.info("Scheduled posts worker started")
+# Scheduled posts worker is now started in the main startup_event handler
 
+# ============ STORY CLEANUP BACKGROUND WORKER ============
+
+async def story_cleanup_worker():
+    """Background worker to clean up expired stories every hour"""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Wait 1 hour
+            await cleanup_expired_stories()
+        except Exception as e:
+            logger.error(f"Story cleanup worker error: {e}")
+
+
+# Story cleanup worker is now started in the main startup_event handler
 
 # ============ TIPS/DONATIONS ENDPOINTS ============
 
@@ -4080,6 +4655,307 @@ async def get_my_subscribers(current_user: User = Depends(require_auth)):
     return subscriptions
 
 
+# ============ EXCLUSIVE CONTENT & BADGES ============
+
+# Badge tier thresholds (in days)
+BADGE_BRONZE_DAYS = 0
+BADGE_SILVER_DAYS = 90  # 3 months
+BADGE_GOLD_DAYS = 180   # 6 months  
+BADGE_DIAMOND_DAYS = 365 # 12 months
+
+# Subscription constants
+SUBSCRIPTION_PLATFORM_FEE = 0.15  # 15% platform fee
+SUBSCRIPTION_CREATOR_PAYOUT = 0.85  # 85% creator payout
+
+async def check_subscription_access(subscriber_id: str, creator_id: str, min_tier: Optional[str] = None) -> bool:
+    """Check if a user has active subscription to a creator"""
+    query = {
+        "subscriber_id": subscriber_id,
+        "creator_id": creator_id,
+        "status": "active"
+    }
+    subscription = await db.creator_subscriptions.find_one(query)
+    return subscription is not None
+
+
+async def calculate_supporter_badge(subscriber_id: str, creator_id: str) -> dict:
+    """Calculate supporter badge tier based on subscription duration and tier"""
+    subscription = await db.creator_subscriptions.find_one({
+        "subscriber_id": subscriber_id,
+        "creator_id": creator_id,
+        "status": "active"
+    })
+    
+    if not subscription:
+        return None
+    
+    # Calculate subscription duration in days (more precise than months)
+    started_at = subscription["started_at"]
+    now = datetime.now(timezone.utc)
+    duration_days = (now - started_at).days
+    duration_months = duration_days // 30  # Approximate months for display
+    
+    # Get tier info
+    tier = await db.subscription_tiers.find_one({"tier_id": subscription["tier_id"]})
+    
+    # Determine badge level based on duration
+    if duration_days >= BADGE_DIAMOND_DAYS:
+        badge_level = "Diamond"
+        badge_color = "#B9F2FF"  # Light blue
+        badge_icon = "💎"
+    elif duration_days >= BADGE_GOLD_DAYS:
+        badge_level = "Gold"
+        badge_color = "#FFD700"
+        badge_icon = "👑"
+    elif duration_days >= BADGE_SILVER_DAYS:
+        badge_level = "Silver"
+        badge_color = "#C0C0C0"
+        badge_icon = "⭐"
+    else:
+        badge_level = "Bronze"
+        badge_color = "#CD7F32"
+        badge_icon = "🥉"
+    
+    badge_data = {
+        "badge_level": badge_level,
+        "badge_color": badge_color,
+        "badge_icon": badge_icon,
+        "tier_name": tier.get("name", "Supporter") if tier else "Supporter",
+        "duration_months": duration_months,
+        "subscriber_since": started_at.isoformat()
+    }
+    
+    # Update or create badge record
+    await db.supporter_badges.update_one(
+        {"user_id": subscriber_id, "creator_id": creator_id},
+        {
+            "$set": {
+                **badge_data,
+                "updated_at": now
+            },
+            "$setOnInsert": {
+                "badge_id": f"badge_{uuid.uuid4().hex[:12]}",
+                "created_at": now
+            }
+        },
+        upsert=True
+    )
+    
+    return badge_data
+
+
+@api_router.get("/users/{user_id}/subscription-status/{creator_id}")
+async def check_subscription_status(
+    user_id: str,
+    creator_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Check if a user is subscribed to a creator"""
+    if user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Can only check your own subscription status")
+    
+    subscription = await db.creator_subscriptions.find_one({
+        "subscriber_id": user_id,
+        "creator_id": creator_id,
+        "status": "active"
+    })
+    
+    if not subscription:
+        return {"subscribed": False}
+    
+    # Get tier info
+    tier = await db.subscription_tiers.find_one({"tier_id": subscription["tier_id"]})
+    
+    # Calculate badge
+    badge = await calculate_supporter_badge(user_id, creator_id)
+    
+    return {
+        "subscribed": True,
+        "subscription_id": subscription["subscription_id"],
+        "tier": tier,
+        "badge": badge,
+        "started_at": subscription["started_at"],
+        "next_billing": subscription["next_billing"]
+    }
+
+
+@api_router.post("/posts/{post_id}/set-exclusive")
+async def set_post_as_exclusive(
+    post_id: str,
+    exclusive: bool = True,
+    min_tier_id: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Set a post as exclusive to subscribers only"""
+    # Check if creator has monetization enabled
+    if not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="You must enable monetization in your profile settings before creating exclusive content."
+        )
+    
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not your post")
+    
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$set": {
+            "is_exclusive": exclusive,
+            "min_tier_id": min_tier_id,
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    return {"message": f"Post {'set as' if exclusive else 'removed from'} exclusive content"}
+
+
+@api_router.get("/posts/exclusive")
+async def get_exclusive_posts(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get exclusive posts from subscribed creators"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    # Get creators I'm subscribed to
+    subscriptions = await db.creator_subscriptions.find(
+        {"subscriber_id": current_user.user_id, "status": "active"},
+        {"creator_id": 1}
+    ).to_list(1000)
+    
+    creator_ids = [sub["creator_id"] for sub in subscriptions]
+    
+    if not creator_ids:
+        return []
+    
+    # Get exclusive posts from these creators
+    posts = await db.posts.find(
+        {
+            "user_id": {"$in": creator_ids},
+            "is_exclusive": True
+        },
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich posts with user data and badge info
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # Add my badge for this creator
+        badge = await db.supporter_badges.find_one({
+            "user_id": current_user.user_id,
+            "creator_id": post["user_id"]
+        }, {"_id": 0})
+        post["my_badge"] = badge
+    
+    return posts
+
+
+@api_router.get("/users/{user_id}/badges")
+async def get_user_badges(user_id: str, current_user: User = Depends(require_auth)):
+    """Get all supporter badges for a user"""
+    badges = await db.supporter_badges.find(
+        {"user_id": user_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Enrich with creator info
+    for badge in badges:
+        creator = await db.users.find_one(
+            {"user_id": badge["creator_id"]},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+        )
+        badge["creator"] = creator
+    
+    return badges
+
+
+@api_router.get("/creators/{creator_id}/badge/{user_id}")
+async def get_creator_badge_for_user(
+    creator_id: str,
+    user_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get a specific user's badge for a creator (for display in comments/posts)"""
+    badge = await db.supporter_badges.find_one(
+        {"user_id": user_id, "creator_id": creator_id},
+        {"_id": 0}
+    )
+    
+    if not badge:
+        return None
+    
+    return badge
+
+
+@api_router.get("/creators/me/subscription-analytics")
+async def get_subscription_analytics(current_user: User = Depends(require_auth)):
+    """Get subscription analytics for creator"""
+    if not current_user.monetization_enabled:
+        raise HTTPException(status_code=403, detail="Monetization not enabled")
+    
+    # Count active subscribers
+    active_subs = await db.creator_subscriptions.count_documents({
+        "creator_id": current_user.user_id,
+        "status": "active"
+    })
+    
+    # Count by tier
+    pipeline = [
+        {"$match": {"creator_id": current_user.user_id, "status": "active"}},
+        {"$group": {
+            "_id": "$tier_id",
+            "count": {"$sum": 1},
+            "total_revenue": {"$sum": "$amount"}
+        }}
+    ]
+    tier_stats = await db.creator_subscriptions.aggregate(pipeline).to_list(10)
+    
+    # Get tier details
+    for stat in tier_stats:
+        tier = await db.subscription_tiers.find_one({"tier_id": stat["_id"]}, {"_id": 0})
+        stat["tier"] = tier
+    
+    # Calculate monthly revenue (85% after platform fee)
+    total_monthly = sum(stat["total_revenue"] for stat in tier_stats)
+    creator_revenue = total_monthly * SUBSCRIPTION_CREATOR_PAYOUT
+    
+    # Get all active subscriptions with details
+    subscriptions = await db.creator_subscriptions.find(
+        {"creator_id": current_user.user_id, "status": "active"},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Badge distribution
+    badges = await db.supporter_badges.find(
+        {"creator_id": current_user.user_id},
+        {"_id": 0, "badge_level": 1}
+    ).to_list(1000)
+    
+    badge_counts = {
+        "Diamond": sum(1 for b in badges if b.get("badge_level") == "Diamond"),
+        "Gold": sum(1 for b in badges if b.get("badge_level") == "Gold"),
+        "Silver": sum(1 for b in badges if b.get("badge_level") == "Silver"),
+        "Bronze": sum(1 for b in badges if b.get("badge_level") == "Bronze"),
+    }
+    
+    return {
+        "total_subscribers": active_subs,
+        "monthly_revenue": round(creator_revenue, 2),
+        "gross_revenue": round(total_monthly, 2),
+        "platform_fee": round(total_monthly * SUBSCRIPTION_PLATFORM_FEE, 2),
+        "tier_breakdown": tier_stats,
+        "badge_distribution": badge_counts,
+        "recent_subscriptions": subscriptions[:10]
+    }
+
+
 # ============ PAID CONTENT ENDPOINTS ============
 
 @api_router.post("/posts/{post_id}/set-paid")
@@ -4331,6 +5207,469 @@ async def get_content_performance(current_user: User = Depends(require_auth)):
         post["engagement_score"] = total_reactions + post.get("comments_count", 0) + post.get("shares_count", 0)
     
     return posts
+
+@api_router.get("/analytics/audience/demographics")
+async def get_audience_demographics(current_user: User = Depends(require_auth)):
+    """Get audience demographics (age, gender, location)"""
+    try:
+        # Get all followers
+        followers = await db.follows.find(
+            {"following_id": current_user.user_id},
+            {"follower_id": 1}
+        ).to_list(10000)
+        
+        follower_ids = [f["follower_id"] for f in followers]
+        
+        if not follower_ids:
+            return {
+                "age_distribution": {},
+                "gender_distribution": {},
+                "top_locations": [],
+                "follower_count": 0,
+                "subscriber_count": 0,
+                "total_reach": 0
+            }
+        
+        # Get subscriber count
+        subscriber_count = await db.creator_subscriptions.count_documents({
+            "creator_id": current_user.user_id,
+            "status": "active"
+        })
+        
+        # Age distribution
+        age_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}, "birthdate": {"$exists": True}}},
+            {"$project": {
+                "age": {
+                    "$divide": [
+                        {"$subtract": [datetime.now(timezone.utc), "$birthdate"]},
+                        365.25 * 24 * 60 * 60 * 1000
+                    ]
+                }
+            }},
+            {"$bucket": {
+                "groupBy": "$age",
+                "boundaries": [0, 18, 25, 35, 45, 100],
+                "default": "Unknown",
+                "output": {"count": {"$sum": 1}}
+            }}
+        ]
+        
+        age_results = await db.users.aggregate(age_pipeline).to_list(10)
+        age_distribution = {}
+        for result in age_results:
+            bucket = result["_id"]
+            if bucket == 0:
+                age_distribution["Under 18"] = result["count"]
+            elif bucket == 18:
+                age_distribution["18-24"] = result["count"]
+            elif bucket == 25:
+                age_distribution["25-34"] = result["count"]
+            elif bucket == 35:
+                age_distribution["35-44"] = result["count"]
+            elif bucket == 45:
+                age_distribution["45+"] = result["count"]
+        
+        # Gender distribution
+        gender_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}}},
+            {"$group": {
+                "_id": "$gender",
+                "count": {"$sum": 1}
+            }}
+        ]
+        
+        gender_results = await db.users.aggregate(gender_pipeline).to_list(10)
+        gender_distribution = {
+            result["_id"] or "not_specified": result["count"]
+            for result in gender_results
+        }
+        
+        # Location distribution (top 10 countries and cities)
+        location_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}, "country": {"$exists": True, "$ne": None}}},
+            {"$group": {
+                "_id": "$country",
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ]
+        
+        location_results = await db.users.aggregate(location_pipeline).to_list(10)
+        top_countries = [
+            {"country": result["_id"], "count": result["count"]}
+            for result in location_results
+        ]
+        
+        city_pipeline = [
+            {"$match": {"user_id": {"$in": follower_ids}, "city": {"$exists": True, "$ne": None}}},
+            {"$group": {
+                "_id": "$city",
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ]
+        
+        city_results = await db.users.aggregate(city_pipeline).to_list(10)
+        top_cities = [
+            {"city": result["_id"], "count": result["count"]}
+            for result in city_results
+        ]
+        
+        return {
+            "age_distribution": age_distribution,
+            "gender_distribution": gender_distribution,
+            "top_countries": top_countries,
+            "top_cities": top_cities,
+            "follower_count": len(follower_ids),
+            "subscriber_count": subscriber_count,
+            "total_reach": len(follower_ids) + subscriber_count
+        }
+    except Exception as e:
+        logging.error(f"Error getting demographics: {e}")
+        return {
+            "age_distribution": {},
+            "gender_distribution": {},
+            "top_locations": [],
+            "follower_count": 0,
+            "subscriber_count": 0,
+            "total_reach": 0
+        }
+
+@api_router.get("/analytics/audience/activity-times")
+async def get_activity_times(current_user: User = Depends(require_auth)):
+    """Get peak activity times for audience"""
+    try:
+        # Get user's posts
+        user_posts = await db.posts.find(
+            {"user_id": current_user.user_id},
+            {"post_id": 1}
+        ).to_list(1000)
+        
+        post_ids = [p["post_id"] for p in user_posts]
+        
+        if not post_ids:
+            return {
+                "hourly_engagement": [],
+                "daily_engagement": [],
+                "peak_hours": [],
+                "peak_days": [],
+                "best_time_to_post": "No data available yet"
+            }
+        
+        # Hourly engagement
+        hourly_pipeline = [
+            {"$match": {"post_id": {"$in": post_ids}}},
+            {"$project": {
+                "hour": {"$hour": {"date": "$created_at", "timezone": "UTC"}}
+            }},
+            {"$group": {
+                "_id": "$hour",
+                "engagement": {"$sum": 1}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        
+        hourly_results = await db.reactions.aggregate(hourly_pipeline).to_list(24)
+        hourly_engagement = [
+            {"hour": result["_id"], "engagement": result["engagement"]}
+            for result in hourly_results
+        ]
+        
+        # Fill in missing hours with 0
+        hour_map = {h["hour"]: h["engagement"] for h in hourly_engagement}
+        hourly_engagement = [
+            {"hour": h, "engagement": hour_map.get(h, 0)}
+            for h in range(24)
+        ]
+        
+        # Daily engagement (day of week)
+        daily_pipeline = [
+            {"$match": {"post_id": {"$in": post_ids}}},
+            {"$project": {
+                "dayOfWeek": {"$dayOfWeek": {"date": "$created_at", "timezone": "UTC"}}
+            }},
+            {"$group": {
+                "_id": "$dayOfWeek",
+                "engagement": {"$sum": 1}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        
+        daily_results = await db.reactions.aggregate(daily_pipeline).to_list(7)
+        day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        daily_engagement = [
+            {"day": day_names[result["_id"] - 1], "engagement": result["engagement"]}
+            for result in daily_results
+        ]
+        
+        # Find peak hours (top 3)
+        sorted_hours = sorted(hourly_engagement, key=lambda x: x["engagement"], reverse=True)
+        peak_hours = [h["hour"] for h in sorted_hours[:3] if h["engagement"] > 0]
+        
+        # Find peak days (top 3)
+        sorted_days = sorted(daily_engagement, key=lambda x: x["engagement"], reverse=True)
+        peak_days = [d["day"] for d in sorted_days[:3] if d["engagement"] > 0]
+        
+        # Generate recommendation
+        if peak_hours:
+            hour_range = f"{min(peak_hours)}-{max(peak_hours) + 1}"
+            day_list = ", ".join(peak_days[:2]) if len(peak_days) >= 2 else peak_days[0] if peak_days else "weekdays"
+            best_time = f"{day_list} between {hour_range}:00 UTC"
+        else:
+            best_time = "No data available yet"
+        
+        return {
+            "hourly_engagement": hourly_engagement,
+            "daily_engagement": daily_engagement,
+            "peak_hours": peak_hours,
+            "peak_days": peak_days,
+            "best_time_to_post": best_time
+        }
+    except Exception as e:
+        logging.error(f"Error getting activity times: {e}")
+        return {
+            "hourly_engagement": [],
+            "daily_engagement": [],
+            "peak_hours": [],
+            "peak_days": [],
+            "best_time_to_post": "Error calculating activity times"
+        }
+
+@api_router.get("/analytics/content-types")
+async def get_content_type_performance(current_user: User = Depends(require_auth)):
+    """Get performance breakdown by content type"""
+    try:
+        # Get all user's posts with their engagement
+        posts = await db.posts.find(
+            {"user_id": current_user.user_id},
+            {"post_id": 1, "media_url": 1, "media_type": 1, "content": 1, "likes_count": 1, "comments_count": 1, "shares_count": 1}
+        ).to_list(10000)
+        
+        if not posts:
+            return {
+                "content_types": [],
+                "best_performing_type": None,
+                "recommendation": "Create content to see performance"
+            }
+        
+        # Categorize posts
+        type_stats = {
+            "text": {"total_posts": 0, "total_engagement": 0},
+            "image": {"total_posts": 0, "total_engagement": 0},
+            "video": {"total_posts": 0, "total_engagement": 0},
+            "mixed": {"total_posts": 0, "total_engagement": 0}
+        }
+        
+        for post in posts:
+            engagement = (post.get("likes_count", 0) + 
+                         post.get("comments_count", 0) + 
+                         post.get("shares_count", 0))
+            
+            media_type = post.get("media_type", "")
+            has_media = bool(post.get("media_url"))
+            has_text = bool(post.get("content"))
+            
+            if not has_media and has_text:
+                content_type = "text"
+            elif "video" in media_type.lower():
+                content_type = "video"
+            elif "image" in media_type.lower() or has_media:
+                content_type = "image"
+            elif has_media and has_text:
+                content_type = "mixed"
+            else:
+                content_type = "text"
+            
+            type_stats[content_type]["total_posts"] += 1
+            type_stats[content_type]["total_engagement"] += engagement
+        
+        # Calculate averages and format results
+        content_types = []
+        for type_name, stats in type_stats.items():
+            if stats["total_posts"] > 0:
+                avg_engagement = stats["total_engagement"] / stats["total_posts"]
+                # Engagement rate as a percentage (total_engagement / total_posts / average_followers * 100)
+                # For simplicity, we'll use normalized engagement score
+                engagement_score = avg_engagement
+                
+                content_types.append({
+                    "type": type_name,
+                    "total_posts": stats["total_posts"],
+                    "total_engagement": stats["total_engagement"],
+                    "avg_engagement": round(avg_engagement, 2),
+                    "engagement_score": round(engagement_score, 2)
+                })
+        
+        # Find best performing type
+        if content_types and len(content_types) > 0:
+            best = max(content_types, key=lambda x: x["avg_engagement"])
+            best_type = best["type"]
+            avg_all = sum(ct["avg_engagement"] for ct in content_types) / len(content_types)
+            multiplier = round(best["avg_engagement"] / avg_all, 1) if avg_all > 0 else 1.0
+            recommendation = f"Post more {best_type} content for {multiplier}x better engagement"
+        else:
+            best_type = None
+            recommendation = "Create content to see recommendations"
+        
+        return {
+            "content_types": sorted(content_types, key=lambda x: x["avg_engagement"], reverse=True),
+            "best_performing_type": best_type,
+            "recommendation": recommendation
+        }
+    except Exception as e:
+        logging.error(f"Error getting content type performance: {e}")
+        return {
+            "content_types": [],
+            "best_performing_type": None,
+            "recommendation": "Error calculating performance"
+        }
+
+@api_router.get("/analytics/posts/{post_id}")
+async def get_post_analytics(post_id: str, current_user: User = Depends(require_auth)):
+    """Get detailed analytics for a specific post"""
+    try:
+        # Validate post ownership
+        post = await db.posts.find_one({"post_id": post_id}, {"_id": 0})
+        if not post:
+            raise HTTPException(status_code=404, detail="Post not found")
+        
+        if post.get("user_id") != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this post's analytics")
+        
+        # Get detailed engagement metrics
+        total_likes = await db.reactions.count_documents({"post_id": post_id})
+        total_comments = await db.comments.count_documents({"post_id": post_id})
+        total_shares = post.get("shares_count", 0)
+        total_saves = post.get("saves_count", 0)
+        
+        # Reaction breakdown
+        reaction_pipeline = [
+            {"$match": {"post_id": post_id}},
+            {"$group": {
+                "_id": "$reaction_type",
+                "count": {"$sum": 1}
+            }}
+        ]
+        reaction_results = await db.reactions.aggregate(reaction_pipeline).to_list(10)
+        reaction_breakdown = {
+            result["_id"]: result["count"]
+            for result in reaction_results
+        }
+        
+        # Engagement timeline (hourly for first 24 hours)
+        post_created = post.get("created_at", datetime.now(timezone.utc))
+        timeline = []
+        
+        for hour in range(24):
+            hour_start = post_created + timedelta(hours=hour)
+            hour_end = hour_start + timedelta(hours=1)
+            
+            reactions_count = await db.reactions.count_documents({
+                "post_id": post_id,
+                "created_at": {"$gte": hour_start, "$lt": hour_end}
+            })
+            
+            timeline.append({
+                "hour": hour,
+                "engagement": reactions_count
+            })
+        
+        # Calculate engagement rate
+        # Estimate reach as followers at time of posting
+        follower_count = await db.follows.count_documents({"following_id": current_user.user_id})
+        reach = max(follower_count, 1)  # Prevent division by zero
+        total_engagement = total_likes + total_comments + total_shares
+        engagement_rate = (total_engagement / reach) * 100
+        
+        return {
+            "post_id": post_id,
+            "total_likes": total_likes,
+            "total_comments": total_comments,
+            "total_shares": total_shares,
+            "total_saves": total_saves,
+            "total_engagement": total_engagement,
+            "reaction_breakdown": reaction_breakdown,
+            "engagement_timeline": timeline,
+            "reach": reach,
+            "engagement_rate": round(engagement_rate, 2),
+            "created_at": post_created.isoformat() if post_created else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting post analytics: {e}")
+        raise HTTPException(status_code=500, detail="Error loading post analytics")
+
+@api_router.get("/analytics/export")
+async def export_analytics(current_user: User = Depends(require_auth)):
+    """Export analytics data as CSV"""
+    try:
+        # Collect all analytics data
+        overview = await get_analytics_overview(current_user)
+        demographics = await get_audience_demographics(current_user)
+        activity = await get_activity_times(current_user)
+        content_types = await get_content_type_performance(current_user)
+        revenue = await get_revenue_analytics(current_user)
+        
+        # Create CSV content
+        csv_lines = []
+        csv_lines.append("Grover Creator Analytics Export")
+        csv_lines.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
+        csv_lines.append(f"Creator: @{current_user.username}")
+        csv_lines.append("")
+        
+        # Overview
+        csv_lines.append("OVERVIEW")
+        csv_lines.append(f"Total Posts,{overview.get('total_posts', 0)}")
+        csv_lines.append(f"Total Followers,{overview.get('total_followers', 0)}")
+        csv_lines.append(f"Total Reactions,{overview.get('total_reactions', 0)}")
+        csv_lines.append(f"Total Revenue,${overview.get('total_revenue', 0)}")
+        csv_lines.append("")
+        
+        # Demographics
+        csv_lines.append("DEMOGRAPHICS")
+        csv_lines.append("Age Range,Count")
+        for age_range, count in demographics.get("age_distribution", {}).items():
+            csv_lines.append(f"{age_range},{count}")
+        csv_lines.append("")
+        
+        csv_lines.append("Gender,Count")
+        for gender, count in demographics.get("gender_distribution", {}).items():
+            csv_lines.append(f"{gender},{count}")
+        csv_lines.append("")
+        
+        # Content types
+        csv_lines.append("CONTENT PERFORMANCE")
+        csv_lines.append("Type,Posts,Avg Engagement")
+        for ct in content_types.get("content_types", []):
+            csv_lines.append(f"{ct['type']},{ct['total_posts']},{ct['avg_engagement']}")
+        csv_lines.append("")
+        
+        # Activity times
+        csv_lines.append("PEAK ACTIVITY")
+        csv_lines.append(f"Best Time to Post,{activity.get('best_time_to_post', 'N/A')}")
+        csv_lines.append(f"Peak Hours,\"{', '.join(map(str, activity.get('peak_hours', [])))}\"")
+        csv_lines.append(f"Peak Days,\"{', '.join(activity.get('peak_days', []))}\"")
+        csv_lines.append("")
+        
+        # Revenue
+        csv_lines.append("REVENUE")
+        csv_lines.append(f"Total Tips,${revenue.get('tips', 0)}")
+        csv_lines.append(f"Total Subscriptions,${revenue.get('subscriptions', 0)}")
+        csv_lines.append(f"Total Marketplace,${revenue.get('marketplace', 0)}")
+        
+        csv_content = "\n".join(csv_lines)
+        
+        return JSONResponse(
+            content={"csv": csv_content, "filename": f"analytics_{current_user.username}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"},
+            headers={"Content-Type": "application/json"}
+        )
+    except Exception as e:
+        logging.error(f"Error exporting analytics: {e}")
+        raise HTTPException(status_code=500, detail="Error exporting analytics")
 
 # ============ CATEGORIES ENDPOINTS ============
 
@@ -4716,6 +6055,11 @@ async def get_trending_creators(
 async def create_story(
     media: UploadFile,
     caption: Optional[str] = Form(None),
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    music_start_time: Optional[float] = Form(0.0),
+    music_duration: Optional[float] = Form(None),
     current_user: User = Depends(require_auth)
 ):
     """Create a 24-hour disappearing story"""
@@ -4733,7 +6077,7 @@ async def create_story(
         filename=media.filename or f"story_{story_id}",
         content_type=media.content_type or "image/jpeg",
         folder="grover/stories",
-        generate_thumbnail=media_type == "image"
+        generate_thumbnail=media_type == "video"
     )
     
     expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
@@ -4746,6 +6090,11 @@ async def create_story(
         "media_public_id": upload_result.get("public_id"),
         "thumbnail_url": upload_result.get("thumbnail"),
         "caption": caption,
+        "music_url": music_url,
+        "music_title": music_title,
+        "music_artist": music_artist,
+        "music_start_time": music_start_time,
+        "music_duration": music_duration,
         "views_count": 0,
         "reactions_count": 0,
         "replies_count": 0,
@@ -5074,19 +6423,6 @@ async def highlight_story(
     
     return {"message": "Story added to highlights"}
 
-@api_router.delete("/stories/{story_id}")
-async def delete_story(story_id: str, current_user: User = Depends(require_auth)):
-    """Delete a story"""
-    story = await db.stories.find_one({"story_id": story_id})
-    if not story:
-        raise HTTPException(status_code=404, detail="Story not found")
-    
-    if story["user_id"] != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    await db.stories.delete_one({"story_id": story_id})
-    return {"message": "Story deleted"}
-
 @api_router.get("/users/{user_id}/highlights")
 async def get_user_highlights(user_id: str, current_user: User = Depends(require_auth)):
     """Get user's highlighted stories"""
@@ -5104,6 +6440,491 @@ async def get_user_highlights(user_id: str, current_user: User = Depends(require
         grouped[title].append(story)
     
     return grouped
+
+
+# ============ STORY CLEANUP JOB ============
+
+async def cleanup_expired_stories():
+    """
+    Background job to permanently delete expired stories that are not highlighted.
+    Deletes associated story_views and story_reactions as well.
+    """
+    now = datetime.now(timezone.utc)
+    
+    # Find expired non-highlighted stories
+    expired_stories = await db.stories.find(
+        {
+            "expires_at": {"$lt": now},
+            "is_highlighted": False
+        },
+        {"_id": 0, "story_id": 1, "media_public_id": 1}
+    ).to_list(1000)
+    
+    if not expired_stories:
+        logger.info("Story cleanup: No expired stories to delete")
+        return {"deleted_count": 0, "message": "No expired stories to delete"}
+    
+    story_ids = [s["story_id"] for s in expired_stories]
+    
+    # Delete associated views and reactions
+    views_deleted = await db.story_views.delete_many({"story_id": {"$in": story_ids}})
+    reactions_deleted = await db.story_reactions.delete_many({"story_id": {"$in": story_ids}})
+    
+    # Delete media from Cloudinary if available
+    if CLOUDINARY_CONFIGURED:
+        for story in expired_stories:
+            if story.get("media_public_id"):
+                try:
+                    await delete_media(story["media_public_id"])
+                except Exception as e:
+                    logger.error(f"Failed to delete media {story['media_public_id']}: {e}")
+    
+    # Delete the stories
+    result = await db.stories.delete_many({"story_id": {"$in": story_ids}})
+    
+    logger.info(f"Story cleanup: Deleted {result.deleted_count} expired stories, {views_deleted.deleted_count} views, {reactions_deleted.deleted_count} reactions")
+    
+    return {
+        "deleted_count": result.deleted_count,
+        "views_deleted": views_deleted.deleted_count,
+        "reactions_deleted": reactions_deleted.deleted_count,
+        "message": f"Deleted {result.deleted_count} expired stories"
+    }
+
+
+@api_router.post("/admin/cleanup-stories")
+async def manual_cleanup_stories(current_user: User = Depends(require_auth)):
+    """Manually trigger story cleanup (admin only)"""
+    # Check if user is admin (you can add is_admin field to User model)
+    # For now, we'll allow any authenticated user for testing
+    result = await cleanup_expired_stories()
+    return result
+
+
+# ============ STORY ARCHIVE ENDPOINTS ============
+
+@api_router.post("/stories/{story_id}/archive")
+async def archive_story(story_id: str, current_user: User = Depends(require_auth)):
+    """Archive a story before it expires"""
+    validate_id(story_id, "story_id")
+    
+    story = await db.stories.find_one({"story_id": story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    if story["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to archive this story")
+    
+    # Create archive entry
+    archive_id = f"archive_{uuid.uuid4().hex[:12]}"
+    archive_data = {
+        "archive_id": archive_id,
+        "user_id": current_user.user_id,
+        "original_story_id": story_id,
+        "media_url": story["media_url"],
+        "media_type": story["media_type"],
+        "media_public_id": story.get("media_public_id"),
+        "thumbnail_url": story.get("thumbnail_url"),
+        "caption": story.get("caption"),
+        "music_url": story.get("music_url"),
+        "music_title": story.get("music_title"),
+        "music_artist": story.get("music_artist"),
+        "views_count": story.get("views_count", 0),
+        "reactions_count": story.get("reactions_count", 0),
+        "original_created_at": story["created_at"],
+        "archived_at": datetime.now(timezone.utc)
+    }
+    
+    await db.story_archives.insert_one(archive_data)
+    
+    return {"archive_id": archive_id, "message": "Story archived successfully"}
+
+
+@api_router.get("/stories/archive")
+async def get_archived_stories(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get user's archived stories (paginated)"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    archives = await db.story_archives.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("archived_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    total_count = await db.story_archives.count_documents({"user_id": current_user.user_id})
+    
+    return {
+        "archives": archives,
+        "total_count": total_count,
+        "has_more": (skip + limit) < total_count
+    }
+
+
+@api_router.delete("/stories/archive/{archive_id}")
+async def delete_archived_story(archive_id: str, current_user: User = Depends(require_auth)):
+    """Delete an archived story"""
+    validate_id(archive_id, "archive_id")
+    
+    archive = await db.story_archives.find_one({"archive_id": archive_id})
+    if not archive:
+        raise HTTPException(status_code=404, detail="Archived story not found")
+    
+    if archive["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this archive")
+    
+    await db.story_archives.delete_one({"archive_id": archive_id})
+    
+    return {"message": "Archived story deleted"}
+
+
+@api_router.post("/stories/archive/{archive_id}/restore")
+async def restore_archived_story(archive_id: str, current_user: User = Depends(require_auth)):
+    """Restore an archived story as a new story"""
+    validate_id(archive_id, "archive_id")
+    
+    archive = await db.story_archives.find_one({"archive_id": archive_id})
+    if not archive:
+        raise HTTPException(status_code=404, detail="Archived story not found")
+    
+    if archive["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to restore this archive")
+    
+    # Create new story from archive
+    story_id = f"story_{uuid.uuid4().hex[:12]}"
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    story_data = {
+        "story_id": story_id,
+        "user_id": current_user.user_id,
+        "media_url": archive["media_url"],
+        "media_type": archive["media_type"],
+        "media_public_id": archive.get("media_public_id"),
+        "thumbnail_url": archive.get("thumbnail_url"),
+        "caption": archive.get("caption"),
+        "music_url": archive.get("music_url"),
+        "music_title": archive.get("music_title"),
+        "music_artist": archive.get("music_artist"),
+        "views_count": 0,
+        "reactions_count": 0,
+        "replies_count": 0,
+        "is_highlighted": False,
+        "highlight_title": None,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.stories.insert_one(story_data)
+    
+    return {"story_id": story_id, "message": "Story restored", "expires_at": expires_at}
+
+
+# ============ STORY BATCH UPLOAD ============
+
+class StoryBatchRequest(BaseModel):
+    captions: Optional[List[Optional[str]]] = []
+    music_url: Optional[str] = None
+    music_title: Optional[str] = None
+    music_artist: Optional[str] = None
+
+
+@api_router.post("/stories/batch")
+async def create_stories_batch(
+    media: List[UploadFile] = File(...),
+    captions: Optional[str] = Form(None),  # JSON string
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Create multiple stories at once"""
+    if not media or len(media) == 0:
+        raise HTTPException(status_code=400, detail="No media files provided")
+    
+    if len(media) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 stories per batch")
+    
+    # Parse captions if provided
+    import json
+    captions_list = []
+    if captions:
+        try:
+            captions_list = json.loads(captions)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(f"Failed to parse captions JSON: {e}")
+            captions_list = []
+    
+    story_ids = []
+    
+    for idx, media_file in enumerate(media):
+        try:
+            story_id = f"story_{uuid.uuid4().hex[:12]}"
+            
+            # Read and validate media
+            media_content = await media_file.read()
+            
+            # Determine media type
+            media_type = 'video' if media_file.content_type and media_file.content_type.startswith('video') else 'image'
+            
+            # Upload to Cloudinary
+            upload_result = await upload_media(
+                file_data=media_content,
+                filename=media_file.filename or f"story_{story_id}",
+                content_type=media_file.content_type or "image/jpeg",
+                folder="grover/stories",
+                generate_thumbnail=media_type == "video"
+            )
+            
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+            
+            # Get caption for this story
+            caption = captions_list[idx] if idx < len(captions_list) else None
+            
+            story_data = {
+                "story_id": story_id,
+                "user_id": current_user.user_id,
+                "media_url": upload_result["url"],
+                "media_type": upload_result["media_type"],
+                "media_public_id": upload_result.get("public_id"),
+                "thumbnail_url": upload_result.get("thumbnail"),
+                "caption": caption,
+                "music_url": music_url,
+                "music_title": music_title,
+                "music_artist": music_artist,
+                "views_count": 0,
+                "reactions_count": 0,
+                "replies_count": 0,
+                "is_highlighted": False,
+                "highlight_title": None,
+                "expires_at": expires_at,
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            await db.stories.insert_one(story_data)
+            story_ids.append(story_id)
+            
+        except Exception as e:
+            logger.error(f"Error uploading story {idx}: {e}")
+            # Continue with next story
+    
+    return {
+        "story_ids": story_ids,
+        "created_count": len(story_ids),
+        "message": f"Created {len(story_ids)} stories"
+    }
+
+
+# ============ STORY DRAFTS ENDPOINTS ============
+
+@api_router.post("/stories/drafts")
+async def save_story_draft(
+    media: UploadFile,
+    caption: Optional[str] = Form(None),
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Save a story as draft"""
+    draft_id = f"draft_{uuid.uuid4().hex[:12]}"
+    
+    # Read and validate media
+    media_content = await media.read()
+    
+    # Determine media type
+    media_type = 'video' if media.content_type and media.content_type.startswith('video') else 'image'
+    
+    # Upload to Cloudinary with "draft" tag
+    upload_result = await upload_media(
+        file_data=media_content,
+        filename=media.filename or f"draft_{draft_id}",
+        content_type=media.content_type or "image/jpeg",
+        folder="grover/drafts",
+        generate_thumbnail=media_type == "video"
+    )
+    
+    draft_data = {
+        "draft_id": draft_id,
+        "user_id": current_user.user_id,
+        "media_url": upload_result["url"],
+        "media_type": upload_result["media_type"],
+        "media_public_id": upload_result.get("public_id"),
+        "thumbnail_url": upload_result.get("thumbnail"),
+        "caption": caption,
+        "music_url": music_url,
+        "music_title": music_title,
+        "music_artist": music_artist,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.story_drafts.insert_one(draft_data)
+    
+    return {"draft_id": draft_id, "message": "Draft saved successfully"}
+
+
+@api_router.get("/stories/drafts")
+async def get_story_drafts(current_user: User = Depends(require_auth)):
+    """Get user's story drafts"""
+    drafts = await db.story_drafts.find(
+        {"user_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("updated_at", -1).to_list(100)
+    
+    return {"drafts": drafts, "count": len(drafts)}
+
+
+@api_router.put("/stories/drafts/{draft_id}")
+async def update_story_draft(
+    draft_id: str,
+    caption: Optional[str] = Form(None),
+    music_url: Optional[str] = Form(None),
+    music_title: Optional[str] = Form(None),
+    music_artist: Optional[str] = Form(None),
+    current_user: User = Depends(require_auth)
+):
+    """Update a story draft"""
+    validate_id(draft_id, "draft_id")
+    
+    draft = await db.story_drafts.find_one({"draft_id": draft_id})
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    
+    if draft["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this draft")
+    
+    update_data = {"updated_at": datetime.now(timezone.utc)}
+    if caption is not None:
+        update_data["caption"] = caption
+    if music_url is not None:
+        update_data["music_url"] = music_url
+    if music_title is not None:
+        update_data["music_title"] = music_title
+    if music_artist is not None:
+        update_data["music_artist"] = music_artist
+    
+    await db.story_drafts.update_one(
+        {"draft_id": draft_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Draft updated successfully"}
+
+
+@api_router.delete("/stories/drafts/{draft_id}")
+async def delete_story_draft(draft_id: str, current_user: User = Depends(require_auth)):
+    """Delete a story draft"""
+    validate_id(draft_id, "draft_id")
+    
+    draft = await db.story_drafts.find_one({"draft_id": draft_id})
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    
+    if draft["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this draft")
+    
+    # Delete media from Cloudinary if available
+    if CLOUDINARY_CONFIGURED and draft.get("media_public_id"):
+        try:
+            await delete_media(draft["media_public_id"])
+        except Exception as e:
+            logger.error(f"Failed to delete draft media {draft['media_public_id']}: {e}")
+    
+    await db.story_drafts.delete_one({"draft_id": draft_id})
+    
+    return {"message": "Draft deleted successfully"}
+
+
+@api_router.post("/stories/drafts/{draft_id}/publish")
+async def publish_story_draft(draft_id: str, current_user: User = Depends(require_auth)):
+    """Publish a draft as a story"""
+    validate_id(draft_id, "draft_id")
+    
+    draft = await db.story_drafts.find_one({"draft_id": draft_id})
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    
+    if draft["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to publish this draft")
+    
+    # Create story from draft
+    story_id = f"story_{uuid.uuid4().hex[:12]}"
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    story_data = {
+        "story_id": story_id,
+        "user_id": current_user.user_id,
+        "media_url": draft["media_url"],
+        "media_type": draft["media_type"],
+        "media_public_id": draft.get("media_public_id"),
+        "thumbnail_url": draft.get("thumbnail_url"),
+        "caption": draft.get("caption"),
+        "music_url": draft.get("music_url"),
+        "music_title": draft.get("music_title"),
+        "music_artist": draft.get("music_artist"),
+        "views_count": 0,
+        "reactions_count": 0,
+        "replies_count": 0,
+        "is_highlighted": False,
+        "highlight_title": None,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.stories.insert_one(story_data)
+    
+    # Delete the draft
+    await db.story_drafts.delete_one({"draft_id": draft_id})
+    
+    return {"story_id": story_id, "message": "Draft published as story", "expires_at": expires_at}
+
+
+# ============ MUSIC LIBRARY ENDPOINTS ============
+
+# Mock music library data (in production, integrate with Spotify, Apple Music, or a music service)
+MOCK_MUSIC = [
+    {"id": "1", "title": "Summer Vibes", "artist": "DJ Cool", "url": "https://example.com/music1.mp3", "duration": 180, "category": "Pop"},
+    {"id": "2", "title": "Chill Beats", "artist": "LoFi Master", "url": "https://example.com/music2.mp3", "duration": 210, "category": "LoFi"},
+    {"id": "3", "title": "Dance Party", "artist": "Party Mix", "url": "https://example.com/music3.mp3", "duration": 195, "category": "Dance"},
+    {"id": "4", "title": "Acoustic Dreams", "artist": "Guitar Hero", "url": "https://example.com/music4.mp3", "duration": 240, "category": "Acoustic"},
+    {"id": "5", "title": "Hip Hop Jam", "artist": "MC Flow", "url": "https://example.com/music5.mp3", "duration": 165, "category": "Hip Hop"},
+]
+
+
+@api_router.get("/music/search")
+async def search_music(q: str, limit: int = 10, current_user: User = Depends(require_auth)):
+    """Search available music"""
+    limit = min(max(1, limit), 50)
+    
+    # Simple mock search
+    query = q.lower()
+    results = [
+        music for music in MOCK_MUSIC
+        if query in music["title"].lower() or query in music["artist"].lower()
+    ]
+    
+    return {"results": results[:limit], "count": len(results)}
+
+
+@api_router.get("/music/trending")
+async def get_trending_music(limit: int = 20, current_user: User = Depends(require_auth)):
+    """Get trending/popular music"""
+    limit = min(max(1, limit), 50)
+    
+    # Return mock music data
+    return {"music": MOCK_MUSIC[:limit], "count": len(MOCK_MUSIC)}
+
+
+@api_router.get("/music/categories")
+async def get_music_categories(current_user: User = Depends(require_auth)):
+    """Get music categories"""
+    categories = ["Pop", "LoFi", "Dance", "Acoustic", "Hip Hop", "Rock", "Electronic", "Classical"]
+    
+    return {"categories": categories}
+
 
 # ============ LIVE STREAMING ENDPOINTS ============
 
@@ -5957,16 +7778,6 @@ async def disconnect(sid):
             break
 
 @sio.event
-async def join_conversation(sid, data):
-    conversation_id = data.get("conversation_id")
-    user_id = data.get("user_id")
-    
-    if conversation_id and user_id:
-        sio.enter_room(sid, f"conversation_{conversation_id}")
-        active_users[user_id] = sid
-        logger.info(f"User {user_id} joined conversation {conversation_id}")
-
-@sio.event
 async def send_message(sid, data):
     conversation_id = data.get("conversation_id")
     sender_id = data.get("sender_id")
@@ -6013,14 +7824,319 @@ async def send_message(sid, data):
 async def typing(sid, data):
     conversation_id = data.get("conversation_id")
     user_id = data.get("user_id")
+    user_name = data.get("user_name")
     
     if conversation_id and user_id:
-        await sio.emit('user_typing', {"user_id": user_id}, room=f"conversation_{conversation_id}", skip_sid=sid)
+        await sio.emit('user_typing', {
+            "user_id": user_id,
+            "user_name": user_name,
+            "conversation_id": conversation_id
+        }, room=f"conversation_{conversation_id}", skip_sid=sid)
 
-# Health check at root
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+@sio.event
+async def typing_stop(sid, data):
+    """Handle when user stops typing"""
+    conversation_id = data.get("conversation_id")
+    user_id = data.get("user_id")
+    
+    if conversation_id and user_id:
+        await sio.emit('user_stopped_typing', {
+            "user_id": user_id,
+            "conversation_id": conversation_id
+        }, room=f"conversation_{conversation_id}", skip_sid=sid)
+
+@sio.event
+async def join_conversation(sid, data):
+    """Join a conversation room for real-time updates"""
+    conversation_id = data.get("conversation_id")
+    user_id = data.get("user_id")
+    
+    if conversation_id and user_id:
+        sio.enter_room(sid, f"conversation_{conversation_id}")
+        logger.info(f"User {user_id} joined conversation {conversation_id}")
+
+@sio.event
+async def leave_conversation(sid, data):
+    """Leave a conversation room"""
+    conversation_id = data.get("conversation_id")
+    user_id = data.get("user_id")
+    
+    if conversation_id and user_id:
+        sio.leave_room(sid, f"conversation_{conversation_id}")
+        logger.info(f"User {user_id} left conversation {conversation_id}")
+
+
+# ============ VERIFICATION BADGES ENDPOINTS ============
+
+@api_router.post("/admin/verify-user/{user_id}")
+async def verify_user(
+    user_id: str,
+    verification_type: str = "verified",  # "verified", "creator", "business"
+    note: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Verify a user account (admin only)"""
+    # Check if user has admin privileges
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    if verification_type not in ["verified", "creator", "business"]:
+        raise HTTPException(status_code=400, detail="Invalid verification type")
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "is_verified": True,
+            "verification_type": verification_type,
+            "verified_at": datetime.now(timezone.utc),
+            "verification_note": note
+        }}
+    )
+    
+    # Notify user
+    await create_notification(
+        user_id,
+        "verification",
+        f"Your account has been verified as {verification_type}! ✓",
+        None
+    )
+    
+    return {"message": "User verified successfully", "verification_type": verification_type}
+
+
+@api_router.delete("/admin/verify-user/{user_id}")
+async def unverify_user(
+    user_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Remove verification from a user (admin only)"""
+    # Check if user has admin privileges
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "is_verified": False,
+            "verification_type": None,
+            "verified_at": None,
+            "verification_note": None
+        }}
+    )
+    
+    return {"message": "Verification removed"}
+
+
+@api_router.get("/users/verified")
+async def get_verified_users(
+    verification_type: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get list of verified users"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    query = {"is_verified": True}
+    if verification_type:
+        query["verification_type"] = verification_type
+    
+    users = await db.users.find(
+        query,
+        {"_id": 0, "email": 0, "paypal_email": 0}  # Don't expose sensitive data
+    ).sort("verified_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return users
+
+
+@api_router.post("/admin/set-admin/{user_id}")
+async def set_admin_role(
+    user_id: str,
+    is_admin: bool,
+    current_user: User = Depends(require_auth)
+):
+    """Grant or revoke admin role (admin only)"""
+    # Check if user has admin privileges
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Prevent removing admin from yourself
+    if user_id == current_user.user_id and not is_admin:
+        raise HTTPException(status_code=400, detail="Cannot remove admin role from yourself")
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_admin": is_admin}}
+    )
+    
+    # Log admin role change
+    logger.info(f"Admin role {'granted to' if is_admin else 'revoked from'} user {user_id} by admin {current_user.user_id}")
+    
+    # Notify user
+    action = "granted" if is_admin else "revoked"
+    await create_notification(
+        user_id,
+        "admin",
+        f"Your admin privileges have been {action}",
+        None
+    )
+    
+    return {"message": f"Admin role {'granted' if is_admin else 'revoked'} successfully", "user_id": user_id, "is_admin": is_admin}
+
+
+# ============ COLLABORATION POSTS ENDPOINTS ============
+
+@api_router.post("/posts/{post_id}/accept-collaboration")
+async def accept_collaboration(
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Accept a collaboration invite on a post"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("is_collaboration"):
+        raise HTTPException(status_code=400, detail="Not a collaboration post")
+    
+    if current_user.user_id not in post.get("collaborators", []):
+        raise HTTPException(status_code=403, detail="You are not invited to collaborate on this post")
+    
+    collaborator_status = post.get("collaborator_status", {})
+    if collaborator_status.get(current_user.user_id) == "accepted":
+        return {"message": "Already accepted"}
+    
+    # Update status to accepted
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {"$set": {f"collaborator_status.{current_user.user_id}": "accepted"}}
+    )
+    
+    # Notify post creator
+    await create_notification(
+        post["user_id"],
+        "collaboration_accepted",
+        f"{current_user.name} accepted your collaboration invite",
+        post_id
+    )
+    
+    return {"message": "Collaboration accepted"}
+
+
+@api_router.post("/posts/{post_id}/decline-collaboration")
+async def decline_collaboration(
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Decline a collaboration invite on a post"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("is_collaboration"):
+        raise HTTPException(status_code=400, detail="Not a collaboration post")
+    
+    if current_user.user_id not in post.get("collaborators", []):
+        raise HTTPException(status_code=403, detail="You are not invited to collaborate on this post")
+    
+    # Remove from collaborators list
+    await db.posts.update_one(
+        {"post_id": post_id},
+        {
+            "$pull": {"collaborators": current_user.user_id},
+            "$unset": {f"collaborator_status.{current_user.user_id}": ""}
+        }
+    )
+    
+    # Check if any collaborators left
+    updated_post = await db.posts.find_one({"post_id": post_id})
+    if not updated_post.get("collaborators"):
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$set": {"is_collaboration": False, "collaborator_status": {}}}
+        )
+    
+    return {"message": "Collaboration declined"}
+
+
+@api_router.get("/posts/collaborations")
+async def get_my_collaborations(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get posts where I'm a collaborator"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    posts = await db.posts.find(
+        {
+            "is_collaboration": True,
+            "collaborators": current_user.user_id,
+            f"collaborator_status.{current_user.user_id}": "accepted"
+        },
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich posts with user data
+    for post in posts:
+        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
+        post["user"] = user
+        
+        # Get collaborator details
+        collaborator_users = []
+        for collab_id in post.get("collaborators", []):
+            collab_user = await db.users.find_one(
+                {"user_id": collab_id},
+                {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "is_verified": 1, "verification_type": 1}
+            )
+            if collab_user:
+                collab_user["status"] = post.get("collaborator_status", {}).get(collab_id, "pending")
+                collaborator_users.append(collab_user)
+        
+        post["collaborator_details"] = collaborator_users
+    
+    return posts
+
+
+@api_router.get("/posts/{post_id}/collaborators")
+async def get_post_collaborators(
+    post_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Get collaborator details for a post"""
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not post.get("is_collaboration"):
+        return {"collaborators": []}
+    
+    collaborator_users = []
+    for collab_id in post.get("collaborators", []):
+        collab_user = await db.users.find_one(
+            {"user_id": collab_id},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "is_verified": 1, "verification_type": 1}
+        )
+        if collab_user:
+            collab_user["status"] = post.get("collaborator_status", {}).get(collab_id, "pending")
+            collaborator_users.append(collab_user)
+    
+    return {"collaborators": collaborator_users}
+
 
 # Manual metrics endpoint (Prometheus)
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST

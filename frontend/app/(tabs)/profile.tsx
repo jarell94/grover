@@ -12,6 +12,7 @@ import {
   Switch,
   Linking,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,6 +39,9 @@ export default function ProfileScreen() {
   const [stats, setStats] = useState({ posts: 0, followers: 0, following: 0 });
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [name, setName] = useState(user?.name || '');
+  const [username, setUsername] = useState(user?.username || '');
+  const [usernameError, setUsernameError] = useState('');
+  const [usernameChecking, setUsernameChecking] = useState(false);
   const [bio, setBio] = useState(user?.bio || '');
   const [isPrivate, setIsPrivate] = useState(user?.is_private || false);
   const [website, setWebsite] = useState(user?.website || '');
@@ -63,6 +67,7 @@ export default function ProfileScreen() {
     if (user) {
       loadStats();
       setName(user.name);
+      setUsername(user.username || '');
       setBio(user.bio || '');
       setIsPrivate(user.is_private);
       setWebsite(user.website || '');
@@ -96,15 +101,56 @@ export default function ProfileScreen() {
     }
   };
 
+  const checkUsernameAvailability = async (value: string) => {
+    if (!value || value === user?.username) {
+      setUsernameError('');
+      return;
+    }
+
+    setUsernameChecking(true);
+    try {
+      const result = await api.checkUsernameAvailability(value);
+      if (result.error) {
+        setUsernameError(result.error);
+      } else if (!result.available) {
+        setUsernameError('Username is already taken');
+      } else {
+        setUsernameError('');
+      }
+    } catch (error) {
+      setUsernameError('Error checking username');
+    } finally {
+      setUsernameChecking(false);
+    }
+  };
+
+  const handleUsernameChange = (value: string) => {
+    setUsername(value.toLowerCase().replace(/[^a-z0-9_-]/g, ''));
+    // Debounce the availability check
+    if (value.length >= 3) {
+      setTimeout(() => checkUsernameAvailability(value), 500);
+    } else if (value.length > 0) {
+      setUsernameError('Username must be at least 3 characters');
+    } else {
+      setUsernameError('');
+    }
+  };
+
   const handleUpdateProfile = async () => {
     if (paypalEmail.trim() && !isEmail(paypalEmail)) {
       Alert.alert("Invalid PayPal email", "Please enter a valid email address.");
       return;
     }
 
+    if (usernameError) {
+      Alert.alert("Invalid Username", usernameError);
+      return;
+    }
+
     try {
       await api.updateProfile({ 
-        name, 
+        name,
+        username: username || undefined,  // Only send if not empty
         bio, 
         is_private: isPrivate,
         website,
@@ -116,8 +162,9 @@ export default function ProfileScreen() {
       await refreshUser();
       setEditModalVisible(false);
       Alert.alert('Success', 'Profile updated');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update profile');
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Failed to update profile';
+      Alert.alert('Error', message);
     }
   };
 
@@ -175,14 +222,24 @@ export default function ProfileScreen() {
         text: 'Logout', 
         onPress: async () => {
           await logout();
-          router.replace('/');
+          // Don't navigate here - let the AuthContext and index page handle navigation
+          // router.replace('/') can cause race conditions
         }, 
         style: 'destructive' 
       },
     ]);
   };
 
-  if (!user) return null;
+  // Show loading state instead of null to prevent navigation issues
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </View>
+    );
+  }
 
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => (
@@ -204,6 +261,7 @@ export default function ProfileScreen() {
           )}
         </View>
         <Text style={styles.name}>{user.name}</Text>
+        {user.username && <Text style={styles.username}>@{user.username}</Text>}
         <Text style={styles.email}>{user.email}</Text>
         {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
@@ -419,6 +477,34 @@ export default function ProfileScreen() {
               onChangeText={setName}
             />
 
+            <View>
+              <View style={styles.usernameInputContainer}>
+                <Text style={styles.usernamePrefix}>@</Text>
+                <TextInput
+                  style={[styles.input, styles.usernameInput]}
+                  placeholder="username"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={username}
+                  onChangeText={handleUsernameChange}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={30}
+                />
+                {usernameChecking && (
+                  <ActivityIndicator size="small" color={Colors.primary} style={styles.usernameIndicator} />
+                )}
+              </View>
+              {usernameError && (
+                <Text style={styles.errorText}>✗ {usernameError}</Text>
+              )}
+              {!usernameError && username && username.length >= 3 && !usernameChecking && (
+                <Text style={styles.successText}>✓ Available</Text>
+              )}
+              <Text style={styles.helperText}>
+                Your unique identifier. 3-30 characters, letters, numbers, hyphens and underscores only.
+              </Text>
+            </View>
+
             <TextInput
               style={[styles.input, styles.textArea]}
               placeholder="Bio"
@@ -593,6 +679,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginBottom: 4,
   },
+  username: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 4,
+  },
   email: {
     fontSize: 14,
     color: '#fff',
@@ -698,6 +789,39 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 16,
     marginBottom: 16,
+  },
+  usernameInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  usernamePrefix: {
+    fontSize: 16,
+    color: Colors.text,
+    paddingLeft: 16,
+    fontWeight: '600',
+  },
+  usernameInput: {
+    flex: 1,
+    marginBottom: 0,
+    backgroundColor: 'transparent',
+  },
+  usernameIndicator: {
+    marginRight: 16,
+  },
+  errorText: {
+    color: Colors.error,
+    fontSize: 12,
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+  successText: {
+    color: Colors.success,
+    fontSize: 12,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   textArea: {
     minHeight: 80,

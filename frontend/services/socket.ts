@@ -162,13 +162,53 @@ class SocketService {
     return () => {};
   }
 
-  typing(conversationId: string, userId: string): void {
+  typing(conversationId: string, userId: string, userName?: string): void {
     if (this.socket && this.isConnected) {
       this.socket.emit('typing', {
         conversation_id: conversationId,
         user_id: userId,
+        user_name: userName,
       });
     }
+  }
+
+  typingStop(conversationId: string, userId: string): void {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('typing_stop', {
+        conversation_id: conversationId,
+        user_id: userId,
+      });
+    }
+  }
+
+  onUserStoppedTyping(callback: (data: any) => void): () => void {
+    if (this.socket) {
+      this.socket.on('user_stopped_typing', callback);
+      return () => {
+        this.socket?.off('user_stopped_typing', callback);
+      };
+    }
+    return () => {};
+  }
+
+  onMessageReaction(callback: (data: any) => void): () => void {
+    if (this.socket) {
+      this.socket.on('message:reaction', callback);
+      return () => {
+        this.socket?.off('message:reaction', callback);
+      };
+    }
+    return () => {};
+  }
+
+  onMessageRead(callback: (data: any) => void): () => void {
+    if (this.socket) {
+      this.socket.on('message:read', callback);
+      return () => {
+        this.socket?.off('message:read', callback);
+      };
+    }
+    return () => {};
   }
 
   setTyping(conversationId: string, userId: string, isTyping: boolean): void {

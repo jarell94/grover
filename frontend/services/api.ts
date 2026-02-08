@@ -208,7 +208,7 @@ const apiFormRequest = async (endpoint: string, formData: FormData) => {
 
 export const api = {
   // Auth
-  createSession: (sessionId: string) => apiRequest(`/auth/session?session_id=${sessionId}`),
+  createSession: (sessionId: string, rememberMe: boolean = false) => apiRequest(`/auth/session?session_id=${sessionId}&remember_me=${rememberMe}`),
   getMe: () => apiRequest('/auth/me'),
   logout: () => apiRequest('/auth/logout', { method: 'POST' }),
 
@@ -224,6 +224,7 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
+  checkUsernameAvailability: (username: string) => apiRequest(`/users/check-username/${username}`),
   followUser: (userId: string) => apiRequest(`/users/${userId}/follow`, { method: 'POST' }),
 
   // Posts
@@ -344,6 +345,38 @@ export const api = {
   deleteStory: (storyId: string) => apiRequest(`/stories/${storyId}`, { method: 'DELETE' }),
   getUserHighlights: (userId: string) => apiRequest(`/users/${userId}/highlights`),
 
+  // Story Archives
+  archiveStory: (storyId: string) => apiRequest(`/stories/${storyId}/archive`, { method: 'POST' }),
+  getArchivedStories: (limit: number = 20, skip: number = 0) => 
+    apiRequest(`/stories/archive?limit=${limit}&skip=${skip}`),
+  deleteArchivedStory: (archiveId: string) => 
+    apiRequest(`/stories/archive/${archiveId}`, { method: 'DELETE' }),
+  restoreArchivedStory: (archiveId: string) => 
+    apiRequest(`/stories/archive/${archiveId}/restore`, { method: 'POST' }),
+
+  // Story Batch Upload
+  createStoriesBatch: (formData: FormData) => apiFormRequest('/stories/batch', formData),
+
+  // Story Drafts
+  saveStoryDraft: (formData: FormData) => apiFormRequest('/stories/drafts', formData),
+  getStoryDrafts: () => apiRequest('/stories/drafts'),
+  updateStoryDraft: (draftId: string, data: { caption?: string; music_url?: string; music_title?: string; music_artist?: string }) => 
+    apiRequest(`/stories/drafts/${draftId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteStoryDraft: (draftId: string) => 
+    apiRequest(`/stories/drafts/${draftId}`, { method: 'DELETE' }),
+  publishStoryDraft: (draftId: string) => 
+    apiRequest(`/stories/drafts/${draftId}/publish`, { method: 'POST' }),
+
+  // Music Library
+  searchMusic: (query: string, limit: number = 10) => 
+    apiRequest(`/music/search?q=${encodeURIComponent(query)}&limit=${limit}`),
+  getTrendingMusic: (limit: number = 20) => 
+    apiRequest(`/music/trending?limit=${limit}`),
+  getMusicCategories: () => apiRequest('/music/categories'),
+
   // Polls
   voteOnPoll: (postId: string, optionIndex: number) => apiRequest(`/posts/${postId}/vote`, {
     method: 'POST',
@@ -408,6 +441,11 @@ export const api = {
   getContentPerformance: () => apiRequest('/analytics/content-performance'),
   getRevenueAnalytics: () => apiRequest('/analytics/revenue'),
   getEngagementAnalytics: () => apiRequest('/analytics/engagement'),
+  getAudienceDemographics: () => apiRequest('/analytics/audience/demographics'),
+  getActivityTimes: () => apiRequest('/analytics/audience/activity-times'),
+  getContentTypePerformance: () => apiRequest('/analytics/content-types'),
+  getPostAnalytics: (postId: string) => apiRequest(`/analytics/posts/${postId}`),
+  exportAnalytics: () => apiRequest('/analytics/export'),
 
   // Push Notifications
   registerPushToken: (token: string, platform: string) => 
@@ -502,4 +540,77 @@ export const api = {
 
   // Unlike Post (toggle like off)
   unlikePost: (postId: string) => apiRequest(`/posts/${postId}/like`, { method: 'DELETE' }),
+};
+  // Creator Subscriptions
+  createSubscriptionTier: (creatorId: string, data: {
+    name: string;
+    price: number;
+    description?: string;
+    benefits?: string[];
+  }) => apiRequest(`/creators/${creatorId}/subscription-tiers`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getSubscriptionTiers: (creatorId: string) => apiRequest(`/creators/${creatorId}/subscription-tiers`),
+  subscribeToCreator: (creatorId: string, tierId: string) => 
+    apiRequest(`/creators/${creatorId}/subscribe/${tierId}`, { method: 'POST' }),
+  cancelSubscription: (subscriptionId: string) => 
+    apiRequest(`/subscriptions/${subscriptionId}`, { method: 'DELETE' }),
+  getMySubscriptions: () => apiRequest('/subscriptions/my-subscriptions'),
+  getMySubscribers: () => apiRequest('/subscriptions/my-subscribers'),
+  checkSubscriptionStatus: (userId: string, creatorId: string) => 
+    apiRequest(`/users/${userId}/subscription-status/${creatorId}`),
+  getSubscriptionAnalytics: () => apiRequest('/creators/me/subscription-analytics'),
+
+  // Exclusive Content
+  setPostExclusive: (postId: string, exclusive: boolean, minTierId?: string) => 
+    apiRequest(`/posts/${postId}/set-exclusive`, {
+      method: 'POST',
+      body: JSON.stringify({ exclusive, min_tier_id: minTierId }),
+    }),
+  getExclusivePosts: (limit: number = 20, skip: number = 0) => 
+    apiRequest(`/posts/exclusive?limit=${limit}&skip=${skip}`),
+
+  // Supporter Badges
+  getUserBadges: (userId: string) => apiRequest(`/users/${userId}/badges`),
+  getCreatorBadgeForUser: (creatorId: string, userId: string) => 
+    apiRequest(`/creators/${creatorId}/badge/${userId}`),
+
+  // Verification Badges
+  verifyUser: (userId: string, verificationType: string, note?: string) =>
+    apiRequest(`/admin/verify-user/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify({ verification_type: verificationType, note }),
+    }),
+  unverifyUser: (userId: string) =>
+    apiRequest(`/admin/verify-user/${userId}`, { method: 'DELETE' }),
+  getVerifiedUsers: (verificationType?: string, limit: number = 50, skip: number = 0) =>
+    apiRequest(`/users/verified?${verificationType ? `verification_type=${verificationType}&` : ''}limit=${limit}&skip=${skip}`),
+
+  // Collaboration Posts
+  acceptCollaboration: (postId: string) =>
+    apiRequest(`/posts/${postId}/accept-collaboration`, { method: 'POST' }),
+  declineCollaboration: (postId: string) =>
+    apiRequest(`/posts/${postId}/decline-collaboration`, { method: 'POST' }),
+  getMyCollaborations: (limit: number = 20, skip: number = 0) =>
+    apiRequest(`/posts/collaborations?limit=${limit}&skip=${skip}`),
+  getPostCollaborators: (postId: string) =>
+    apiRequest(`/posts/${postId}/collaborators`),
+
+  // Message Reactions
+  addMessageReaction: (messageId: string, emoji: string) =>
+    apiRequest(`/messages/${messageId}/reactions`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
+    }),
+  getMessageReactions: (messageId: string) =>
+    apiRequest(`/messages/${messageId}/reactions`),
+  removeMessageReaction: (messageId: string, emoji: string) =>
+    apiRequest(`/messages/${messageId}/reactions/${emoji}`, { method: 'DELETE' }),
+
+  // Read Receipts & Status
+  markMessageRead: (messageId: string) =>
+    apiRequest(`/messages/${messageId}/read`, { method: 'POST' }),
+  getUnreadCount: (conversationId: string) =>
+    apiRequest(`/conversations/${conversationId}/unread-count`),
 };

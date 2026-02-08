@@ -10,12 +10,15 @@ import {
   RefreshControl,
   FlatList,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { api } from '../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -453,9 +456,18 @@ export default function AnalyticsScreen() {
 
         {/* Insights */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Insights & Tips</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Insights & Tips</Text>
+            <TouchableOpacity onPress={() => router.push('/audience-insights')}>
+              <Text style={styles.seeAllText}>Audience Insights →</Text>
+            </TouchableOpacity>
+          </View>
           
-          <View style={styles.insightCard}>
+          <TouchableOpacity 
+            style={styles.insightCard}
+            onPress={() => router.push('/audience-insights')}
+            activeOpacity={0.8}
+          >
             <LinearGradient
               colors={[Colors.primary + '30', Colors.secondary + '30']}
               style={styles.insightGradient}
@@ -465,10 +477,15 @@ export default function AnalyticsScreen() {
                 <Text style={styles.insightTitle}>Best Time to Post</Text>
                 <Text style={styles.insightText}>Your audience is most active on weekdays between 6-9 PM</Text>
               </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
             </LinearGradient>
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.insightCard}>
+          <TouchableOpacity 
+            style={styles.insightCard}
+            onPress={() => router.push('/audience-insights')}
+            activeOpacity={0.8}
+          >
             <LinearGradient
               colors={[Colors.success + '30', Colors.info + '30']}
               style={styles.insightGradient}
@@ -478,10 +495,15 @@ export default function AnalyticsScreen() {
                 <Text style={styles.insightTitle}>Growing Content</Text>
                 <Text style={styles.insightText}>Videos are getting 2.5x more engagement than photos</Text>
               </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
             </LinearGradient>
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.insightCard}>
+          <TouchableOpacity 
+            style={styles.insightCard}
+            onPress={() => router.push('/audience-insights')}
+            activeOpacity={0.8}
+          >
             <LinearGradient
               colors={[Colors.warning + '30', Colors.danger + '30']}
               style={styles.insightGradient}
@@ -491,8 +513,66 @@ export default function AnalyticsScreen() {
                 <Text style={styles.insightTitle}>Audience Demographics</Text>
                 <Text style={styles.insightText}>65% of your followers are aged 18-34</Text>
               </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
             </LinearGradient>
-          </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Export Button */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.exportButton}
+            onPress={async () => {
+              try {
+                const result = await api.exportAnalytics();
+                if (result?.csv) {
+                  // Check if sharing is available
+                  const isAvailable = await Sharing.isAvailableAsync();
+                  
+                  if (isAvailable) {
+                    // Create file in cache directory
+                    const fileUri = FileSystem.cacheDirectory + result.filename;
+                    await FileSystem.writeAsStringAsync(fileUri, result.csv);
+                    
+                    // Share the file
+                    await Sharing.shareAsync(fileUri, {
+                      mimeType: 'text/csv',
+                      dialogTitle: 'Export Analytics',
+                      UTI: 'public.comma-separated-values-text',
+                    });
+                    
+                    Alert.alert('Success', 'Analytics exported successfully!');
+                  } else {
+                    // Fallback for platforms without sharing
+                    Alert.alert(
+                      'Analytics Exported',
+                      'Sharing is not available on this platform. The CSV data has been logged to the console.',
+                      [
+                        { 
+                          text: 'View Console', 
+                          onPress: () => console.log('CSV Data:\n', result.csv),
+                          style: 'default' 
+                        },
+                        { text: 'OK', style: 'cancel' }
+                      ]
+                    );
+                    console.log('CSV Export:', result.csv);
+                  }
+                }
+              } catch (error) {
+                console.error('Export error:', error);
+                Alert.alert('Error', 'Failed to export analytics');
+              }
+            }}
+          >
+            <LinearGradient
+              colors={[Colors.info, '#0EA5E9', '#38BDF8']}
+              style={styles.exportGradient}
+            >
+              <Ionicons name="download" size={24} color="#fff" />
+              <Text style={styles.exportText}>Export Analytics (CSV)</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
 
         {/* Bottom Padding */}
@@ -860,6 +940,25 @@ const styles = StyleSheet.create({
   topPostScoreLabel: {
     fontSize: 10,
     color: Colors.textSecondary,
+  },
+  
+  // Export Button
+  exportButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  exportGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    gap: 12,
+  },
+  exportText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
   
   // Insight Card
