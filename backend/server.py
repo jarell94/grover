@@ -2516,13 +2516,13 @@ async def edit_message(
     if now - created_at > MESSAGE_EDIT_WINDOW:
         raise HTTPException(status_code=400, detail="Edit window expired")
 
-    previous_edited_at = message.get("edited_at") or created_at
+    previous_timestamp = message.get("edited_at") or created_at
     update_ops = {
         "$set": {"content": new_content, "edited_at": now},
         "$push": {
             "edit_history": {
                 "content": message.get("content", ""),
-                "previous_edited_at": previous_edited_at,
+                "previous_timestamp": previous_timestamp,
                 "replaced_at": now
             }
         }
@@ -6283,8 +6283,7 @@ async def send_message(sid, data):
         "sender_id": sender_id,
         "content": content,
         "read": False,
-        "created_at": datetime.now(timezone.utc),
-        "edited_at": None
+        "created_at": datetime.now(timezone.utc)
     })
     
     # Update conversation
@@ -6307,8 +6306,7 @@ async def send_message(sid, data):
         "sender_name": sender["name"] if sender else "Unknown",
         "sender_picture": sender["picture"] if sender else None,
         "content": content,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "edited_at": None
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     await sio.emit('new_message', message_data, room=f"conversation_{conversation_id}")
 

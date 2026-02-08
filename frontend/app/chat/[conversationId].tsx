@@ -191,10 +191,14 @@ export default function ChatScreen() {
       try {
         const response = await api.editMessage(editingMessageId, trimmed);
         const missing = [];
+        if (!response?.message_id) missing.push("message_id");
         if (!response?.edited_at) missing.push("edited_at");
         if (!response?.content) missing.push("content");
         if (missing.length) {
           throw new Error(`Edit response missing required fields: ${missing.join(", ")}`);
+        }
+        if (response.message_id !== editingMessageId) {
+          throw new Error("Edit response returned unexpected message_id");
         }
         setMessages((prev) =>
           prev.map((message) =>
@@ -211,6 +215,7 @@ export default function ChatScreen() {
         if (__DEV__) console.error("Edit message error:", error);
         Alert.alert("Unable to edit message", "Please try again.");
       } finally {
+        emitTyping(false);
         setEditingMessageId(null);
         setInputText("");
       }

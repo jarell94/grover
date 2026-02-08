@@ -40,11 +40,11 @@ console.log('Socket.IO Backend URL:', BACKEND_URL);
 
 interface MessageEditedPayload {
   message_id: string;
+  content: string;
+  edited_at: string;
   conversation_id?: string;
   sender_id?: string;
-  content?: string;
   created_at?: string;
-  edited_at?: string | null;
 }
 
 class SocketService {
