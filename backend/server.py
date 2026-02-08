@@ -18,6 +18,7 @@ from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from PIL import Image
+import stripe
 from paypal_service import create_payment, execute_payment, get_payment_details
 from paypal_payout_service import send_payout
 
@@ -94,6 +95,12 @@ FOLLOWER_MILESTONES = [10, 50, 100, 250, 500, 1000, 5000, 10000]
 MAX_CONVERSATIONS_FOR_SEARCH = 200
 MAX_SEARCH_RESULTS = 100
 MAX_USERS_FOR_SEARCH = 200
+STRIPE_DEFAULT_CURRENCY = os.getenv("STRIPE_DEFAULT_CURRENCY", "usd")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_CONNECT_REFRESH_URL = os.getenv("STRIPE_CONNECT_REFRESH_URL", "http://localhost:3000/stripe/refresh")
+STRIPE_CONNECT_RETURN_URL = os.getenv("STRIPE_CONNECT_RETURN_URL", "http://localhost:3000/stripe/return")
+stripe.api_key = STRIPE_SECRET_KEY
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -360,6 +367,11 @@ async def health_check():
     health_status["services"]["paypal"] = {
         "status": "configured" if paypal_configured else "not_configured"
     }
+
+    # Check Stripe configuration
+    health_status["services"]["stripe"] = {
+        "status": "configured" if STRIPE_SECRET_KEY else "not_configured"
+    }
     
     # Check Redis cache status
     health_status["services"]["redis"] = {
@@ -391,6 +403,56 @@ def normalize_datetime(value: Optional[datetime]) -> Optional[datetime]:
     if value and value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+def require_stripe_configured() -> None:
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+
+async def get_user_record(user_id: str) -> dict:
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+async def get_or_create_stripe_customer(user: dict) -> str:
+    if user.get("stripe_customer_id"):
+        return user["stripe_customer_id"]
+    customer = stripe.Customer.create(
+        email=user.get("email"),
+        name=user.get("name"),
+        metadata={"user_id": user.get("user_id")}
+    )
+    await db.users.update_one(
+        {"user_id": user.get("user_id")},
+        {"$set": {"stripe_customer_id": customer.id}}
+    )
+    return customer.id
+
+async def get_stripe_account_id(user_id: str) -> str:
+    user = await get_user_record(user_id)
+    account_id = user.get("stripe_account_id")
+    if not account_id:
+        raise HTTPException(status_code=400, detail="Creator has not connected Stripe")
+    return account_id
+
+async def ensure_stripe_price(tier: dict, creator_id: str) -> str:
+    if tier.get("stripe_price_id"):
+        return tier["stripe_price_id"]
+    product = stripe.Product.create(
+        name=tier.get("name", "Creator Subscription"),
+        metadata={"creator_id": creator_id, "tier_id": tier.get("tier_id")}
+    )
+    price = stripe.Price.create(
+        product=product.id,
+        unit_amount=int(tier.get("price", 0) * 100),
+        currency=STRIPE_DEFAULT_CURRENCY,
+        recurring={"interval": "month"}
+    )
+    await db.subscription_tiers.update_one(
+        {"tier_id": tier.get("tier_id")},
+        {"$set": {"stripe_product_id": product.id, "stripe_price_id": price.id}}
+    )
+    return price.id
 
 async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
     """Create a notification only if user has that type enabled"""
@@ -517,6 +579,11 @@ async def emit_message_deleted(conversation_id: Optional[str], message_id: str, 
         "is_deleted": True
     }, room=f"conversation_{conversation_id}")
 
+def stripe_amount(amount: float) -> int:
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+    return int(round(amount * 100))
+
 # ============ MODELS ============
 
 class User(BaseModel):
@@ -533,6 +600,8 @@ class User(BaseModel):
     instagram: Optional[str] = None
     linkedin: Optional[str] = None
     paypal_email: Optional[str] = None
+    stripe_account_id: Optional[str] = None
+    stripe_customer_id: Optional[str] = None
     # Notification preferences
     notify_followers: bool = True
     notify_likes: bool = True
@@ -639,6 +708,29 @@ class MessageEdit(BaseModel):
 
 class MessageDelete(BaseModel):
     delete_for_everyone: bool = False
+
+class StripePaymentMethodRequest(BaseModel):
+    payment_method_id: str
+
+class StripeTipRequest(BaseModel):
+    amount: float
+    currency: Optional[str] = STRIPE_DEFAULT_CURRENCY
+    message: Optional[str] = None
+
+class StripeSubscriptionRequest(BaseModel):
+    tier_id: str
+
+class StripeOrderRequest(BaseModel):
+    product_id: str
+    quantity: int = 1
+
+class StripeRefundRequest(BaseModel):
+    payment_intent_id: str
+    amount: Optional[float] = None
+
+class StripePayoutRequest(BaseModel):
+    amount: float
+    currency: Optional[str] = STRIPE_DEFAULT_CURRENCY
 
 class Notification(BaseModel):
     notification_id: str
@@ -2516,6 +2608,412 @@ async def execute_paypal_payment(
         }
     else:
         raise HTTPException(status_code=500, detail=result.get("error", "Payment execution failed"))
+
+# ============ STRIPE ENDPOINTS ============
+
+@api_router.post("/stripe/connect/account")
+async def create_stripe_connect_account(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    account_id = user.get("stripe_account_id")
+    if not account_id:
+        account = stripe.Account.create(
+            type="express",
+            email=user.get("email"),
+            capabilities={"card_payments": {"requested": True}, "transfers": {"requested": True}},
+            metadata={"user_id": current_user.user_id}
+        )
+        account_id = account.id
+        await db.users.update_one(
+            {"user_id": current_user.user_id},
+            {"$set": {"stripe_account_id": account_id}}
+        )
+
+    account_link = stripe.AccountLink.create(
+        account=account_id,
+        refresh_url=STRIPE_CONNECT_REFRESH_URL,
+        return_url=STRIPE_CONNECT_RETURN_URL,
+        type="account_onboarding"
+    )
+    return {"account_id": account_id, "url": account_link.url}
+
+@api_router.post("/stripe/connect/account-link")
+async def create_stripe_account_link(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    account_id = await get_stripe_account_id(current_user.user_id)
+    account_link = stripe.AccountLink.create(
+        account=account_id,
+        refresh_url=STRIPE_CONNECT_REFRESH_URL,
+        return_url=STRIPE_CONNECT_RETURN_URL,
+        type="account_onboarding"
+    )
+    return {"account_id": account_id, "url": account_link.url}
+
+@api_router.get("/stripe/connect/status")
+async def get_stripe_connect_status(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    account_id = await get_stripe_account_id(current_user.user_id)
+    account = stripe.Account.retrieve(account_id)
+    return {
+        "account_id": account_id,
+        "charges_enabled": account.get("charges_enabled"),
+        "payouts_enabled": account.get("payouts_enabled"),
+        "details_submitted": account.get("details_submitted"),
+    }
+
+@api_router.post("/stripe/payment-methods/setup-intent")
+async def create_stripe_setup_intent(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(user)
+    intent = stripe.SetupIntent.create(
+        customer=customer_id,
+        payment_method_types=["card"]
+    )
+    return {"client_secret": intent.client_secret}
+
+@api_router.post("/stripe/payment-methods/attach")
+async def attach_stripe_payment_method(
+    payload: StripePaymentMethodRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(user)
+    stripe.PaymentMethod.attach(payload.payment_method_id, customer=customer_id)
+    stripe.Customer.modify(
+        customer_id,
+        invoice_settings={"default_payment_method": payload.payment_method_id}
+    )
+    methods = stripe.PaymentMethod.list(customer=customer_id, type="card")
+    return {"payment_methods": methods.data}
+
+@api_router.get("/stripe/payment-methods")
+async def list_stripe_payment_methods(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        return {"payment_methods": []}
+    methods = stripe.PaymentMethod.list(customer=customer_id, type="card")
+    return {"payment_methods": methods.data}
+
+@api_router.post("/stripe/tips/{user_id}")
+async def create_stripe_tip(
+    user_id: str,
+    payload: StripeTipRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    validate_id(user_id, "user_id")
+    if payload.amount < 1:
+        raise HTTPException(status_code=400, detail="Minimum tip is $1")
+    await check_monetization_enabled(user_id, "tips")
+    creator_account_id = await get_stripe_account_id(user_id)
+    payer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(payer)
+    split = calculate_revenue_split(payload.amount, "tips")
+    tip_id = f"tip_{uuid.uuid4().hex[:12]}"
+    intent = stripe.PaymentIntent.create(
+        amount=stripe_amount(payload.amount),
+        currency=payload.currency or STRIPE_DEFAULT_CURRENCY,
+        customer=customer_id,
+        payment_method_types=["card"],
+        application_fee_amount=stripe_amount(split["platform_fee"]),
+        transfer_data={"destination": creator_account_id},
+        metadata={
+            "type": "tip",
+            "tip_id": tip_id,
+            "from_user_id": current_user.user_id,
+            "to_user_id": user_id,
+            "amount": str(payload.amount)
+        }
+    )
+    await db.tips.insert_one({
+        "tip_id": tip_id,
+        "from_user_id": current_user.user_id,
+        "to_user_id": user_id,
+        "amount": payload.amount,
+        "message": payload.message,
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "status": "pending",
+        "stripe_payment_intent_id": intent.id,
+        "created_at": datetime.now(timezone.utc)
+    })
+    return {"tip_id": tip_id, "client_secret": intent.client_secret}
+
+@api_router.post("/stripe/creators/{user_id}/subscriptions")
+async def create_stripe_subscription(
+    user_id: str,
+    payload: StripeSubscriptionRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    validate_id(user_id, "user_id")
+    await check_monetization_enabled(user_id, "subscriptions")
+    tier = await db.subscription_tiers.find_one({"tier_id": payload.tier_id, "creator_id": user_id, "active": True})
+    if not tier:
+        raise HTTPException(status_code=404, detail="Subscription tier not found")
+    creator_account_id = await get_stripe_account_id(user_id)
+    payer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(payer)
+    price_id = await ensure_stripe_price(tier, user_id)
+    platform_fee_percent = REVENUE_SHARE.get("subscriptions", {}).get("platform", 0.15) * 100
+
+    subscription = stripe.Subscription.create(
+        customer=customer_id,
+        items=[{"price": price_id}],
+        payment_behavior="default_incomplete",
+        expand=["latest_invoice.payment_intent"],
+        application_fee_percent=platform_fee_percent,
+        transfer_data={"destination": creator_account_id},
+        metadata={
+            "type": "subscription",
+            "creator_id": user_id,
+            "tier_id": payload.tier_id,
+            "subscriber_id": current_user.user_id
+        }
+    )
+    now = datetime.now(timezone.utc)
+    subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
+    await db.creator_subscriptions.insert_one({
+        "subscription_id": subscription_id,
+        "subscriber_id": current_user.user_id,
+        "creator_id": user_id,
+        "tier_id": payload.tier_id,
+        "amount": tier["price"],
+        "platform_fee": tier["price"] * (platform_fee_percent / 100),
+        "creator_payout": tier["price"] * (1 - platform_fee_percent / 100),
+        "status": "pending",
+        "stripe_subscription_id": subscription.id,
+        "started_at": now,
+        "created_at": now
+    })
+    payment_intent = subscription.get("latest_invoice", {}).get("payment_intent") if isinstance(subscription, dict) else None
+    client_secret = None
+    if payment_intent:
+        client_secret = payment_intent.get("client_secret")
+    return {
+        "subscription_id": subscription_id,
+        "stripe_subscription_id": subscription.id,
+        "client_secret": client_secret
+    }
+
+@api_router.post("/stripe/orders")
+async def create_stripe_order(
+    payload: StripeOrderRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    product = await db.products.find_one({"product_id": payload.product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    seller_id = product["user_id"]
+    seller_account_id = await get_stripe_account_id(seller_id)
+    buyer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(buyer)
+    amount = product["price"] * max(payload.quantity, 1)
+    split = calculate_revenue_split(amount, "products")
+    order_id = f"order_{uuid.uuid4().hex[:12]}"
+
+    intent = stripe.PaymentIntent.create(
+        amount=stripe_amount(amount),
+        currency=STRIPE_DEFAULT_CURRENCY,
+        customer=customer_id,
+        payment_method_types=["card"],
+        application_fee_amount=stripe_amount(split["platform_fee"]),
+        transfer_data={"destination": seller_account_id},
+        metadata={
+            "type": "marketplace",
+            "order_id": order_id,
+            "buyer_id": current_user.user_id,
+            "seller_id": seller_id,
+            "product_id": payload.product_id,
+            "amount": str(amount)
+        }
+    )
+
+    await db.orders.insert_one({
+        "order_id": order_id,
+        "buyer_id": current_user.user_id,
+        "seller_id": seller_id,
+        "product_id": payload.product_id,
+        "amount": amount,
+        "platform_fee": split["platform_fee"],
+        "seller_amount": split["creator_payout"],
+        "status": "pending",
+        "stripe_payment_intent_id": intent.id,
+        "created_at": datetime.now(timezone.utc)
+    })
+
+    return {"order_id": order_id, "client_secret": intent.client_secret}
+
+@api_router.post("/stripe/refunds")
+async def create_stripe_refund(
+    payload: StripeRefundRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    refund_amount = stripe_amount(payload.amount) if payload.amount else None
+    refund = stripe.Refund.create(
+        payment_intent=payload.payment_intent_id,
+        amount=refund_amount
+    )
+    await db.tips.update_one(
+        {"stripe_payment_intent_id": payload.payment_intent_id},
+        {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+    )
+    await db.orders.update_one(
+        {"stripe_payment_intent_id": payload.payment_intent_id},
+        {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+    )
+    return {"refund_id": refund.id, "status": refund.status}
+
+@api_router.post("/stripe/payouts")
+async def create_stripe_payout(
+    payload: StripePayoutRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    account_id = await get_stripe_account_id(current_user.user_id)
+    transfer = stripe.Transfer.create(
+        amount=stripe_amount(payload.amount),
+        currency=payload.currency or STRIPE_DEFAULT_CURRENCY,
+        destination=account_id,
+        metadata={"user_id": current_user.user_id}
+    )
+    payout_id = f"payout_{uuid.uuid4().hex[:12]}"
+    await db.payouts.insert_one({
+        "payout_id": payout_id,
+        "user_id": current_user.user_id,
+        "amount": payload.amount,
+        "currency": payload.currency or STRIPE_DEFAULT_CURRENCY,
+        "stripe_transfer_id": transfer.id,
+        "status": transfer.get("status", "pending"),
+        "created_at": datetime.now(timezone.utc)
+    })
+    return {"payout_id": payout_id, "stripe_transfer_id": transfer.id, "status": transfer.get("status")}
+
+@api_router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    require_stripe_configured()
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Stripe webhook secret not configured")
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    event_type = event.get("type")
+    data_object = event.get("data", {}).get("object", {})
+
+    if event_type == "payment_intent.succeeded":
+        metadata = data_object.get("metadata", {})
+        record_type = metadata.get("type")
+        amount = float(metadata.get("amount", 0) or 0)
+        if record_type == "tip":
+            tip_id = metadata.get("tip_id")
+            await db.tips.update_one(
+                {"tip_id": tip_id},
+                {"$set": {"status": "completed", "paid_at": datetime.now(timezone.utc)}}
+            )
+            if tip_id:
+                await record_transaction(
+                    "tips",
+                    amount,
+                    metadata.get("from_user_id"),
+                    metadata.get("to_user_id"),
+                    tip_id,
+                    {"stripe_payment_intent_id": data_object.get("id")}
+                )
+                await create_and_send_notification(
+                    metadata.get("to_user_id"),
+                    "tip",
+                    "You received a Stripe tip!",
+                    tip_id,
+                    metadata.get("from_user_id")
+                )
+        if record_type == "marketplace":
+            order_id = metadata.get("order_id")
+            await db.orders.update_one(
+                {"order_id": order_id},
+                {"$set": {"status": "completed", "paid_at": datetime.now(timezone.utc)}}
+            )
+            if order_id:
+                await record_transaction(
+                    "products",
+                    amount,
+                    metadata.get("buyer_id"),
+                    metadata.get("seller_id"),
+                    order_id,
+                    {"product_id": metadata.get("product_id")}
+                )
+                await create_notification(
+                    metadata.get("seller_id"),
+                    "sale",
+                    "You made a Stripe sale!",
+                    order_id
+                )
+
+    if event_type == "payment_intent.payment_failed":
+        metadata = data_object.get("metadata", {})
+        record_type = metadata.get("type")
+        status_update = {"status": "failed", "failed_at": datetime.now(timezone.utc)}
+        if record_type == "tip":
+            await db.tips.update_one({"tip_id": metadata.get("tip_id")}, {"$set": status_update})
+        if record_type == "marketplace":
+            await db.orders.update_one({"order_id": metadata.get("order_id")}, {"$set": status_update})
+
+    if event_type == "charge.refunded":
+        payment_intent_id = data_object.get("payment_intent")
+        if payment_intent_id:
+            await db.tips.update_one(
+                {"stripe_payment_intent_id": payment_intent_id},
+                {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+            )
+            await db.orders.update_one(
+                {"stripe_payment_intent_id": payment_intent_id},
+                {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+            )
+
+    if event_type == "invoice.paid":
+        subscription_id = data_object.get("subscription")
+        if subscription_id:
+            subscription = await db.creator_subscriptions.find_one({"stripe_subscription_id": subscription_id})
+            if subscription and subscription.get("status") != "active":
+                await db.creator_subscriptions.update_one(
+                    {"stripe_subscription_id": subscription_id},
+                    {"$set": {"status": "active", "paid_at": datetime.now(timezone.utc)}}
+                )
+                await record_transaction(
+                    "subscriptions",
+                    subscription.get("amount", 0),
+                    subscription.get("subscriber_id"),
+                    subscription.get("creator_id"),
+                    subscription.get("subscription_id"),
+                    {"tier_id": subscription.get("tier_id")}
+                )
+
+    if event_type == "customer.subscription.deleted":
+        subscription_id = data_object.get("id")
+        if subscription_id:
+            await db.creator_subscriptions.update_one(
+                {"stripe_subscription_id": subscription_id},
+                {"$set": {"status": "cancelled", "cancelled_at": datetime.now(timezone.utc)}}
+            )
+
+    if event_type == "payout.paid":
+        payout_id = data_object.get("id")
+        if payout_id:
+            await db.payouts.update_one(
+                {"stripe_payout_id": payout_id},
+                {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}}
+            )
+
+    return {"status": "success"}
 
 @api_router.post("/orders")
 async def create_order(
