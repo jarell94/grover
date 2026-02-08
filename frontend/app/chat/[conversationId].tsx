@@ -34,7 +34,7 @@ interface Message {
 const NEAR_BOTTOM_PX = 120;
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const DELETE_WINDOW_MS = 60 * 60 * 1000;
-const PREVIEW_MODE_DELETED = "deleted";
+const PREVIEW_MODE_DELETED_VALUE = "deleted";
 const PREVIEW_CONVERSATION_ID = "conv_preview";
 
 export default function ChatScreen() {
@@ -46,7 +46,7 @@ export default function ChatScreen() {
   const otherUserId = params.otherUserId as string | undefined;
   const otherUserName = params.otherUserName as string | undefined;
   const previewValue = Array.isArray(params.preview) ? params.preview[0] : params.preview;
-  const previewMode = previewValue === PREVIEW_MODE_DELETED || conversationId === PREVIEW_CONVERSATION_ID;
+  const previewMode = previewValue === PREVIEW_MODE_DELETED_VALUE || conversationId === PREVIEW_CONVERSATION_ID;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -141,8 +141,8 @@ export default function ChatScreen() {
   const canDeleteForEveryone = (message: Message) => {
     if (!userId || message.sender_id !== userId) return false;
     if (message.is_deleted || message.deleted_for_everyone) return false;
-    if (message.read === true) return false;
-    if (message.edited_at !== null && message.edited_at !== undefined) return false;
+    if (message.read) return false;
+    if (message.edited_at != null) return false;
     const createdAt = new Date(message.created_at).getTime();
     if (Number.isNaN(createdAt) || !Number.isFinite(createdAt)) return false;
     return Date.now() - createdAt <= DELETE_WINDOW_MS;
