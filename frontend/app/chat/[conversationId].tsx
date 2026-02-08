@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
   Platform,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Pressable,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,9 +24,11 @@ interface Message {
   sender_id: string;
   content: string;
   created_at: string;
+  edited_at?: string | null;
 }
 
 const NEAR_BOTTOM_PX = 120;
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 export default function ChatScreen() {
   const params = useLocalSearchParams();
@@ -37,6 +41,7 @@ export default function ChatScreen() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
   const [otherTyping, setOtherTyping] = useState(false);
 
@@ -91,6 +96,28 @@ export default function ChatScreen() {
     }
   };
 
+  const canEditMessage = (message: Message) => {
+    if (!userId || message.sender_id !== userId) return false;
+    if (!message.content?.trim()) return false;
+    const createdAt = new Date(message.created_at).getTime();
+    if (Number.isNaN(createdAt) || !Number.isFinite(createdAt)) {
+      if (__DEV__) console.warn("Invalid message timestamp", message.created_at);
+      return false;
+    }
+    return Date.now() - createdAt <= EDIT_WINDOW_MS;
+  };
+
+  const startEdit = (message: Message) => {
+    if (!canEditMessage(message)) return;
+    setEditingMessageId(message.message_id);
+    setInputText(message.content);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setInputText("");
+  };
+
   useEffect(() => {
     // Initial load
     loadMessages();
@@ -120,6 +147,14 @@ export default function ChatScreen() {
       }, 50);
     });
 
+    const offMessageEdited = socketService.onMessageEdited((updated: Message) => {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.message_id === updated.message_id ? { ...message, ...updated } : message
+        )
+      );
+    });
+
     // Typing indicator support
     const offTyping = socketService.onTyping((payload) => {
       if (!conversationId) return;
@@ -135,6 +170,7 @@ export default function ChatScreen() {
       // Cleanup listeners
       offNewMessage?.();
       offTyping?.();
+      offMessageEdited?.();
       
       // Leave conversation
       if (conversationId && userId) {
@@ -148,13 +184,54 @@ export default function ChatScreen() {
     };
   }, [conversationId, userId, otherUserId]);
 
-  const handleSend = () => {
-    if (!inputText.trim() || !conversationId || !userId) return;
+  const handleSend = async () => {
+    const trimmed = inputText.trim();
+    if (!trimmed) return;
+
+    if (editingMessageId) {
+      try {
+        const response = await api.editMessage(editingMessageId, trimmed);
+        const missing = [];
+        if (!response?.message_id) missing.push("message_id");
+        if (!response?.edited_at) missing.push("edited_at");
+        if (!response?.content) missing.push("content");
+        if (missing.length) {
+          if (__DEV__) {
+            console.error("Edit response missing fields", missing);
+          }
+          throw new Error(`Edit response missing required fields: ${missing.join(", ")}`);
+        }
+        if (response.message_id !== editingMessageId) {
+          throw new Error("Edit response returned unexpected message_id");
+        }
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.message_id === editingMessageId
+              ? {
+                  ...message,
+                  content: response.content,
+                  edited_at: response.edited_at,
+                }
+              : message
+          )
+        );
+      } catch (error) {
+        if (__DEV__) console.error("Edit message error:", error);
+        Alert.alert("Unable to edit message", "Please try again.");
+      } finally {
+        emitTyping(false);
+        setEditingMessageId(null);
+        setInputText("");
+      }
+      return;
+    }
+
+    if (!conversationId || !userId) return;
 
     // Stop typing immediately when sending
     emitTyping(false);
 
-    socketService.sendMessage(conversationId, userId, inputText.trim());
+    socketService.sendMessage(conversationId, userId, trimmed);
     setInputText("");
 
     // Optimistic scroll if at bottom
@@ -197,17 +274,31 @@ export default function ChatScreen() {
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === userId;
+    const editable = canEditMessage(item);
 
     return (
       <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
-        <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
-          <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
-            {item.content}
+        <Pressable
+          onLongPress={() => startEdit(item)}
+          disabled={!editable}
+          accessibilityLabel={editable ? "Long press to edit message" : undefined}
+        >
+          <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
+            <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
+              {item.content}
+            </Text>
+          </View>
+        </Pressable>
+        <View style={styles.timestampRow}>
+          <Text style={styles.timestamp}>
+            {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </Text>
+          {item.edited_at && (
+            <Text style={styles.editedText} accessibilityLabel="Message edited">
+              edited
+            </Text>
+          )}
         </View>
-        <Text style={styles.timestamp}>
-          {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </Text>
       </View>
     );
   };
@@ -269,22 +360,32 @@ export default function ChatScreen() {
         </TouchableOpacity>
       )}
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Type a message..."
-          placeholderTextColor={Colors.textSecondary}
-          value={inputText}
-          onChangeText={onChangeText}
-          multiline
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!inputText.trim()}
-        >
-          <Ionicons name="send" size={20} color="#fff" />
-        </TouchableOpacity>
+      <View style={styles.composerContainer}>
+        {editingMessageId && (
+          <View style={styles.editingBanner}>
+            <Text style={styles.editingText}>Editing message</Text>
+            <TouchableOpacity onPress={cancelEdit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.editingCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder={editingMessageId ? "Edit your message..." : "Type a message..."}
+            placeholderTextColor={Colors.textSecondary}
+            value={inputText}
+            onChangeText={onChangeText}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={!inputText.trim()}
+          >
+            <Ionicons name={editingMessageId ? "checkmark" : "send"} size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -321,17 +422,31 @@ const styles = StyleSheet.create({
   myText: { color: "#fff" },
   theirText: { color: Colors.text },
 
+  timestampRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   timestamp: { fontSize: 10, color: Colors.textSecondary },
+  editedText: { fontSize: 10, color: Colors.textSecondary },
 
   emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 64 },
   emptyText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
 
-  inputContainer: {
-    flexDirection: "row",
-    padding: 16,
+  composerContainer: {
     backgroundColor: Colors.card,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+  },
+  editingBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  editingText: { fontSize: 12, color: Colors.textSecondary, fontWeight: "600" },
+  editingCancel: { fontSize: 12, color: Colors.primary, fontWeight: "600" },
+  inputContainer: {
+    flexDirection: "row",
+    padding: 16,
     gap: 12,
   },
   input: {

@@ -8,6 +8,11 @@ import os
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Provide default environment for server imports in tests
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017/?serverSelectionTimeoutMS=50")
+os.environ.setdefault("DB_NAME", "grover_test")
+os.environ.setdefault("ENABLE_METRICS", "true")
+
 # Mock MongoDB before importing server
 from unittest.mock import patch
 
