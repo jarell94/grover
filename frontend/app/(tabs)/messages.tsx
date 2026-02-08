@@ -64,6 +64,7 @@ interface MessageSearchResult {
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_HIGHLIGHT_ALPHA = '40';
 
 export default function MessagesScreen() {
   const router = useRouter();
@@ -236,15 +237,16 @@ export default function MessagesScreen() {
     const lower = query.toLowerCase();
     return (
       <Text style={styles.searchMessageText}>
-        {parts.map((part, index) =>
-          part.toLowerCase() === lower ? (
+        {parts.map((part, index) => {
+          const partLower = part.toLowerCase();
+          return partLower === lower ? (
             <Text key={index} style={styles.searchHighlight}>
               {part}
             </Text>
           ) : (
             part
-          )
-        )}
+          );
+        })}
       </Text>
     );
   };
@@ -604,7 +606,7 @@ const styles = StyleSheet.create({
   },
   searchHighlight: {
     color: Colors.text,
-    backgroundColor: Colors.primary + '40',
+    backgroundColor: Colors.primary + SEARCH_HIGHLIGHT_ALPHA,
     fontWeight: '700',
   },
 });

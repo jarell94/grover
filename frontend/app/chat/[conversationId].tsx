@@ -39,6 +39,7 @@ const DELETE_WINDOW_MS = 60 * 60 * 1000;
 const PREVIEW_MODE_DELETED_VALUE = "deleted";
 const PREVIEW_CONVERSATION_ID = "conv_preview";
 const SCROLL_TO_MESSAGE_DELAY_MS = 100;
+const HIGHLIGHT_ALPHA = "55";
 
 export default function ChatScreen() {
   const params = useLocalSearchParams();
@@ -85,15 +86,16 @@ export default function ChatScreen() {
     const lower = query.toLowerCase();
     return (
       <Text>
-        {parts.map((part, index) =>
-          part.toLowerCase() === lower ? (
+        {parts.map((part, index) => {
+          const partLower = part.toLowerCase();
+          return partLower === lower ? (
             <Text key={index} style={styles.highlightText}>
               {part}
             </Text>
           ) : (
             part
-          )
-        )}
+          );
+        })}
       </Text>
     );
   };
@@ -587,7 +589,7 @@ const styles = StyleSheet.create({
   myText: { color: "#fff" },
   theirText: { color: Colors.text },
   deletedText: { fontStyle: "italic", color: Colors.textSecondary },
-  highlightText: { backgroundColor: Colors.primary + "55", color: Colors.text },
+  highlightText: { backgroundColor: Colors.primary + HIGHLIGHT_ALPHA, color: Colors.text },
 
   timestampRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   timestamp: { fontSize: 10, color: Colors.textSecondary },
