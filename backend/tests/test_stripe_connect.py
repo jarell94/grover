@@ -45,7 +45,11 @@ async def test_stripe_connect_account(monkeypatch, mock_db, override_auth):
 
     monkeypatch.setattr(server.stripe, "Account", SimpleNamespace(
         create=lambda **_kwargs: SimpleNamespace(id="acct_123"),
-        retrieve=lambda _id: {"charges_enabled": False, "payouts_enabled": False, "details_submitted": False},
+        retrieve=lambda _id: SimpleNamespace(
+            charges_enabled=False,
+            payouts_enabled=False,
+            details_submitted=False
+        ),
     ))
     monkeypatch.setattr(server.stripe, "AccountLink", SimpleNamespace(
         create=lambda **_kwargs: SimpleNamespace(url="https://stripe.test/link")

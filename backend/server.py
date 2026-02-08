@@ -579,8 +579,8 @@ async def emit_message_deleted(conversation_id: Optional[str], message_id: str, 
         "is_deleted": True
     }, room=f"conversation_{conversation_id}")
 
-def stripe_amount(amount: float) -> int:
-    if amount <= 0:
+def stripe_amount(amount: float, min_amount: float = 0.01) -> int:
+    if amount < min_amount:
         raise HTTPException(status_code=400, detail="Amount must be greater than zero")
     return int(round(amount * 100))
 
@@ -2656,9 +2656,9 @@ async def get_stripe_connect_status(current_user: User = Depends(require_auth)):
     account = stripe.Account.retrieve(account_id)
     return {
         "account_id": account_id,
-        "charges_enabled": account.get("charges_enabled"),
-        "payouts_enabled": account.get("payouts_enabled"),
-        "details_submitted": account.get("details_submitted"),
+        "charges_enabled": getattr(account, "charges_enabled", None),
+        "payouts_enabled": getattr(account, "payouts_enabled", None),
+        "details_submitted": getattr(account, "details_submitted", None),
     }
 
 @api_router.post("/stripe/payment-methods/setup-intent")
@@ -2715,11 +2715,11 @@ async def create_stripe_tip(
     split = calculate_revenue_split(payload.amount, "tips")
     tip_id = f"tip_{uuid.uuid4().hex[:12]}"
     intent = stripe.PaymentIntent.create(
-        amount=stripe_amount(payload.amount),
+        amount=stripe_amount(payload.amount, min_amount=1),
         currency=payload.currency or STRIPE_DEFAULT_CURRENCY,
         customer=customer_id,
         payment_method_types=["card"],
-        application_fee_amount=stripe_amount(split["platform_fee"]),
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0.01),
         transfer_data={"destination": creator_account_id},
         metadata={
             "type": "tip",
@@ -2790,10 +2790,11 @@ async def create_stripe_subscription(
         "started_at": now,
         "created_at": now
     })
-    payment_intent = subscription.get("latest_invoice", {}).get("payment_intent") if isinstance(subscription, dict) else None
+    latest_invoice = getattr(subscription, "latest_invoice", None)
+    payment_intent = getattr(latest_invoice, "payment_intent", None) if latest_invoice else None
     client_secret = None
     if payment_intent:
-        client_secret = payment_intent.get("client_secret")
+        client_secret = getattr(payment_intent, "client_secret", None)
     return {
         "subscription_id": subscription_id,
         "stripe_subscription_id": subscription.id,
@@ -2809,11 +2810,13 @@ async def create_stripe_order(
     product = await db.products.find_one({"product_id": payload.product_id}, {"_id": 0})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    if payload.quantity < 1:
+        raise HTTPException(status_code=400, detail="Quantity must be at least 1")
     seller_id = product["user_id"]
     seller_account_id = await get_stripe_account_id(seller_id)
     buyer = await get_user_record(current_user.user_id)
     customer_id = await get_or_create_stripe_customer(buyer)
-    amount = product["price"] * max(payload.quantity, 1)
+    amount = product["price"] * payload.quantity
     split = calculate_revenue_split(amount, "products")
     order_id = f"order_{uuid.uuid4().hex[:12]}"
 
@@ -2822,7 +2825,7 @@ async def create_stripe_order(
         currency=STRIPE_DEFAULT_CURRENCY,
         customer=customer_id,
         payment_method_types=["card"],
-        application_fee_amount=stripe_amount(split["platform_fee"]),
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0.01),
         transfer_data={"destination": seller_account_id},
         metadata={
             "type": "marketplace",
@@ -2855,7 +2858,7 @@ async def create_stripe_refund(
     current_user: User = Depends(require_auth)
 ):
     require_stripe_configured()
-    refund_amount = stripe_amount(payload.amount) if payload.amount else None
+    refund_amount = stripe_amount(payload.amount) if payload.amount and payload.amount > 0 else None
     refund = stripe.Refund.create(
         payment_intent=payload.payment_intent_id,
         amount=refund_amount
@@ -2884,16 +2887,17 @@ async def create_stripe_payout(
         metadata={"user_id": current_user.user_id}
     )
     payout_id = f"payout_{uuid.uuid4().hex[:12]}"
+    status = getattr(transfer, "status", None)
     await db.payouts.insert_one({
         "payout_id": payout_id,
         "user_id": current_user.user_id,
         "amount": payload.amount,
         "currency": payload.currency or STRIPE_DEFAULT_CURRENCY,
         "stripe_transfer_id": transfer.id,
-        "status": transfer.get("status", "pending"),
+        "status": status or "pending",
         "created_at": datetime.now(timezone.utc)
     })
-    return {"payout_id": payout_id, "stripe_transfer_id": transfer.id, "status": transfer.get("status")}
+    return {"payout_id": payout_id, "stripe_transfer_id": transfer.id, "status": status}
 
 @api_router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
@@ -2913,7 +2917,7 @@ async def stripe_webhook(request: Request):
     if event_type == "payment_intent.succeeded":
         metadata = data_object.get("metadata", {})
         record_type = metadata.get("type")
-        amount = float(metadata.get("amount", 0) or 0)
+        amount = float(metadata.get("amount") or 0)
         if record_type == "tip":
             tip_id = metadata.get("tip_id")
             await db.tips.update_one(
@@ -2936,7 +2940,7 @@ async def stripe_webhook(request: Request):
                     tip_id,
                     metadata.get("from_user_id")
                 )
-        if record_type == "marketplace":
+        elif record_type == "marketplace":
             order_id = metadata.get("order_id")
             await db.orders.update_one(
                 {"order_id": order_id},
