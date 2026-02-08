@@ -143,7 +143,7 @@ export default function ChatScreen() {
     if (!userId || message.sender_id !== userId) return false;
     if (message.is_deleted || message.deleted_for_everyone) return false;
     if (message.read) return false;
-    if (message.edited_at !== null && message.edited_at !== undefined) return false;
+    if (message.edited_at != null) return false;
     const createdAt = new Date(message.created_at).getTime();
     if (Number.isNaN(createdAt) || !Number.isFinite(createdAt)) return false;
     return Date.now() - createdAt <= DELETE_WINDOW_MS;
