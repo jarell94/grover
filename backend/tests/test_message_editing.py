@@ -130,3 +130,21 @@ async def test_edit_message_empty_content(mock_db, override_auth):
 
     assert response.status_code == 400
     mock_db.messages.update_one.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_edit_message_deleted(mock_db, override_auth):
+    mock_db.messages.find_one.return_value = {
+        "message_id": "msg_del",
+        "conversation_id": "conv_123",
+        "sender_id": override_auth.user_id,
+        "content": "Hello",
+        "deleted_for_everyone": True,
+        "created_at": datetime.now(timezone.utc) - timedelta(minutes=5),
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch("/api/messages/msg_del", json={"content": "Updated"})
+
+    assert response.status_code == 400
+    mock_db.messages.update_one.assert_not_awaited()

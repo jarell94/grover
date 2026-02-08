@@ -2723,10 +2723,11 @@ async def delete_message(
         if message.get("sender_id") != current_user.user_id:
             raise HTTPException(status_code=403, detail="Not authorized to delete for everyone")
         if message.get("deleted_for_everyone"):
+            deleted_at = message.get("deleted_at")
             return {
                 "message_id": message_id,
                 "deleted_for_everyone": True,
-                "deleted_at": message.get("deleted_at")
+                "deleted_at": deleted_at.isoformat() if deleted_at else None
             }
 
         created_at = normalize_datetime(message.get("created_at"))
@@ -2757,7 +2758,11 @@ async def delete_message(
 
             await emit_message_deleted(conversation_id, message_id, deleted_at)
 
-        return {"message_id": message_id, "deleted_for_everyone": True, "deleted_at": deleted_at}
+        return {
+            "message_id": message_id,
+            "deleted_for_everyone": True,
+            "deleted_at": deleted_at.isoformat()
+        }
 
     await db.messages.update_one(
         {"message_id": message_id},
