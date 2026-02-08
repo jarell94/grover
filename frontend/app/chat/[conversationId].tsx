@@ -190,10 +190,10 @@ export default function ChatScreen() {
     if (editingMessageId) {
       try {
         const response = await api.editMessage(editingMessageId, trimmed);
-        if (!response?.edited_at || !response?.content) {
-          const missing = [];
-          if (!response?.edited_at) missing.push("edited_at");
-          if (!response?.content) missing.push("content");
+        const missing = [];
+        if (!response?.edited_at) missing.push("edited_at");
+        if (!response?.content) missing.push("content");
+        if (missing.length) {
           throw new Error(`Edit response missing required fields: ${missing.join(", ")}`);
         }
         setMessages((prev) =>
@@ -284,7 +284,11 @@ export default function ChatScreen() {
           <Text style={styles.timestamp}>
             {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </Text>
-          {item.edited_at && <Text style={styles.editedText}>edited</Text>}
+          {item.edited_at && (
+            <Text style={styles.editedText} accessibilityLabel="Message edited">
+              edited
+            </Text>
+          )}
         </View>
       </View>
     );
