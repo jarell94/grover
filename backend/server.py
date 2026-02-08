@@ -6389,11 +6389,14 @@ async def handle_end_stream(sid, data):
 @sio.event
 async def disconnect(sid):
     logger.info(f"Client {sid} disconnected")
+    user_id_to_remove = None
     async with active_users_lock:
-        for user_id in list(active_users.keys()):
-            if active_users[user_id] == sid:
-                del active_users[user_id]
+        for user_id, stored_sid in list(active_users.items()):
+            if stored_sid == sid:
+                user_id_to_remove = user_id
                 break
+        if user_id_to_remove:
+            del active_users[user_id_to_remove]
 
 @sio.event
 async def register_user(sid, data):
@@ -6417,6 +6420,13 @@ async def join_conversation(sid, data):
     user_id = data.get("user_id")
     
     if conversation_id and user_id:
+        try:
+            validate_id(user_id, "user_id")
+        except HTTPException:
+            return
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 1})
+        if not user:
+            return
         sio.enter_room(sid, f"conversation_{conversation_id}")
         async with active_users_lock:
             active_users[user_id] = sid

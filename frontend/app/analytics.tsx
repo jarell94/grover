@@ -335,9 +335,10 @@ export default function AnalyticsScreen() {
     });
     const offActivity = socketService.onActivityEvent((event) => {
       activityCounter.current += 1;
+      const timestamp = Date.now();
       const eventWithId = {
         ...event,
-        id: event.notification_id || event.transaction_id || `event-${activityCounter.current}`,
+        id: event.notification_id || event.transaction_id || `event-${timestamp}-${activityCounter.current}`,
       };
       setActivityFeed((prev) => {
         const updated = [eventWithId, ...prev];
