@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -275,6 +275,7 @@ export default function AnalyticsScreen() {
   const [engagementData, setEngagementData] = useState<any>(null);
   const [liveMetrics, setLiveMetrics] = useState<LiveMetricsPayload | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityEventPayload[]>([]);
+  const activityCounter = useRef(0);
 
   const formatNumber = useCallback((n: any) => {
     const num = Number(n);
@@ -333,10 +334,10 @@ export default function AnalyticsScreen() {
       setLiveMetrics(payload);
     });
     const offActivity = socketService.onActivityEvent((event) => {
-      const randomSuffix = Math.random().toString(36).slice(2, 8);
+      activityCounter.current += 1;
       const eventWithId = {
         ...event,
-        id: event.notification_id || event.transaction_id || `${event.type}-${event.created_at}-${randomSuffix}`,
+        id: event.notification_id || event.transaction_id || `${event.type}-${event.created_at}-${activityCounter.current}`,
       };
       setActivityFeed((prev) => {
         const updated = [eventWithId, ...prev];

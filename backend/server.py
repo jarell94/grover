@@ -6393,6 +6393,13 @@ async def disconnect(sid):
 async def register_user(sid, data):
     user_id = data.get("user_id")
     if user_id:
+        try:
+            validate_id(user_id, "user_id")
+        except HTTPException:
+            return
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 1})
+        if not user:
+            return
         sio.enter_room(sid, f"user_{user_id}")
         async with active_users_lock:
             active_users[user_id] = sid

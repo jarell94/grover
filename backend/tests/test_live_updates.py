@@ -40,7 +40,9 @@ async def test_build_live_metrics(monkeypatch):
     assert payload["total_shares"] == 2
     assert payload["total_revenue"] == 42.5
     assert payload["earnings_balance"] == 12.5
-    datetime.fromisoformat(payload["updated_at"])
+    updated_at = datetime.fromisoformat(payload["updated_at"])
+    assert updated_at.tzinfo is not None
+    assert abs((updated_at - datetime.now(timezone.utc)).total_seconds()) < 5
 
 
 def test_is_follower_milestone():
