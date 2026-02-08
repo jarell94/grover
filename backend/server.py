@@ -4330,11 +4330,13 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     tips_result = await db.tips.aggregate(tips_pipeline).to_list(1)
     total_tips = tips_result[0]["total"] if tips_result else 0
     
-    start_date = (end_date - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+    follower_growth_start = (end_date - timedelta(days=6)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     follower_growth_pipeline = [
         {"$match": {
             "following_id": current_user.user_id,
-            "created_at": {"$gte": start_date}
+            "created_at": {"$gte": follower_growth_start}
         }},
         {"$project": {
             "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}}
@@ -4345,9 +4347,9 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     follower_growth_map = {item["_id"]: item["new_followers"] for item in follower_growth_data}
 
     follower_growth = []
-    for i in range(7):
-        day_offset = 6 - i
-        day = end_date - timedelta(days=day_offset)
+    # Iterate from 6 days ago to today for chronological output
+    for days_ago in range(6, -1, -1):
+        day = end_date - timedelta(days=days_ago)
         day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
         key = day_start.strftime("%Y-%m-%d")
         follower_growth.append({
