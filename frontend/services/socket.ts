@@ -47,6 +47,15 @@ interface MessageEditedPayload {
   created_at?: string;
 }
 
+interface MessageDeletedPayload {
+  message_id: string;
+  conversation_id?: string;
+  content?: string;
+  deleted_at?: string;
+  deleted_for_everyone?: boolean;
+  is_deleted?: boolean;
+}
+
 interface LiveMetricsPayload {
   user_id: string;
   followers_count: number;
@@ -186,6 +195,16 @@ class SocketService {
       this.socket.on('message_edited', callback);
       return () => {
         this.socket?.off('message_edited', callback);
+      };
+    }
+    return () => {};
+  }
+
+  onMessageDeleted(callback: (message: MessageDeletedPayload) => void): () => void {
+    if (this.socket) {
+      this.socket.on('message_deleted', callback);
+      return () => {
+        this.socket?.off('message_deleted', callback);
       };
     }
     return () => {};

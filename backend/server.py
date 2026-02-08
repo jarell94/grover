@@ -89,6 +89,7 @@ MAX_INPUT_LENGTH = 10000  # Max characters for text input
 MAX_BIO_LENGTH = 500
 MAX_NAME_LENGTH = 100
 MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
+MESSAGE_DELETE_WINDOW = timedelta(hours=1)
 FOLLOWER_MILESTONES = [10, 50, 100, 250, 500, 1000, 5000, 10000]
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
@@ -606,9 +607,15 @@ class Message(BaseModel):
     created_at: datetime
     edited_at: Optional[datetime] = None
     edit_history: Optional[List[dict]] = None
+    deleted_for: List[str] = []
+    deleted_for_everyone: bool = False
+    deleted_at: Optional[datetime] = None
 
 class MessageEdit(BaseModel):
     content: str
+
+class MessageDelete(BaseModel):
+    delete_for_everyone: bool = False
 
 class Notification(BaseModel):
     notification_id: str
@@ -2590,6 +2597,15 @@ async def get_messages(user_id: str, current_user: User = Depends(require_auth))
         {"_id": 0}
     ).sort("created_at", 1).to_list(1000)
     
+    filtered_messages = []
+    for message in messages:
+        if current_user.user_id in message.get("deleted_for", []):
+            continue
+        if message.get("deleted_for_everyone"):
+            message["content"] = "Message deleted"
+            message["is_deleted"] = True
+        filtered_messages.append(message)
+
     # Mark as read
     await db.messages.update_many(
         {
@@ -2600,7 +2616,7 @@ async def get_messages(user_id: str, current_user: User = Depends(require_auth))
         {"$set": {"read": True}}
     )
     
-    return {"conversation_id": conv["conversation_id"], "messages": messages}
+    return {"conversation_id": conv["conversation_id"], "messages": filtered_messages}
 
 @api_router.patch("/messages/{message_id}")
 async def edit_message(
@@ -2619,6 +2635,8 @@ async def edit_message(
         raise HTTPException(status_code=404, detail="Message not found")
     if message.get("sender_id") != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized to edit this message")
+    if message.get("deleted_for_everyone"):
+        raise HTTPException(status_code=400, detail="Message has been deleted")
 
     created_at = message.get("created_at")
     if not created_at:
@@ -2672,6 +2690,69 @@ async def edit_message(
         "edited_at": now
     }
 
+@api_router.post("/messages/{message_id}/delete")
+async def delete_message(
+    message_id: str,
+    payload: MessageDelete,
+    current_user: User = Depends(require_auth)
+):
+    """Delete a message for self or everyone."""
+    validate_id(message_id, "message_id")
+    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if payload.delete_for_everyone:
+        if message.get("sender_id") != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete for everyone")
+        if message.get("deleted_for_everyone"):
+            return {"message_id": message_id, "deleted_for_everyone": True}
+
+        created_at = message.get("created_at")
+        if created_at and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if not created_at or datetime.now(timezone.utc) - created_at > MESSAGE_DELETE_WINDOW:
+            raise HTTPException(status_code=400, detail="Delete window expired")
+        if message.get("read"):
+            raise HTTPException(status_code=400, detail="Message already read")
+        if message.get("edited_at"):
+            raise HTTPException(status_code=400, detail="Message already edited")
+
+        deleted_at = datetime.now(timezone.utc)
+        await db.messages.update_one(
+            {"message_id": message_id},
+            {"$set": {"deleted_for_everyone": True, "deleted_at": deleted_at}}
+        )
+
+        conversation_id = message.get("conversation_id")
+        if conversation_id:
+            conversation = await db.conversations.find_one(
+                {"conversation_id": conversation_id},
+                {"_id": 0, "last_message": 1}
+            )
+            if conversation and conversation.get("last_message") == message.get("content"):
+                await db.conversations.update_one(
+                    {"conversation_id": conversation_id},
+                    {"$set": {"last_message": "Message deleted"}}
+                )
+
+            await sio.emit("message_deleted", {
+                "message_id": message_id,
+                "conversation_id": conversation_id,
+                "deleted_for_everyone": True,
+                "deleted_at": deleted_at.isoformat(),
+                "content": "Message deleted",
+                "is_deleted": True
+            }, room=f"conversation_{conversation_id}")
+
+        return {"message_id": message_id, "deleted_for_everyone": True, "deleted_at": deleted_at}
+
+    await db.messages.update_one(
+        {"message_id": message_id},
+        {"$addToSet": {"deleted_for": current_user.user_id}}
+    )
+    return {"message_id": message_id, "deleted_for_everyone": False}
+
 # ============ RICH MESSAGES ENDPOINTS ============
 
 @api_router.post("/messages/send-post")
@@ -2697,7 +2778,10 @@ async def send_post_in_dm(
         "shared_post_id": post_id,
         "shared_post": post,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await create_notification(receiver_id, "message", f"{current_user.name} shared a post with you", message_id)
@@ -2729,7 +2813,10 @@ async def send_voice_message(
         "voice_data": audio_base64,
         "duration": duration,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await create_notification(receiver_id, "message", f"{current_user.name} sent a voice message", message_id)
@@ -2768,7 +2855,10 @@ async def send_video_message(
         "thumbnail": thumbnail_base64,
         "duration": duration,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await create_notification(receiver_id, "message", f"{current_user.name} sent a video", message_id)
@@ -2792,7 +2882,10 @@ async def send_gif_message(
         "type": "gif",
         "gif_url": gif_url,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     return {"message_id": message_id, "message": "GIF sent"}
@@ -5387,7 +5480,10 @@ async def reply_to_story(
         "story_reply": True,
         "story_id": story_id,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await db.stories.update_one(
@@ -6450,7 +6546,10 @@ async def send_message(sid, data):
         "sender_id": sender_id,
         "content": content,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     # Update conversation
@@ -6473,7 +6572,9 @@ async def send_message(sid, data):
         "sender_name": sender["name"] if sender else "Unknown",
         "sender_picture": sender["picture"] if sender else None,
         "content": content,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "deleted_for_everyone": False,
+        "is_deleted": False
     }
     await sio.emit('new_message', message_data, room=f"conversation_{conversation_id}")
 

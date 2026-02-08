@@ -283,6 +283,10 @@ export const api = {
     method: 'PATCH',
     body: JSON.stringify({ content }),
   }),
+  deleteMessage: (messageId: string, deleteForEveryone = false) => apiRequest(`/messages/${messageId}/delete`, {
+    method: 'POST',
+    body: JSON.stringify({ delete_for_everyone: deleteForEveryone }),
+  }),
 
   // Analytics
   getRevenue: () => apiRequest('/analytics/revenue'),
