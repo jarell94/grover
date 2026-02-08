@@ -168,6 +168,43 @@ async def validate_file_upload(file: UploadFile, allowed_types: list = None, max
     
     return content
 
+def validate_username(username: str) -> str:
+    """
+    Validate username format.
+    Rules:
+    - 3-30 characters
+    - Alphanumeric, hyphens, underscores only
+    - Must start and end with alphanumeric
+    - No consecutive special characters
+    """
+    if not username or not isinstance(username, str):
+        raise HTTPException(status_code=400, detail="Username is required")
+    
+    username = username.strip().lower()
+    
+    if len(username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(username) > 30:
+        raise HTTPException(status_code=400, detail="Username must be at most 30 characters")
+    
+    # Check format: alphanumeric, hyphens, underscores only
+    if not re.match(r'^[a-z0-9][a-z0-9_-]*[a-z0-9]$', username):
+        raise HTTPException(
+            status_code=400, 
+            detail="Username must start and end with a letter or number, and contain only letters, numbers, hyphens, and underscores"
+        )
+    
+    # No consecutive special characters
+    if '--' in username or '__' in username or '_-' in username or '-_' in username:
+        raise HTTPException(status_code=400, detail="Username cannot contain consecutive special characters")
+    
+    # Reserved usernames
+    reserved = ['admin', 'api', 'app', 'grover', 'system', 'support', 'help', 'about', 'settings', 'auth', 'login', 'logout', 'signup', 'register']
+    if username in reserved:
+        raise HTTPException(status_code=400, detail="This username is reserved")
+    
+    return username
+
 # CORS configuration from environment
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 # In development, allow all origins; in production, specify domains
@@ -248,6 +285,7 @@ async def create_indexes():
     # ========== USERS COLLECTION ==========
     await safe_create_index(db.users, "user_id", unique=True, background=True, name="users_user_id_unique")
     await safe_create_index(db.users, "email", unique=True, background=True, name="users_email_unique")
+    await safe_create_index(db.users, "username", unique=True, background=True, sparse=True, name="users_username_unique")
     await safe_create_index(db.users, [("name", "text")], background=True, name="users_name_text")
     await safe_create_index(db.users, "is_premium", background=True, name="users_is_premium")
     await safe_create_index(db.users, "is_verified", background=True, name="users_is_verified")
@@ -514,6 +552,7 @@ class User(BaseModel):
     user_id: str
     email: str
     name: str
+    username: Optional[str] = None  # Unique, URL-safe identifier (e.g., @johndoe)
     picture: Optional[str] = None
     bio: Optional[str] = ""
     is_premium: bool = False
@@ -845,6 +884,7 @@ async def get_user_media(
 @api_router.put("/users/me")
 async def update_profile(
     name: Optional[str] = None, 
+    username: Optional[str] = None,  # NEW: Username field
     bio: Optional[str] = None, 
     is_private: Optional[bool] = None,
     monetization_enabled: Optional[bool] = None,  # Creator monetization toggle
@@ -860,6 +900,21 @@ async def update_profile(
     # Security: Sanitize and validate all inputs
     if name is not None:
         update_data["name"] = sanitize_string(name, MAX_NAME_LENGTH, "name")
+    
+    # Handle username update with validation and uniqueness check
+    if username is not None:
+        validated_username = validate_username(username)
+        
+        # Check if username is taken by another user
+        existing = await db.users.find_one(
+            {"username": validated_username, "user_id": {"$ne": current_user.user_id}},
+            {"_id": 0, "user_id": 1}
+        )
+        if existing:
+            raise HTTPException(status_code=400, detail="Username is already taken")
+        
+        update_data["username"] = validated_username
+    
     if bio is not None:
         update_data["bio"] = sanitize_string(bio, MAX_BIO_LENGTH, "bio")
     if is_private is not None:
@@ -892,6 +947,25 @@ async def update_profile(
         )
     
     return {"message": "Profile updated"}
+
+@api_router.get("/users/check-username/{username}")
+async def check_username_availability(username: str):
+    """Check if a username is available"""
+    try:
+        validated_username = validate_username(username)
+        existing = await db.users.find_one(
+            {"username": validated_username},
+            {"_id": 0, "user_id": 1}
+        )
+        return {
+            "available": existing is None,
+            "username": validated_username
+        }
+    except HTTPException as e:
+        return {
+            "available": False,
+            "error": e.detail
+        }
 
 @api_router.put("/users/me/notification-settings")
 async def update_notification_settings(

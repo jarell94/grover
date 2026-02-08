@@ -224,6 +224,7 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
+  checkUsernameAvailability: (username: string) => apiRequest(`/users/check-username/${username}`),
   followUser: (userId: string) => apiRequest(`/users/${userId}/follow`, { method: 'POST' }),
 
   // Posts
