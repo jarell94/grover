@@ -282,7 +282,8 @@ class CacheService:
 
     def _analytics_key(self, user_id: str, metric: str) -> str:
         """Build analytics cache key format: analytics:{metric}:{user_id}."""
-        return f"analytics:{metric}:{user_id}"
+        safe_metric = metric.replace(":", "_")
+        return f"analytics:{safe_metric}:{user_id}"
 
     async def get_analytics(self, user_id: str, metric: str) -> Optional[Any]:
         """Get cached analytics payload."""
