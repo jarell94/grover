@@ -5220,19 +5220,6 @@ async def highlight_story(
     
     return {"message": "Story added to highlights"}
 
-@api_router.delete("/stories/{story_id}")
-async def delete_story(story_id: str, current_user: User = Depends(require_auth)):
-    """Delete a story"""
-    story = await db.stories.find_one({"story_id": story_id})
-    if not story:
-        raise HTTPException(status_code=404, detail="Story not found")
-    
-    if story["user_id"] != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    await db.stories.delete_one({"story_id": story_id})
-    return {"message": "Story deleted"}
-
 @api_router.get("/users/{user_id}/highlights")
 async def get_user_highlights(user_id: str, current_user: User = Depends(require_auth)):
     """Get user's highlighted stories"""
