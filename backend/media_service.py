@@ -29,6 +29,7 @@ import hashlib
 from io import BytesIO
 from typing import Optional, Dict, Any
 from functools import lru_cache
+from urllib.parse import urlparse, urlunparse
 from PIL import Image
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -81,6 +82,7 @@ AWS_ACCESS_KEY = os.environ.get('AWS_ACCESS_KEY_ID', '')
 AWS_SECRET_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
 AWS_S3_BUCKET = os.environ.get('AWS_S3_BUCKET', '')
 AWS_S3_REGION = os.environ.get('AWS_S3_REGION', 'us-east-1')
+ASSET_CDN_URL = os.environ.get('ASSET_CDN_URL', '').rstrip('/')
 
 S3_CONFIGURED = bool(
     S3_AVAILABLE and 
@@ -120,6 +122,76 @@ VIDEO_TRANSFORMATIONS = {
 }
 
 # ============ HELPER FUNCTIONS ============
+
+def apply_cdn_url(url: str) -> str:
+    """
+    Rewrite asset URL to use the CDN base when configured.
+
+    Args:
+        url: Original asset URL.
+    Returns:
+        CDN-rewritten URL if ASSET_CDN_URL is set; otherwise the original URL.
+        The CDN rewrite replaces scheme/host and can prepend a path prefix while
+        preserving the original path, query, and fragment.
+    """
+    if not ASSET_CDN_URL or not url:
+        return url
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return url
+
+    try:
+        cdn = urlparse(ASSET_CDN_URL)
+        if not cdn.scheme or not cdn.netloc:
+            return url
+
+        parsed = urlparse(url)
+        cdn_path = cdn.path.rstrip("/")
+        new_path = f"{cdn_path}{parsed.path}" if cdn_path else parsed.path
+
+        return urlunparse((
+            cdn.scheme,
+            cdn.netloc,
+            new_path,
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        ))
+    except Exception:
+        return url
+
+def is_cloudinary_url(url: str, media_type: str) -> bool:
+    """
+    Check if URL matches Cloudinary delivery patterns.
+
+    Args:
+        url: Asset URL to evaluate.
+        media_type: "image" or "video".
+    Returns:
+        True when the URL is a Cloudinary delivery URL or matches Cloudinary
+        path patterns while Cloudinary is configured.
+        Returns False for unsupported media_type values.
+    """
+    if not url:
+        return False
+
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+        path = parsed.path or ""
+    except Exception:
+        hostname = ""
+        path = ""
+
+    if hostname == "cloudinary.com" or hostname.endswith(".cloudinary.com"):
+        return True
+    if not CLOUDINARY_CONFIGURED:
+        return False
+
+    if media_type == "image":
+        return "/image/upload/" in path or "/image/fetch/" in path
+    if media_type == "video":
+        return "/video/upload/" in path or "/video/fetch/" in path
+    return False
 
 def get_media_type_from_content_type(content_type: str) -> str:
     """Determine media type from content type header"""
@@ -500,7 +572,17 @@ async def upload_media(
         mime_type = content_type or "application/octet-stream"
         base64_data = base64.b64encode(file_data).decode('utf-8')
         result["url"] = f"data:{mime_type};base64,{base64_data}"
-    
+
+    if result["url"]:
+        result["url"] = apply_cdn_url(result["url"])
+    if result.get("thumbnail_url"):
+        result["thumbnail_url"] = apply_cdn_url(result["thumbnail_url"])
+    if result.get("optimized_urls"):
+        result["optimized_urls"] = {
+            key: apply_cdn_url(value) if value else value
+            for key, value in result["optimized_urls"].items()
+        }
+
     return result
 
 
@@ -540,10 +622,11 @@ def get_optimized_url(
     """
     Get optimized/transformed URL (Cloudinary only)
     
-    Uses LRU cache for performance
+    Uses LRU cache for performance. If multiple Cloudinary delivery paths are
+    present, the first matching path is used.
     """
-    if not url or "cloudinary" not in url:
-        return url
+    if not url or not is_cloudinary_url(url, "image"):
+        return apply_cdn_url(url)
     
     try:
         transforms = []
@@ -558,49 +641,52 @@ def get_optimized_url(
         
         transform_str = ",".join(transforms)
         
-        parts = url.split("/upload/")
-        if len(parts) == 2:
-            return f"{parts[0]}/upload/{transform_str}/{parts[1]}"
-        
-        return url
+        for path in ("/image/upload/", "/image/fetch/"):
+            if path in url:
+                prefix, _, suffix = url.partition(path)
+                return apply_cdn_url(f"{prefix}{path}{transform_str}/{suffix}")
+
+        return apply_cdn_url(url)
     except:
-        return url
+        return apply_cdn_url(url)
 
 
 def get_video_thumbnail_url(url: str, time_offset: float = 0.0) -> str:
     """Get thumbnail image from Cloudinary video"""
-    if not url or "cloudinary" not in url:
-        return url
+    if not url or not is_cloudinary_url(url, "video"):
+        return apply_cdn_url(url)
     
     try:
         offset = f"so_{time_offset}" if time_offset > 0 else "so_0"
         transforms = f"{offset},f_jpg,q_auto,w_400,h_400,c_fill"
         
-        parts = url.split("/upload/")
-        if len(parts) == 2:
-            return f"{parts[0]}/upload/{transforms}/{parts[1]}"
-        
-        return url
+        for path in ("/video/upload/", "/video/fetch/"):
+            if path in url:
+                prefix, _, suffix = url.partition(path)
+                return apply_cdn_url(f"{prefix}{path}{transforms}/{suffix}")
+
+        return apply_cdn_url(url)
     except:
-        return url
+        return apply_cdn_url(url)
 
 
 def get_video_preview_url(url: str, quality: str = "low") -> str:
     """Get compressed video preview URL (Cloudinary only)"""
-    if not url or "cloudinary" not in url:
-        return url
+    if not url or not is_cloudinary_url(url, "video"):
+        return apply_cdn_url(url)
     
     try:
         width = 480 if quality == "low" else 720
         transforms = f"f_mp4,vc_h264,q_auto:{quality},w_{width}"
         
-        parts = url.split("/upload/")
-        if len(parts) == 2:
-            return f"{parts[0]}/upload/{transforms}/{parts[1]}"
-        
-        return url
+        for path in ("/video/upload/", "/video/fetch/"):
+            if path in url:
+                prefix, _, suffix = url.partition(path)
+                return apply_cdn_url(f"{prefix}{path}{transforms}/{suffix}")
+
+        return apply_cdn_url(url)
     except:
-        return url
+        return apply_cdn_url(url)
 
 
 # ============ STATUS ============
@@ -612,6 +698,7 @@ def get_media_service_status() -> Dict[str, Any]:
         "cloudinary_configured": CLOUDINARY_CONFIGURED,
         "s3_available": S3_AVAILABLE,
         "s3_configured": S3_CONFIGURED,
+        "asset_cdn_configured": bool(ASSET_CDN_URL),
         "cloud_name": CLOUDINARY_CLOUD_NAME[:4] + "***" if CLOUDINARY_CLOUD_NAME else None,
         "s3_bucket": AWS_S3_BUCKET[:4] + "***" if AWS_S3_BUCKET else None,
         "storage_mode": "cloudinary" if CLOUDINARY_CONFIGURED else ("s3" if S3_CONFIGURED else "base64"),
