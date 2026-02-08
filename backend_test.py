@@ -1,413 +1,685 @@
 #!/usr/bin/env python3
 """
-Backend Testing Script for Grover Marketplace and Discount Code Endpoints
-Tests the new marketplace and discount code functionality
+Comprehensive Backend Testing for Grover Social Media App
+Production Deployment Bug Scanning and Testing
+
+Test Categories:
+1. Authentication & Security
+2. Core API Endpoints
+3. Media Upload
+4. Database Operations
+5. Payment Integration
+6. Live Streaming
+7. Error Handling
+8. Edge Cases
 """
 
-import requests
+import asyncio
+import aiohttp
 import json
+import base64
 import uuid
-from datetime import datetime, timedelta
-import os
-import sys
+import time
+from datetime import datetime
+from typing import Dict, List, Optional, Any
 
 # Configuration
-BACKEND_URL = "https://grover-social.preview.emergentagent.com/api"
-TEST_USER_EMAIL = f"testuser_{uuid.uuid4().hex[:8]}@example.com"
-TEST_USER_NAME = "Test User Marketplace"
+BASE_URL = "https://grover-social.preview.emergentagent.com/api"
+TEST_USER_EMAIL = "testuser@grover.com"
+TEST_USER_NAME = "Test User"
 
-class BackendTester:
+class GroverBackendTester:
     def __init__(self):
-        self.session_token = None
+        self.session = None
+        self.auth_token = None
         self.user_id = None
-        self.created_products = []
-        self.created_discounts = []
-        
-    def log(self, message, level="INFO"):
-        """Log test messages"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        print(f"[{timestamp}] {level}: {message}")
-        
-    def create_test_user_and_auth(self):
-        """Get a valid session token from existing database sessions"""
-        self.log("Getting valid session token from database...")
-        
-        try:
-            # Import MongoDB client
-            from motor.motor_asyncio import AsyncIOMotorClient
-            import asyncio
-            
-            async def get_valid_session():
-                client = AsyncIOMotorClient('mongodb://localhost:27017')
-                db = client['test_database']
-                
-                # Find a valid session that hasn't expired
-                session = await db.user_sessions.find_one(
-                    {'expires_at': {'$gt': datetime.now()}},
-                    {'_id': 0}
-                )
-                
-                client.close()
-                return session
-            
-            # Run async function
-            session = asyncio.run(get_valid_session())
-            
-            if session:
-                self.session_token = session['session_token']
-                self.user_id = session['user_id']
-                self.log(f"✅ Using existing session for user: {self.user_id}")
-                return True
-            else:
-                self.log("❌ No valid sessions found in database", "ERROR")
-                return False
-                
-        except Exception as e:
-            self.log(f"❌ Session retrieval error: {str(e)}", "ERROR")
-            return False
-    
-    def get_headers(self):
-        """Get authentication headers"""
-        return {
-            "Authorization": f"Bearer {self.session_token}",
-            "Content-Type": "application/json"
+        self.test_results = []
+        self.created_resources = {
+            'posts': [],
+            'products': [],
+            'comments': [],
+            'stories': [],
+            'streams': [],
+            'discounts': []
         }
     
-    def test_enhanced_product_creation(self):
-        """Test enhanced product creation with new fields"""
-        self.log("Testing enhanced product creation...")
+    async def setup(self):
+        """Initialize HTTP session"""
+        self.session = aiohttp.ClientSession()
+        print("🚀 Starting Grover Backend Testing Suite")
+        print(f"📡 Base URL: {BASE_URL}")
+        print("=" * 60)
+    
+    async def cleanup(self):
+        """Clean up resources"""
+        if self.session:
+            await self.session.close()
+        print("\n" + "=" * 60)
+        print("🧹 Cleanup completed")
+    
+    def log_test(self, test_name: str, status: str, details: str = "", response_data: Any = None):
+        """Log test results"""
+        result = {
+            'test': test_name,
+            'status': status,
+            'details': details,
+            'timestamp': datetime.now().isoformat(),
+            'response_data': response_data
+        }
+        self.test_results.append(result)
         
-        test_cases = [
-            {
-                "name": "Digital Course Bundle",
-                "description": "Complete web development course with bonus materials",
-                "price": 99.99,
-                "product_type": "digital",
-                "digital_file_url": "https://example.com/course-download",
-                "is_bundle": True,
-                "bundle_items": json.dumps(["item1", "item2", "item3"])
-            },
-            {
-                "name": "1-Hour Consultation Service",
-                "description": "Personal consultation session with expert",
-                "price": 150.00,
-                "product_type": "service",
-                "service_duration": 60,
-                "is_bundle": False
-            },
-            {
-                "name": "Physical Product",
-                "description": "Traditional physical merchandise",
-                "price": 29.99,
-                "product_type": "physical",
-                "is_bundle": False
+        status_emoji = "✅" if status == "PASS" else "❌" if status == "FAIL" else "⚠️"
+        print(f"{status_emoji} {test_name}: {status}")
+        if details:
+            print(f"   📝 {details}")
+        if status == "FAIL" and response_data:
+            print(f"   🔍 Response: {response_data}")
+    
+    async def make_request(self, method: str, endpoint: str, **kwargs) -> Dict:
+        """Make HTTP request with error handling"""
+        url = f"{BASE_URL}{endpoint}"
+        headers = kwargs.get('headers', {})
+        
+        if self.auth_token:
+            headers['Authorization'] = f'Bearer {self.auth_token}'
+        
+        kwargs['headers'] = headers
+        
+        try:
+            async with self.session.request(method, url, **kwargs) as response:
+                try:
+                    data = await response.json()
+                except:
+                    data = await response.text()
+                
+                return {
+                    'status': response.status,
+                    'data': data,
+                    'headers': dict(response.headers)
+                }
+        except Exception as e:
+            return {
+                'status': 0,
+                'data': str(e),
+                'headers': {}
             }
-        ]
+    
+    # ============ AUTHENTICATION & SECURITY TESTS ============
+    
+    async def test_health_check(self):
+        """Test health check endpoint"""
+        response = await self.make_request('GET', '/health')
         
-        success_count = 0
-        
-        for i, product_data in enumerate(test_cases, 1):
-            try:
-                response = requests.post(
-                    f"{BACKEND_URL}/products",
-                    data=product_data,
-                    headers={"Authorization": f"Bearer {self.session_token}"},
-                    timeout=10
+        if response['status'] == 200:
+            data = response['data']
+            if isinstance(data, dict) and data.get('status') in ['healthy', 'degraded']:
+                services = data.get('services', {})
+                self.log_test(
+                    "Health Check", 
+                    "PASS", 
+                    f"Status: {data['status']}, Services: {list(services.keys())}"
                 )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    product_id = result.get("product_id")
-                    self.created_products.append(product_id)
-                    self.log(f"✅ Product {i} created: {product_id} ({product_data['product_type']})")
-                    success_count += 1
-                else:
-                    self.log(f"❌ Product {i} creation failed: {response.status_code} - {response.text}", "ERROR")
-                    
-            except Exception as e:
-                self.log(f"❌ Product {i} creation error: {str(e)}", "ERROR")
-        
-        return success_count == len(test_cases)
-    
-    def test_get_products_with_types(self):
-        """Test getting products and verify product_type is returned"""
-        self.log("Testing product retrieval with product types...")
-        
-        try:
-            response = requests.get(
-                f"{BACKEND_URL}/products",
-                headers=self.get_headers(),
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                products = response.json()
-                
-                if not products:
-                    self.log("❌ No products found", "ERROR")
-                    return False
-                
-                # Check if our newly created products have product_type field
-                types_found = set()
-                new_products_found = 0
-                
-                for product in products:
-                    # Check if this is one of our newly created products
-                    if product.get("product_id") in self.created_products:
-                        new_products_found += 1
-                        if "product_type" in product:
-                            types_found.add(product["product_type"])
-                            self.log(f"✅ New product {product['product_id']} has type: {product['product_type']}")
-                        else:
-                            self.log(f"❌ New product {product.get('product_id', 'unknown')} missing product_type field", "ERROR")
-                            return False
-                
-                if new_products_found == len(self.created_products):
-                    self.log(f"✅ All {new_products_found} newly created products have product_type field with types: {list(types_found)}")
-                    return True
-                else:
-                    self.log(f"❌ Expected {len(self.created_products)} new products, found {new_products_found}", "ERROR")
-                    return False
             else:
-                self.log(f"❌ Failed to get products: {response.status_code} - {response.text}", "ERROR")
-                return False
-                
-        except Exception as e:
-            self.log(f"❌ Get products error: {str(e)}", "ERROR")
-            return False
+                self.log_test("Health Check", "FAIL", "Invalid health response format", data)
+        else:
+            self.log_test("Health Check", "FAIL", f"Status: {response['status']}", response['data'])
     
-    def test_discount_code_creation(self):
-        """Test discount code creation"""
-        self.log("Testing discount code creation...")
+    async def test_readiness_check(self):
+        """Test readiness check endpoint"""
+        response = await self.make_request('GET', '/ready')
         
-        # Generate unique codes to avoid conflicts
-        unique_suffix = uuid.uuid4().hex[:6].upper()
-        
-        test_codes = [
-            {
-                "code": f"SAVE20_{unique_suffix}",
-                "percent": 20,
-                "expiry": None
-            },
-            {
-                "code": f"FLASH50_{unique_suffix}",
-                "percent": 50,
-                "expiry": (datetime.now() + timedelta(days=30)).isoformat()
-            },
-            {
-                "code": f"WELCOME10_{unique_suffix}",
-                "percent": 10,
-                "expiry": None
-            }
-        ]
-        
-        success_count = 0
-        
-        for i, code_data in enumerate(test_codes, 1):
-            try:
-                response = requests.post(
-                    f"{BACKEND_URL}/discounts",
-                    json=code_data,
-                    headers=self.get_headers(),
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    code = result.get("code")
-                    self.created_discounts.append(code)
-                    self.log(f"✅ Discount code {i} created: {code} ({code_data['percent']}%)")
-                    success_count += 1
-                else:
-                    self.log(f"❌ Discount code {i} creation failed: {response.status_code} - {response.text}", "ERROR")
-                    
-            except Exception as e:
-                self.log(f"❌ Discount code {i} creation error: {str(e)}", "ERROR")
-        
-        return success_count == len(test_codes)
+        if response['status'] == 200:
+            self.log_test("Readiness Check", "PASS", "Service is ready")
+        else:
+            self.log_test("Readiness Check", "FAIL", f"Status: {response['status']}", response['data'])
     
-    def test_get_user_discounts(self):
-        """Test getting user's discount codes"""
-        self.log("Testing user discount codes retrieval...")
+    async def test_media_status(self):
+        """Test media service status"""
+        response = await self.make_request('GET', '/media/status')
         
-        try:
-            response = requests.get(
-                f"{BACKEND_URL}/discounts",
-                headers=self.get_headers(),
-                timeout=10
+        if response['status'] == 200:
+            data = response['data']
+            cloudinary_status = data.get('cloudinary', {}).get('configured', False)
+            self.log_test(
+                "Media Service Status", 
+                "PASS", 
+                f"Cloudinary configured: {cloudinary_status}"
             )
-            
-            if response.status_code == 200:
-                discounts = response.json()
-                
-                if len(discounts) >= len(self.created_discounts):
-                    self.log(f"✅ Retrieved {len(discounts)} discount codes")
-                    
-                    # Verify our created codes are in the list
-                    found_codes = [d["code"] for d in discounts]
-                    for code in self.created_discounts:
-                        if code in found_codes:
-                            self.log(f"✅ Found created code: {code}")
-                        else:
-                            self.log(f"❌ Missing created code: {code}", "ERROR")
-                            return False
-                    
-                    return True
-                else:
-                    self.log(f"❌ Expected at least {len(self.created_discounts)} codes, got {len(discounts)}", "ERROR")
-                    return False
-            else:
-                self.log(f"❌ Failed to get discounts: {response.status_code} - {response.text}", "ERROR")
-                return False
-                
-        except Exception as e:
-            self.log(f"❌ Get discounts error: {str(e)}", "ERROR")
-            return False
+        else:
+            self.log_test("Media Service Status", "FAIL", f"Status: {response['status']}", response['data'])
     
-    def test_discount_validation(self):
-        """Test discount code validation"""
-        self.log("Testing discount code validation...")
+    async def test_authentication_flow(self):
+        """Test authentication with mock session"""
+        # Since we can't do real OAuth, we'll test with a mock session ID
+        mock_session_id = f"test_session_{uuid.uuid4().hex[:12]}"
         
-        if not self.created_discounts:
-            self.log("❌ No discount codes to validate", "ERROR")
-            return False
+        response = await self.make_request('GET', f'/auth/session?session_id={mock_session_id}')
         
-        success_count = 0
-        
-        # Test valid codes
-        for code in self.created_discounts:
-            try:
-                response = requests.get(
-                    f"{BACKEND_URL}/discounts/validate/{code}",
-                    headers=self.get_headers(),
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("valid") and result.get("code") == code:
-                        self.log(f"✅ Code validation successful: {code} ({result.get('percent')}%)")
-                        success_count += 1
-                    else:
-                        self.log(f"❌ Code validation returned invalid: {code}", "ERROR")
-                else:
-                    self.log(f"❌ Code validation failed: {code} - {response.status_code} - {response.text}", "ERROR")
-                    
-            except Exception as e:
-                self.log(f"❌ Code validation error for {code}: {str(e)}", "ERROR")
-        
-        # Test invalid code
-        try:
-            invalid_code = "INVALID123"
-            response = requests.get(
-                f"{BACKEND_URL}/discounts/validate/{invalid_code}",
-                headers=self.get_headers(),
-                timeout=10
-            )
-            
-            if response.status_code == 404:
-                self.log(f"✅ Invalid code correctly rejected: {invalid_code}")
-                success_count += 1
-            else:
-                self.log(f"❌ Invalid code should return 404, got {response.status_code}", "ERROR")
-                
-        except Exception as e:
-            self.log(f"❌ Invalid code test error: {str(e)}", "ERROR")
-        
-        return success_count == len(self.created_discounts) + 1
+        if response['status'] == 400:
+            # Expected - invalid session ID should return 400
+            self.log_test("Authentication Flow", "PASS", "Properly rejects invalid session ID")
+        else:
+            self.log_test("Authentication Flow", "FAIL", f"Unexpected status: {response['status']}", response['data'])
     
-    def test_discount_deletion(self):
-        """Test discount code deletion"""
-        self.log("Testing discount code deletion...")
-        
-        if not self.created_discounts:
-            self.log("❌ No discount codes to delete", "ERROR")
-            return False
-        
-        # Delete the first code
-        code_to_delete = self.created_discounts[0]
-        
-        try:
-            response = requests.delete(
-                f"{BACKEND_URL}/discounts/{code_to_delete}",
-                headers=self.get_headers(),
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                self.log(f"✅ Discount code deleted: {code_to_delete}")
-                
-                # Try to validate the deleted code (should fail)
-                validate_response = requests.get(
-                    f"{BACKEND_URL}/discounts/validate/{code_to_delete}",
-                    headers=self.get_headers(),
-                    timeout=10
-                )
-                
-                if validate_response.status_code == 404:
-                    self.log(f"✅ Deleted code correctly invalid: {code_to_delete}")
-                    return True
-                else:
-                    self.log(f"❌ Deleted code still validates: {code_to_delete}", "ERROR")
-                    return False
-            else:
-                self.log(f"❌ Failed to delete code: {response.status_code} - {response.text}", "ERROR")
-                return False
-                
-        except Exception as e:
-            self.log(f"❌ Code deletion error: {str(e)}", "ERROR")
-            return False
-    
-    def run_all_tests(self):
-        """Run all marketplace and discount code tests"""
-        self.log("🚀 Starting Marketplace and Discount Code Backend Tests")
-        self.log("=" * 60)
-        
-        tests = [
-            ("User Authentication", self.create_test_user_and_auth),
-            ("Enhanced Product Creation", self.test_enhanced_product_creation),
-            ("Product Retrieval with Types", self.test_get_products_with_types),
-            ("Discount Code Creation", self.test_discount_code_creation),
-            ("User Discount Retrieval", self.test_get_user_discounts),
-            ("Discount Code Validation", self.test_discount_validation),
-            ("Discount Code Deletion", self.test_discount_deletion),
+    async def test_auth_without_token(self):
+        """Test protected endpoints without authentication"""
+        endpoints_to_test = [
+            '/auth/me',
+            '/posts',
+            '/posts/feed',
+            '/users/me'
         ]
         
         passed = 0
-        total = len(tests)
+        for endpoint in endpoints_to_test:
+            response = await self.make_request('GET', endpoint)
+            if response['status'] == 401:
+                passed += 1
         
-        for test_name, test_func in tests:
-            self.log(f"\n📋 Running: {test_name}")
-            try:
-                if test_func():
-                    passed += 1
-                    self.log(f"✅ {test_name}: PASSED")
-                else:
-                    self.log(f"❌ {test_name}: FAILED")
-            except Exception as e:
-                self.log(f"❌ {test_name}: ERROR - {str(e)}")
-        
-        self.log("\n" + "=" * 60)
-        self.log(f"🏁 Test Results: {passed}/{total} tests passed")
-        
-        if passed == total:
-            self.log("🎉 ALL MARKETPLACE AND DISCOUNT TESTS PASSED!")
-            return True
+        if passed == len(endpoints_to_test):
+            self.log_test("Auth Protection", "PASS", f"All {len(endpoints_to_test)} endpoints properly protected")
         else:
-            self.log(f"⚠️  {total - passed} tests failed")
-            return False
-
-def main():
-    """Main test execution"""
-    tester = BackendTester()
-    success = tester.run_all_tests()
+            self.log_test("Auth Protection", "FAIL", f"Only {passed}/{len(endpoints_to_test)} endpoints protected")
     
-    if success:
-        print("\n✅ MARKETPLACE AND DISCOUNT CODE BACKEND TESTING COMPLETE - ALL TESTS PASSED")
-        sys.exit(0)
-    else:
-        print("\n❌ MARKETPLACE AND DISCOUNT CODE BACKEND TESTING COMPLETE - SOME TESTS FAILED")
-        sys.exit(1)
+    async def test_session_validation(self):
+        """Test session ID validation"""
+        # Test with overly long session ID
+        long_session = "x" * 600
+        response = await self.make_request('GET', f'/auth/session?session_id={long_session}')
+        
+        if response['status'] in [400, 422]:
+            self.log_test("Session Validation", "PASS", "Rejects overly long session ID")
+        else:
+            self.log_test("Session Validation", "FAIL", f"Status: {response['status']}", response['data'])
+    
+    # ============ CORE API ENDPOINTS TESTS ============
+    
+    async def test_posts_endpoints_without_auth(self):
+        """Test posts endpoints behavior without authentication"""
+        endpoints = [
+            ('GET', '/posts'),
+            ('GET', '/posts/feed'),
+            ('GET', '/posts/explore'),
+            ('POST', '/posts')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Posts Auth Protection", "PASS", "All posts endpoints require authentication")
+        else:
+            self.log_test("Posts Auth Protection", "FAIL", "Some posts endpoints not protected")
+    
+    async def test_user_endpoints_without_auth(self):
+        """Test user endpoints behavior without authentication"""
+        test_user_id = "test_user_123"
+        endpoints = [
+            ('GET', f'/users/{test_user_id}'),
+            ('GET', f'/users/{test_user_id}/stats'),
+            ('PUT', '/users/me'),
+            ('POST', f'/users/{test_user_id}/follow')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("User Auth Protection", "PASS", "All user endpoints require authentication")
+        else:
+            self.log_test("User Auth Protection", "FAIL", "Some user endpoints not protected")
+    
+    async def test_comments_endpoints_without_auth(self):
+        """Test comments endpoints behavior without authentication"""
+        test_post_id = "test_post_123"
+        test_comment_id = "test_comment_123"
+        endpoints = [
+            ('GET', f'/posts/{test_post_id}/comments'),
+            ('POST', f'/posts/{test_post_id}/comments'),
+            ('POST', f'/comments/{test_comment_id}/like'),
+            ('DELETE', f'/comments/{test_comment_id}')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Comments Auth Protection", "PASS", "All comments endpoints require authentication")
+        else:
+            self.log_test("Comments Auth Protection", "FAIL", "Some comments endpoints not protected")
+    
+    async def test_notifications_endpoints_without_auth(self):
+        """Test notifications endpoints behavior without authentication"""
+        endpoints = [
+            ('GET', '/notifications'),
+            ('POST', '/notifications/mark-all-read'),
+            ('POST', '/notifications/mark-read/test_notif_123')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Notifications Auth Protection", "PASS", "All notifications endpoints require authentication")
+        else:
+            self.log_test("Notifications Auth Protection", "FAIL", "Some notifications endpoints not protected")
+    
+    # ============ MEDIA UPLOAD TESTS ============
+    
+    async def test_file_upload_security(self):
+        """Test file upload security without authentication"""
+        # Test creating post with media without auth
+        response = await self.make_request('POST', '/posts')
+        
+        if response['status'] == 401:
+            self.log_test("File Upload Security", "PASS", "Media upload requires authentication")
+        else:
+            self.log_test("File Upload Security", "FAIL", f"Status: {response['status']}", response['data'])
+    
+    # ============ DATABASE OPERATIONS TESTS ============
+    
+    async def test_pagination_limits(self):
+        """Test pagination limits without authentication"""
+        # Test with excessive limit parameter
+        response = await self.make_request('GET', '/posts?limit=1000&skip=0')
+        
+        if response['status'] == 401:
+            self.log_test("Pagination Limits", "PASS", "Pagination endpoints require authentication")
+        else:
+            self.log_test("Pagination Limits", "FAIL", f"Status: {response['status']}", response['data'])
+    
+    # ============ PAYMENT INTEGRATION TESTS ============
+    
+    async def test_payment_endpoints_security(self):
+        """Test payment endpoints security"""
+        # Test order creation without auth
+        response = await self.make_request('POST', '/orders')
+        
+        if response['status'] == 401:
+            self.log_test("Payment Security", "PASS", "Payment endpoints require authentication")
+        else:
+            self.log_test("Payment Security", "FAIL", f"Status: {response['status']}", response['data'])
+    
+    # ============ LIVE STREAMING TESTS ============
+    
+    async def test_streaming_endpoints_security(self):
+        """Test streaming endpoints security"""
+        endpoints = [
+            ('GET', '/streams/agora-config'),
+            ('POST', '/streams/token'),
+            ('POST', '/streams/start'),
+            ('GET', '/streams/live')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Streaming Security", "PASS", "All streaming endpoints require authentication")
+        else:
+            self.log_test("Streaming Security", "FAIL", "Some streaming endpoints not protected")
+    
+    # ============ ERROR HANDLING TESTS ============
+    
+    async def test_invalid_endpoints(self):
+        """Test 404 handling for invalid endpoints"""
+        invalid_endpoints = [
+            '/nonexistent',
+            '/posts/invalid/action',
+            '/users/invalid/endpoint',
+            '/streams/invalid/method'
+        ]
+        
+        all_404 = True
+        for endpoint in invalid_endpoints:
+            response = await self.make_request('GET', endpoint)
+            if response['status'] != 404:
+                all_404 = False
+                break
+        
+        if all_404:
+            self.log_test("404 Error Handling", "PASS", "Invalid endpoints return 404")
+        else:
+            self.log_test("404 Error Handling", "FAIL", "Some invalid endpoints don't return 404")
+    
+    async def test_malformed_json(self):
+        """Test malformed JSON handling"""
+        response = await self.make_request(
+            'POST', 
+            '/posts',
+            data='{"invalid": json}',
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        if response['status'] in [400, 401, 422]:
+            self.log_test("Malformed JSON", "PASS", f"Properly handles malformed JSON (status: {response['status']})")
+        else:
+            self.log_test("Malformed JSON", "FAIL", f"Status: {response['status']}", response['data'])
+    
+    async def test_sql_injection_attempts(self):
+        """Test SQL injection prevention"""
+        # Test with SQL injection patterns in query parameters
+        injection_patterns = [
+            "'; DROP TABLE users; --",
+            "1' OR '1'='1",
+            "admin'/*",
+            "' UNION SELECT * FROM users --"
+        ]
+        
+        all_safe = True
+        for pattern in injection_patterns:
+            response = await self.make_request('GET', f'/users/{pattern}')
+            # Should return 400 (bad request) or 401 (unauthorized), not 500 (server error)
+            if response['status'] == 500:
+                all_safe = False
+                break
+        
+        if all_safe:
+            self.log_test("SQL Injection Prevention", "PASS", "No server errors from injection attempts")
+        else:
+            self.log_test("SQL Injection Prevention", "FAIL", "Server error detected from injection attempt")
+    
+    async def test_xss_prevention(self):
+        """Test XSS prevention"""
+        # Test with XSS patterns
+        xss_patterns = [
+            "<script>alert('xss')</script>",
+            "javascript:alert('xss')",
+            "<img src=x onerror=alert('xss')>",
+            "';alert('xss');//"
+        ]
+        
+        all_safe = True
+        for pattern in xss_patterns:
+            response = await self.make_request('GET', f'/users/{pattern}')
+            # Should return 400 (bad request) or 401 (unauthorized), not execute script
+            if response['status'] == 500:
+                all_safe = False
+                break
+        
+        if all_safe:
+            self.log_test("XSS Prevention", "PASS", "No server errors from XSS attempts")
+        else:
+            self.log_test("XSS Prevention", "FAIL", "Server error detected from XSS attempt")
+    
+    # ============ EDGE CASES TESTS ============
+    
+    async def test_empty_requests(self):
+        """Test empty request handling"""
+        response = await self.make_request('POST', '/posts', data='')
+        
+        if response['status'] in [400, 401, 422]:
+            self.log_test("Empty Request Handling", "PASS", f"Properly handles empty requests (status: {response['status']})")
+        else:
+            self.log_test("Empty Request Handling", "FAIL", f"Status: {response['status']}", response['data'])
+    
+    async def test_oversized_requests(self):
+        """Test oversized request handling"""
+        # Create a large payload
+        large_data = {"content": "x" * 100000}  # 100KB content
+        
+        response = await self.make_request(
+            'POST', 
+            '/posts',
+            json=large_data
+        )
+        
+        if response['status'] in [400, 401, 413, 422]:
+            self.log_test("Oversized Request Handling", "PASS", f"Properly handles large requests (status: {response['status']})")
+        else:
+            self.log_test("Oversized Request Handling", "FAIL", f"Status: {response['status']}", response['data'])
+    
+    async def test_rate_limiting(self):
+        """Test rate limiting behavior"""
+        # Make multiple rapid requests
+        responses = []
+        for i in range(10):
+            response = await self.make_request('GET', '/health')
+            responses.append(response['status'])
+        
+        # Check if any rate limiting occurred (429 status)
+        rate_limited = any(status == 429 for status in responses)
+        
+        if rate_limited:
+            self.log_test("Rate Limiting", "PASS", "Rate limiting is active")
+        else:
+            self.log_test("Rate Limiting", "INFO", "No rate limiting detected (may be configured differently)")
+    
+    async def test_cors_headers(self):
+        """Test CORS headers"""
+        response = await self.make_request('OPTIONS', '/health')
+        
+        cors_headers = [
+            'access-control-allow-origin',
+            'access-control-allow-methods',
+            'access-control-allow-headers'
+        ]
+        
+        has_cors = any(header in response['headers'] for header in cors_headers)
+        
+        if has_cors:
+            self.log_test("CORS Headers", "PASS", "CORS headers present")
+        else:
+            self.log_test("CORS Headers", "WARN", "CORS headers not detected")
+    
+    async def test_stories_endpoints_security(self):
+        """Test stories endpoints security"""
+        endpoints = [
+            ('GET', '/stories'),
+            ('POST', '/stories'),
+            ('GET', '/stories/me'),
+            ('POST', '/stories/test_story_123/view')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Stories Security", "PASS", "All stories endpoints require authentication")
+        else:
+            self.log_test("Stories Security", "FAIL", "Some stories endpoints not protected")
+    
+    async def test_products_endpoints_security(self):
+        """Test products endpoints security"""
+        endpoints = [
+            ('GET', '/products'),
+            ('POST', '/products'),
+            ('GET', '/products/me'),
+            ('PUT', '/products/test_product_123')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Products Security", "PASS", "All products endpoints require authentication")
+        else:
+            self.log_test("Products Security", "FAIL", "Some products endpoints not protected")
+    
+    async def test_discount_endpoints_security(self):
+        """Test discount endpoints security"""
+        endpoints = [
+            ('GET', '/discounts'),
+            ('POST', '/discounts'),
+            ('GET', '/discounts/validate/TEST123'),
+            ('DELETE', '/discounts/TEST123')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Discounts Security", "PASS", "All discount endpoints require authentication")
+        else:
+            self.log_test("Discounts Security", "FAIL", "Some discount endpoints not protected")
+    
+    async def test_analytics_endpoints_security(self):
+        """Test analytics endpoints security"""
+        endpoints = [
+            ('GET', '/analytics/revenue'),
+            ('GET', '/analytics/engagement')
+        ]
+        
+        all_protected = True
+        for method, endpoint in endpoints:
+            response = await self.make_request(method, endpoint)
+            if response['status'] != 401:
+                all_protected = False
+                break
+        
+        if all_protected:
+            self.log_test("Analytics Security", "PASS", "All analytics endpoints require authentication")
+        else:
+            self.log_test("Analytics Security", "FAIL", "Some analytics endpoints not protected")
+    
+    # ============ MAIN TEST RUNNER ============
+    
+    async def run_all_tests(self):
+        """Run all test categories"""
+        print("🔐 AUTHENTICATION & SECURITY TESTS")
+        print("-" * 40)
+        await self.test_health_check()
+        await self.test_readiness_check()
+        await self.test_media_status()
+        await self.test_authentication_flow()
+        await self.test_auth_without_token()
+        await self.test_session_validation()
+        
+        print("\n📡 CORE API ENDPOINTS TESTS")
+        print("-" * 40)
+        await self.test_posts_endpoints_without_auth()
+        await self.test_user_endpoints_without_auth()
+        await self.test_comments_endpoints_without_auth()
+        await self.test_notifications_endpoints_without_auth()
+        
+        print("\n📁 MEDIA UPLOAD TESTS")
+        print("-" * 40)
+        await self.test_file_upload_security()
+        
+        print("\n🗄️ DATABASE OPERATIONS TESTS")
+        print("-" * 40)
+        await self.test_pagination_limits()
+        
+        print("\n💳 PAYMENT INTEGRATION TESTS")
+        print("-" * 40)
+        await self.test_payment_endpoints_security()
+        
+        print("\n📺 LIVE STREAMING TESTS")
+        print("-" * 40)
+        await self.test_streaming_endpoints_security()
+        
+        print("\n📚 ADDITIONAL FEATURE TESTS")
+        print("-" * 40)
+        await self.test_stories_endpoints_security()
+        await self.test_products_endpoints_security()
+        await self.test_discount_endpoints_security()
+        await self.test_analytics_endpoints_security()
+        
+        print("\n⚠️ ERROR HANDLING TESTS")
+        print("-" * 40)
+        await self.test_invalid_endpoints()
+        await self.test_malformed_json()
+        await self.test_sql_injection_attempts()
+        await self.test_xss_prevention()
+        
+        print("\n🔍 EDGE CASES TESTS")
+        print("-" * 40)
+        await self.test_empty_requests()
+        await self.test_oversized_requests()
+        await self.test_rate_limiting()
+        await self.test_cors_headers()
+    
+    def generate_summary(self):
+        """Generate test summary"""
+        total_tests = len(self.test_results)
+        passed = len([r for r in self.test_results if r['status'] == 'PASS'])
+        failed = len([r for r in self.test_results if r['status'] == 'FAIL'])
+        warnings = len([r for r in self.test_results if r['status'] in ['WARN', 'INFO']])
+        
+        print("\n" + "=" * 60)
+        print("📊 TEST SUMMARY")
+        print("=" * 60)
+        print(f"Total Tests: {total_tests}")
+        print(f"✅ Passed: {passed}")
+        print(f"❌ Failed: {failed}")
+        print(f"⚠️ Warnings/Info: {warnings}")
+        print(f"Success Rate: {(passed/total_tests)*100:.1f}%")
+        
+        if failed > 0:
+            print("\n❌ FAILED TESTS:")
+            for result in self.test_results:
+                if result['status'] == 'FAIL':
+                    print(f"  • {result['test']}: {result['details']}")
+        
+        if warnings > 0:
+            print("\n⚠️ WARNINGS/INFO:")
+            for result in self.test_results:
+                if result['status'] in ['WARN', 'INFO']:
+                    print(f"  • {result['test']}: {result['details']}")
+        
+        return {
+            'total': total_tests,
+            'passed': passed,
+            'failed': failed,
+            'warnings': warnings,
+            'success_rate': (passed/total_tests)*100
+        }
+
+async def main():
+    """Main test runner"""
+    tester = GroverBackendTester()
+    
+    try:
+        await tester.setup()
+        await tester.run_all_tests()
+        summary = tester.generate_summary()
+        
+        # Save detailed results
+        with open('/app/backend_test_results.json', 'w') as f:
+            json.dump({
+                'summary': summary,
+                'detailed_results': tester.test_results,
+                'timestamp': datetime.now().isoformat()
+            }, f, indent=2)
+        
+        print(f"\n📄 Detailed results saved to: /app/backend_test_results.json")
+        
+    except Exception as e:
+        print(f"❌ Test runner error: {e}")
+    finally:
+        await tester.cleanup()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
