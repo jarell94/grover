@@ -238,13 +238,12 @@ export default function MessagesScreen() {
       <Text style={styles.searchMessageText}>
         {parts.map((part, index) => {
           const partLower = part.toLowerCase();
-          const key = `${index}-${part}`;
           return partLower === lower ? (
-            <Text key={key} style={styles.searchHighlight}>
+            <Text key={index} style={styles.searchHighlight}>
               {part}
             </Text>
           ) : (
-            <Text key={key}>{part}</Text>
+            <Text key={index}>{part}</Text>
           );
         })}
       </Text>
@@ -351,14 +350,14 @@ export default function MessagesScreen() {
           />
           <TextInput
             style={styles.filterInput}
-            placeholder="Start date (YYYY-MM-DD)"
+            placeholder="Start date (YYYY-MM-DDTHH:MM:SS+00:00)"
             placeholderTextColor={Colors.textSecondary}
             value={startDate}
             onChangeText={setStartDate}
           />
           <TextInput
             style={styles.filterInput}
-            placeholder="End date (YYYY-MM-DD)"
+            placeholder="End date (YYYY-MM-DDTHH:MM:SS+00:00)"
             placeholderTextColor={Colors.textSecondary}
             value={endDate}
             onChangeText={setEndDate}
