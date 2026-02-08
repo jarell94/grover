@@ -582,7 +582,7 @@ async def emit_message_deleted(conversation_id: Optional[str], message_id: str, 
 
 def stripe_amount(amount: float, min_amount: float = 0.01) -> int:
     if amount < min_amount:
-        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+        raise HTTPException(status_code=400, detail=f"Amount must be at least ${min_amount:.2f}")
     return int(round(amount * 100))
 
 # ============ MODELS ============
@@ -2707,8 +2707,6 @@ async def create_stripe_tip(
 ):
     require_stripe_configured()
     validate_id(user_id, "user_id")
-    if payload.amount < MIN_TIP_AMOUNT:
-        raise HTTPException(status_code=400, detail=f"Minimum tip is ${MIN_TIP_AMOUNT:.0f}")
     await check_monetization_enabled(user_id, "tips")
     creator_account_id = await get_stripe_account_id(user_id)
     payer = await get_user_record(current_user.user_id)
@@ -2760,7 +2758,8 @@ async def create_stripe_subscription(
     payer = await get_user_record(current_user.user_id)
     customer_id = await get_or_create_stripe_customer(payer)
     price_id = await ensure_stripe_price(tier, user_id)
-    platform_fee_percent = REVENUE_SHARE.get("subscriptions", {}).get("platform", 0.15) * 100
+    split = calculate_revenue_split(tier["price"], "subscriptions")
+    platform_fee_percent = (split["platform_fee"] / tier["price"]) * 100 if tier["price"] else 0
 
     subscription = stripe.Subscription.create(
         customer=customer_id,
@@ -2784,8 +2783,8 @@ async def create_stripe_subscription(
         "creator_id": user_id,
         "tier_id": payload.tier_id,
         "amount": tier["price"],
-        "platform_fee": tier["price"] * (platform_fee_percent / 100),
-        "creator_payout": tier["price"] * (1 - platform_fee_percent / 100),
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
         "status": "pending",
         "stripe_subscription_id": subscription.id,
         "started_at": now,
@@ -2859,7 +2858,7 @@ async def create_stripe_refund(
     current_user: User = Depends(require_auth)
 ):
     require_stripe_configured()
-    refund_amount = stripe_amount(payload.amount) if payload.amount and payload.amount > 0 else None
+    refund_amount = stripe_amount(payload.amount, min_amount=0) if payload.amount and payload.amount > 0 else None
     refund = stripe.Refund.create(
         payment_intent=payload.payment_intent_id,
         amount=refund_amount
