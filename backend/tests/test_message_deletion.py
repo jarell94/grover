@@ -129,3 +129,22 @@ async def test_delete_for_everyone_expired(mock_db, override_auth):
 
     assert response.status_code == 400
     mock_db.messages.update_one.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_for_everyone_blocked_when_edited(mock_db, override_auth):
+    mock_db.messages.find_one.return_value = {
+        "message_id": "msg_555",
+        "conversation_id": "conv_123",
+        "sender_id": override_auth.user_id,
+        "content": "Hello",
+        "read": False,
+        "edited_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(timezone.utc) - timedelta(minutes=10),
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/messages/msg_555/delete", json={"delete_for_everyone": True})
+
+    assert response.status_code == 400
+    mock_db.messages.update_one.assert_not_awaited()

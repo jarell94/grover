@@ -2706,10 +2706,21 @@ async def delete_message(
         if message.get("sender_id") != current_user.user_id:
             raise HTTPException(status_code=403, detail="Not authorized to delete for everyone")
         if message.get("deleted_for_everyone"):
+            conversation_id = message.get("conversation_id")
+            deleted_at = message.get("deleted_at")
+            if conversation_id and deleted_at:
+                await sio.emit("message_deleted", {
+                    "message_id": message_id,
+                    "conversation_id": conversation_id,
+                    "deleted_for_everyone": True,
+                    "deleted_at": deleted_at.isoformat(),
+                    "content": "Message deleted",
+                    "is_deleted": True
+                }, room=f"conversation_{conversation_id}")
             return {
                 "message_id": message_id,
                 "deleted_for_everyone": True,
-                "deleted_at": message.get("deleted_at")
+                "deleted_at": deleted_at
             }
 
         created_at = message.get("created_at")
