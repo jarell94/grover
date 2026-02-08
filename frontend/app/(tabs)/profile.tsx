@@ -562,6 +562,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: Colors.textSecondary,
+    fontSize: 16,
+  },
   header: {
     padding: 24,
     alignItems: 'center',
