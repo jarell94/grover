@@ -111,10 +111,12 @@ export default function ChatScreen() {
     if (!focusMessageId || sortedMessages.length === 0) return;
     const index = sortedMessages.findIndex((message) => message.message_id === focusMessageId);
     if (index >= 0) {
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         flatListRef.current?.scrollToIndex({ index, animated: true });
       }, SCROLL_TO_MESSAGE_DELAY_MS);
+      return () => clearTimeout(timeoutId);
     }
+    return undefined;
   }, [focusMessageId, sortedMessages]);
 
   const markRead = async () => {

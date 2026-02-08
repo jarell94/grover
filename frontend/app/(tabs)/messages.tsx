@@ -302,10 +302,7 @@ export default function MessagesScreen() {
         activeOpacity={0.8}
         onPress={() => openSearchResult(item)}
       >
-        <Image
-          source={{ uri: other.picture || 'https://via.placeholder.com/40' }}
-          style={styles.searchAvatar}
-        />
+        <View style={styles.searchAvatarPlaceholder} />
         <View style={styles.searchInfo}>
           <View style={styles.searchHeader}>
             <Text style={styles.searchTitle}>{other.name || 'Unknown'}</Text>
@@ -582,6 +579,12 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+  },
+  searchAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
   },
   searchInfo: {
     marginLeft: 12,
