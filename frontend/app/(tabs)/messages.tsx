@@ -238,12 +238,13 @@ export default function MessagesScreen() {
       <Text style={styles.searchMessageText}>
         {parts.map((part, index) => {
           const partLower = part.toLowerCase();
+          const key = `${index}-${part}`;
           return partLower === lower ? (
-            <Text key={index} style={styles.searchHighlight}>
+            <Text key={key} style={styles.searchHighlight}>
               {part}
             </Text>
           ) : (
-            <Text key={index}>{part}</Text>
+            <Text key={key}>{part}</Text>
           );
         })}
       </Text>

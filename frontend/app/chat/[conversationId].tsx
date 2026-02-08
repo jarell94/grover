@@ -87,12 +87,13 @@ export default function ChatScreen() {
       <Text>
         {parts.map((part, index) => {
           const partLower = part.toLowerCase();
+          const key = `${index}-${part}`;
           return partLower === lower ? (
-            <Text key={index} style={styles.highlightText}>
+            <Text key={key} style={styles.highlightText}>
               {part}
             </Text>
           ) : (
-            <Text key={index}>{part}</Text>
+            <Text key={key}>{part}</Text>
           );
         })}
       </Text>
@@ -113,7 +114,9 @@ export default function ChatScreen() {
         try {
           flatListRef.current?.scrollToIndex({ index, animated: true });
         } catch (error) {
-          if (__DEV__) console.warn("scrollToIndex failed", { error, index, focusMessageId });
+          if (__DEV__) {
+            console.warn("scrollToIndex failed", { error, index, focusMessageId, message: (error as Error)?.message });
+          }
         }
       }, SCROLL_TO_MESSAGE_DELAY_MS);
       return () => clearTimeout(timeoutId);
