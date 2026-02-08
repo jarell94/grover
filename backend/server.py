@@ -2713,9 +2713,9 @@ async def delete_message(
             created_at = created_at.replace(tzinfo=timezone.utc)
         if not created_at or datetime.now(timezone.utc) - created_at > MESSAGE_DELETE_WINDOW:
             raise HTTPException(status_code=400, detail="Delete window expired")
-        if message.get("read"):
+        if message.get("read") is True:
             raise HTTPException(status_code=400, detail="Message already read")
-        if message.get("edited_at"):
+        if message.get("edited_at") is not None:
             raise HTTPException(status_code=400, detail="Message already edited")
 
         deleted_at = datetime.now(timezone.utc)

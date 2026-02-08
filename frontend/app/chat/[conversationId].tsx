@@ -89,7 +89,27 @@ export default function ChatScreen() {
 
   const loadMessages = async () => {
     try {
-      if (previewMode) return;
+      if (previewMode) {
+        const now = new Date();
+        setMessages([
+          {
+            message_id: "preview_deleted",
+            sender_id: userId || "user_123",
+            content: "Message deleted",
+            created_at: new Date(now.getTime() - 5 * 60 * 1000).toISOString(),
+            deleted_for_everyone: true,
+            deleted_at: new Date(now.getTime() - 4 * 60 * 1000).toISOString(),
+            is_deleted: true,
+          },
+          {
+            message_id: "preview_reply",
+            sender_id: otherUserId || "user_456",
+            content: "New message after deletion.",
+            created_at: new Date(now.getTime() - 1 * 60 * 1000).toISOString(),
+          },
+        ]);
+        return;
+      }
       if (!otherUserId) return;
       const response = await api.getMessages(otherUserId);
       const list: Message[] = response?.messages || [];
@@ -119,8 +139,8 @@ export default function ChatScreen() {
   const canDeleteForEveryone = (message: Message) => {
     if (!userId || message.sender_id !== userId) return false;
     if (message.is_deleted || message.deleted_for_everyone) return false;
-    if (message.read) return false;
-    if (message.edited_at) return false;
+    if (message.read === true) return false;
+    if (message.edited_at !== null && message.edited_at !== undefined) return false;
     const createdAt = new Date(message.created_at).getTime();
     if (Number.isNaN(createdAt) || !Number.isFinite(createdAt)) return false;
     return Date.now() - createdAt <= DELETE_WINDOW_MS;
@@ -250,28 +270,6 @@ export default function ChatScreen() {
       }
     };
   }, [conversationId, userId, otherUserId, previewMode]);
-
-  useEffect(() => {
-    if (!previewMode) return;
-    const now = new Date();
-    setMessages([
-      {
-        message_id: "preview_deleted",
-        sender_id: userId || "user_123",
-        content: "Message deleted",
-        created_at: new Date(now.getTime() - 5 * 60 * 1000).toISOString(),
-        deleted_for_everyone: true,
-        deleted_at: new Date(now.getTime() - 4 * 60 * 1000).toISOString(),
-        is_deleted: true,
-      },
-      {
-        message_id: "preview_reply",
-        sender_id: otherUserId || "user_456",
-        content: "New message after deletion.",
-        created_at: new Date(now.getTime() - 1 * 60 * 1000).toISOString(),
-      },
-    ]);
-  }, [previewMode, userId, otherUserId]);
 
   const handleSend = async () => {
     const trimmed = inputText.trim();
