@@ -2636,7 +2636,7 @@ async def edit_message(
     if message.get("sender_id") != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized to edit this message")
     if message.get("deleted_for_everyone"):
-        raise HTTPException(status_code=400, detail="Message has been deleted")
+        raise HTTPException(status_code=400, detail="Cannot edit a deleted message")
 
     created_at = message.get("created_at")
     if not created_at:
@@ -2714,9 +2714,9 @@ async def delete_message(
         if not created_at or datetime.now(timezone.utc) - created_at > MESSAGE_DELETE_WINDOW:
             raise HTTPException(status_code=400, detail="Delete window expired")
         if message.get("read") is True:
-            raise HTTPException(status_code=400, detail="Message already read")
+            raise HTTPException(status_code=400, detail="Cannot delete for everyone: message has been read")
         if message.get("edited_at") is not None:
-            raise HTTPException(status_code=400, detail="Message already edited")
+            raise HTTPException(status_code=400, detail="Cannot delete for everyone: message has been edited")
 
         deleted_at = datetime.now(timezone.utc)
         await db.messages.update_one(
