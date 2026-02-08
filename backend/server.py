@@ -4291,7 +4291,7 @@ async def get_analytics_overview(current_user: User = Depends(require_auth)):
     if cached:
         return cached
 
-    # Get date range (7 days: today + previous 6 days)
+    # Get date range (last 7 days including today)
     end_date = datetime.now(timezone.utc)
 
     posts_pipeline = [
