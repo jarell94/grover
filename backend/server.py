@@ -2522,8 +2522,8 @@ async def edit_message(
         "$push": {
             "edit_history": {
                 "content": message.get("content", ""),
-                "edited_at": previous_edited_at,
-                "timestamp": now
+                "previous_edited_at": previous_edited_at,
+                "replaced_at": now
             }
         }
     }

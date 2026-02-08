@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -208,6 +209,7 @@ export default function ChatScreen() {
         );
       } catch (error) {
         if (__DEV__) console.error("Edit message error:", error);
+        Alert.alert("Unable to edit message", "Please try again.");
       } finally {
         setEditingMessageId(null);
         setInputText("");
@@ -270,7 +272,7 @@ export default function ChatScreen() {
         <Pressable
           onLongPress={() => startEdit(item)}
           disabled={!editable}
-          accessibilityLabel="Long press to edit message"
+          accessibilityLabel={editable ? "Long press to edit message" : undefined}
         >
           <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
             <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
