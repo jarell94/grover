@@ -98,6 +98,9 @@ ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
 
 ROOT_DIR = Path(__file__).parent
 
+# Initialize logger early
+logger = logging.getLogger(__name__)
+
 # MongoDB connection with proper error handling
 mongo_url = os.getenv('MONGO_URL')
 if not mongo_url:
@@ -214,7 +217,6 @@ logging.basicConfig(
         logging.StreamHandler()  # Console output
     ]
 )
-logger = logging.getLogger(__name__)
 logger.info(f"Logging initialized at {log_level} level for environment: {ENVIRONMENT}")
 
 # ============ DATABASE INDEXES ============
@@ -6566,7 +6568,8 @@ async def create_stories_batch(
     if captions:
         try:
             captions_list = json.loads(captions)
-        except:
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(f"Failed to parse captions JSON: {e}")
             captions_list = []
     
     story_ids = []
@@ -7688,16 +7691,6 @@ async def disconnect(sid):
         if active_users[user_id] == sid:
             del active_users[user_id]
             break
-
-@sio.event
-async def join_conversation(sid, data):
-    conversation_id = data.get("conversation_id")
-    user_id = data.get("user_id")
-    
-    if conversation_id and user_id:
-        sio.enter_room(sid, f"conversation_{conversation_id}")
-        active_users[user_id] = sid
-        logger.info(f"User {user_id} joined conversation {conversation_id}")
 
 @sio.event
 async def send_message(sid, data):
