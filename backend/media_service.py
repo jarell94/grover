@@ -182,7 +182,7 @@ def is_cloudinary_url(url: str, media_type: str) -> bool:
         hostname = ""
         path = ""
 
-    if hostname.endswith("cloudinary.com"):
+    if hostname == "cloudinary.com" or hostname.endswith(".cloudinary.com"):
         return True
     if not CLOUDINARY_CONFIGURED:
         return False
