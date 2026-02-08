@@ -2523,7 +2523,7 @@ async def edit_message(
             "edit_history": {
                 "content": message.get("content", ""),
                 # Timestamp when the replaced content was last set (created or edited)
-                "previous_edit_timestamp": previous_edit_timestamp,
+                "last_modified_at": previous_edit_timestamp,
                 "replaced_at": now
             }
         }
