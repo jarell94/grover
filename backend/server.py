@@ -6403,10 +6403,13 @@ async def register_user(sid, data):
         user = await db.users.find_one({"user_id": user_id}, {"_id": 1})
         if not user:
             return
-        sio.enter_room(sid, f"user_{user_id}")
         async with active_users_lock:
+            old_sid = active_users.get(user_id)
+            if old_sid and old_sid != sid:
+                active_sids.pop(old_sid, None)
             active_users[user_id] = sid
             active_sids[sid] = user_id
+            sio.enter_room(sid, f"user_{user_id}")
         await emit_live_metrics(user_id, reason="connection")
 
 @sio.event
@@ -6422,10 +6425,13 @@ async def join_conversation(sid, data):
         user = await db.users.find_one({"user_id": user_id}, {"_id": 1})
         if not user:
             return
-        sio.enter_room(sid, f"conversation_{conversation_id}")
         async with active_users_lock:
+            old_sid = active_users.get(user_id)
+            if old_sid and old_sid != sid:
+                active_sids.pop(old_sid, None)
             active_users[user_id] = sid
             active_sids[sid] = user_id
+            sio.enter_room(sid, f"conversation_{conversation_id}")
         logger.info(f"User {user_id} joined conversation {conversation_id}")
 
 @sio.event

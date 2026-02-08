@@ -282,8 +282,8 @@ export default function AnalyticsScreen() {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
       return crypto.randomUUID();
     }
-    activityCounter.current += 1;
-    return `event-${Date.now()}-${activityCounter.current}`;
+    const randomSuffix = Math.random().toString(36).slice(2, 10);
+    return `event-${Date.now()}-${randomSuffix}`;
   };
 
   const formatNumber = useCallback((n: any) => {
