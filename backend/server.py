@@ -259,6 +259,7 @@ async def create_indexes():
     await safe_create_index(db.messages, "message_id", unique=True, background=True, name="messages_message_id_unique")
     await safe_create_index(db.messages, [("conversation_id", 1), ("created_at", -1)], background=True, name="messages_conv_created")
     await safe_create_index(db.messages, [("conversation_id", 1), ("read", 1)], background=True, name="messages_conv_read")
+    await safe_create_index(db.messages, [("content", "text")], background=True, name="messages_content_text")
     
     # ========== CONVERSATIONS COLLECTION ==========
     await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
@@ -2592,6 +2593,86 @@ async def get_conversations(current_user: User = Depends(require_auth)):
         conv["unread_count"] = unread_count
     
     return conversations
+
+@api_router.get("/messages/search")
+async def search_messages(
+    q: str,
+    sender_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Search messages across all conversations."""
+    query_text = sanitize_string(q, 200, "query")
+    if not query_text:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    conversations = await db.conversations.find(
+        {"participants": current_user.user_id},
+        {"_id": 0, "conversation_id": 1, "participants": 1}
+    ).to_list(200)
+    conversation_ids = [c["conversation_id"] for c in conversations]
+    if not conversation_ids:
+        return []
+
+    participant_map = {}
+    other_user_ids = []
+    for conv in conversations:
+        other_id = next((p for p in conv.get("participants", []) if p != current_user.user_id), None)
+        participant_map[conv["conversation_id"]] = other_id
+        if other_id:
+            other_user_ids.append(other_id)
+
+    users = await db.users.find(
+        {"user_id": {"$in": list(set(other_user_ids))}},
+        {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+    ).to_list(200)
+    users_map = {u["user_id"]: u for u in users}
+
+    query: dict = {
+        "conversation_id": {"$in": conversation_ids},
+        "deleted_for_everyone": {"$ne": True},
+        "deleted_for": {"$ne": current_user.user_id},
+        "content": {"$regex": re.escape(query_text), "$options": "i"},
+    }
+
+    if sender_id:
+        validate_id(sender_id, "sender_id")
+        query["sender_id"] = sender_id
+
+    if start_date or end_date:
+        created_filter: dict = {}
+        if start_date:
+            try:
+                start_dt = normalize_datetime(datetime.fromisoformat(start_date))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date")
+            created_filter["$gte"] = start_dt
+        if end_date:
+            try:
+                end_dt = normalize_datetime(datetime.fromisoformat(end_date))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date")
+            created_filter["$lte"] = end_dt
+        query["created_at"] = created_filter
+
+    messages = await db.messages.find(query, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+
+    results = []
+    for message in messages:
+        conv_id = message.get("conversation_id")
+        other_user_id = participant_map.get(conv_id)
+        result = {
+            "message_id": message.get("message_id"),
+            "conversation_id": conv_id,
+            "sender_id": message.get("sender_id"),
+            "content": message.get("content", ""),
+            "created_at": message.get("created_at"),
+            "other_user": users_map.get(other_user_id),
+        }
+        results.append(result)
+
+    return results
 
 @api_router.get("/messages/{user_id}")
 async def get_messages(user_id: str, current_user: User = Depends(require_auth)):

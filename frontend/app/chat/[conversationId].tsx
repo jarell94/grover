@@ -46,6 +46,8 @@ export default function ChatScreen() {
   const userId = params.userId as string | undefined;
   const otherUserId = params.otherUserId as string | undefined;
   const otherUserName = params.otherUserName as string | undefined;
+  const focusMessageId = params.focusMessageId as string | undefined;
+  const highlightTerm = params.highlightTerm as string | undefined;
   const previewValue = Array.isArray(params.preview) ? params.preview[0] : params.preview;
   const previewMode = previewValue === PREVIEW_MODE_DELETED_VALUE || conversationId === PREVIEW_CONVERSATION_ID;
 
@@ -74,11 +76,43 @@ export default function ChatScreen() {
     );
   }, [messages]);
 
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const renderHighlightedContent = (text: string, query?: string) => {
+    if (!query) return text;
+    const regex = new RegExp(`(${escapeRegExp(query)})`, "gi");
+    const parts = text.split(regex);
+    const lower = query.toLowerCase();
+    return (
+      <Text>
+        {parts.map((part, index) =>
+          part.toLowerCase() === lower ? (
+            <Text key={index} style={styles.highlightText}>
+              {part}
+            </Text>
+          ) : (
+            part
+          )
+        )}
+      </Text>
+    );
+  };
+
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
       flatListRef.current?.scrollToEnd({ animated });
     });
   };
+
+  useEffect(() => {
+    if (!focusMessageId || sortedMessages.length === 0) return;
+    const index = sortedMessages.findIndex((message) => message.message_id === focusMessageId);
+    if (index >= 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({ index, animated: true });
+      }, 100);
+    }
+  }, [focusMessageId, sortedMessages]);
 
   const markRead = async () => {
     if (!conversationId) return;
@@ -368,6 +402,7 @@ export default function ChatScreen() {
     const canDeleteEveryone = canDeleteForEveryone(item);
     const isDeleted = item.is_deleted || item.deleted_for_everyone;
     const displayContent = isDeleted ? "Message deleted" : item.content;
+    const shouldHighlight = highlightTerm && item.message_id === focusMessageId && !isDeleted;
 
     const openMessageActions = () => {
       const actions: { text: string; onPress?: () => void; style?: "destructive" | "cancel" }[] = [];
@@ -409,7 +444,7 @@ export default function ChatScreen() {
                 isDeleted && styles.deletedText,
               ]}
             >
-              {displayContent}
+              {shouldHighlight ? renderHighlightedContent(displayContent, highlightTerm) : displayContent}
             </Text>
           </View>
         </Pressable>
@@ -452,6 +487,12 @@ export default function ChatScreen() {
         renderItem={renderMessage}
         keyExtractor={(item) => item.message_id}
         contentContainerStyle={styles.messagesList}
+        onScrollToIndexFailed={(info) => {
+          flatListRef.current?.scrollToOffset({
+            offset: info.averageItemLength * info.index,
+            animated: true,
+          });
+        }}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={() => {
@@ -546,6 +587,7 @@ const styles = StyleSheet.create({
   myText: { color: "#fff" },
   theirText: { color: Colors.text },
   deletedText: { fontStyle: "italic", color: Colors.textSecondary },
+  highlightText: { backgroundColor: Colors.primary + "55", color: Colors.text },
 
   timestampRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   timestamp: { fontSize: 10, color: Colors.textSecondary },

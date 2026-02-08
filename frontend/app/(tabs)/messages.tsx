@@ -1,15 +1,16 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
+  TextInput,
   TouchableOpacity,
   Image,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
@@ -48,13 +49,35 @@ interface Conversation {
   last_message_at: string;
 }
 
+interface MessageSearchResult {
+  message_id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+  other_user?: {
+    user_id: string;
+    name?: string;
+    picture?: string;
+  };
+}
+
 export default function MessagesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<MessageSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [senderFilter, setSenderFilter] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const previewValue = Array.isArray(params.preview) ? params.preview[0] : params.preview;
+  const previewSearch = __DEV__ && previewValue === 'search';
 
   /**
    * Load conversations with mode (initial vs refresh)
@@ -104,6 +127,59 @@ export default function MessagesScreen() {
 
   const onRefresh = () => loadConversations('refresh');
 
+  const runSearch = useCallback(async () => {
+    if (previewSearch) return;
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const results = await api.searchMessages({
+        query: trimmed,
+        senderId: senderFilter.trim() || undefined,
+        startDate: startDate.trim() || undefined,
+        endDate: endDate.trim() || undefined,
+      });
+      setSearchResults(Array.isArray(results) ? results : []);
+    } catch (error) {
+      if (__DEV__) console.error('Search messages error:', error);
+    } finally {
+      setSearching(false);
+    }
+  }, [searchQuery, senderFilter, startDate, endDate]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      runSearch();
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [runSearch]);
+
+  useEffect(() => {
+    if (!previewSearch) return;
+    setSearchQuery('hello');
+    setSearchResults([
+      {
+        message_id: 'preview_msg_1',
+        conversation_id: 'conv_preview',
+        sender_id: 'user_456',
+        content: 'Hello there, this is a preview match.',
+        created_at: new Date().toISOString(),
+        other_user: { user_id: 'user_456', name: 'Alex', picture: undefined },
+      },
+      {
+        message_id: 'preview_msg_2',
+        conversation_id: 'conv_preview',
+        sender_id: 'user_123',
+        content: 'Another hello for the preview results.',
+        created_at: new Date().toISOString(),
+        other_user: { user_id: 'user_456', name: 'Alex', picture: undefined },
+      },
+    ]);
+  }, [previewSearch]);
+
   // Sort conversations by most recent message
   const sorted = useMemo(() => {
     return [...conversations].sort((a, b) => {
@@ -135,6 +211,42 @@ export default function MessagesScreen() {
         otherUserName: other.name,
       },
     });
+  };
+
+  const openSearchResult = (item: MessageSearchResult) => {
+    const other = item.other_user || {};
+    router.push({
+      pathname: '/chat/[conversationId]',
+      params: {
+        conversationId: item.conversation_id,
+        otherUserId: other.user_id,
+        otherUserName: other.name,
+        focusMessageId: item.message_id,
+        highlightTerm: searchQuery.trim(),
+      },
+    });
+  };
+
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const renderHighlightedText = (text: string, query: string) => {
+    if (!query) return <Text style={styles.searchMessageText}>{text}</Text>;
+    const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+    const parts = text.split(regex);
+    const lower = query.toLowerCase();
+    return (
+      <Text style={styles.searchMessageText}>
+        {parts.map((part, index) =>
+          part.toLowerCase() === lower ? (
+            <Text key={index} style={styles.searchHighlight}>
+              {part}
+            </Text>
+          ) : (
+            part
+          )
+        )}
+      </Text>
+    );
   };
 
   const renderConversation = useCallback(({ item }: { item: Conversation }) => {
@@ -179,6 +291,29 @@ export default function MessagesScreen() {
     );
   }, []);
 
+  const renderSearchResult = ({ item }: { item: MessageSearchResult }) => {
+    const other = item.other_user || {};
+    return (
+      <TouchableOpacity
+        style={styles.searchCard}
+        activeOpacity={0.8}
+        onPress={() => openSearchResult(item)}
+      >
+        <Image
+          source={{ uri: other.picture || 'https://via.placeholder.com/40' }}
+          style={styles.searchAvatar}
+        />
+        <View style={styles.searchInfo}>
+          <View style={styles.searchHeader}>
+            <Text style={styles.searchTitle}>{other.name || 'Unknown'}</Text>
+            <Text style={styles.searchTime}>{timeAgo(item.created_at)}</Text>
+          </View>
+          {renderHighlightedText(item.content || 'Message', searchQuery.trim())}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, styles.centered]}>
@@ -196,31 +331,92 @@ export default function MessagesScreen() {
         )}
       </View>
 
-      <FlatList
-        data={sorted}
-        renderItem={renderConversation}
-        keyExtractor={(item) => item.conversation_id}
-        contentContainerStyle={styles.list}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.primary}
+      <View style={styles.searchSection}>
+        <View style={styles.searchInputRow}>
+          <Ionicons name="search" size={18} color={Colors.textSecondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search messages"
+            placeholderTextColor={Colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
           />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubbles-outline" size={64} color={Colors.textSecondary} />
-            <Text style={styles.emptyText}>No conversations yet</Text>
-            <Text style={styles.emptySubtext}>Start chatting with creators</Text>
-          </View>
-        }
-        removeClippedSubviews
-        initialNumToRender={12}
-        windowSize={7}
-        maxToRenderPerBatch={12}
-        keyboardShouldPersistTaps="handled"
-      />
+        </View>
+        <View style={styles.searchFilters}>
+          <TextInput
+            style={styles.filterInput}
+            placeholder="Sender ID"
+            placeholderTextColor={Colors.textSecondary}
+            value={senderFilter}
+            onChangeText={setSenderFilter}
+          />
+          <TextInput
+            style={styles.filterInput}
+            placeholder="Start date (YYYY-MM-DD)"
+            placeholderTextColor={Colors.textSecondary}
+            value={startDate}
+            onChangeText={setStartDate}
+          />
+          <TextInput
+            style={styles.filterInput}
+            placeholder="End date (YYYY-MM-DD)"
+            placeholderTextColor={Colors.textSecondary}
+            value={endDate}
+            onChangeText={setEndDate}
+          />
+        </View>
+      </View>
+
+      {searching && (
+        <View style={styles.searchLoading}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.searchLoadingText}>Searching messages...</Text>
+        </View>
+      )}
+
+      {searchQuery.trim().length > 0 ? (
+        <FlatList
+          data={searchResults}
+          keyExtractor={(item) => item.message_id}
+          renderItem={renderSearchResult}
+          contentContainerStyle={styles.searchList}
+          ListEmptyComponent={
+            !searching ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="search" size={64} color={Colors.textSecondary} />
+                <Text style={styles.emptyText}>No matches found</Text>
+              </View>
+            ) : null
+          }
+          keyboardShouldPersistTaps="handled"
+        />
+      ) : (
+        <FlatList
+          data={sorted}
+          renderItem={renderConversation}
+          keyExtractor={(item) => item.conversation_id}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.primary}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="chatbubbles-outline" size={64} color={Colors.textSecondary} />
+              <Text style={styles.emptyText}>No conversations yet</Text>
+              <Text style={styles.emptySubtext}>Start chatting with creators</Text>
+            </View>
+          }
+          removeClippedSubviews
+          initialNumToRender={12}
+          windowSize={7}
+          maxToRenderPerBatch={12}
+          keyboardShouldPersistTaps="handled"
+        />
+      )}
     </View>
   );
 }
@@ -325,5 +521,90 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     marginTop: 8,
+  },
+  searchSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  searchInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  searchInput: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 14,
+  },
+  searchFilters: {
+    marginTop: 10,
+    gap: 8,
+  },
+  filterInput: {
+    backgroundColor: Colors.card,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: Colors.text,
+    fontSize: 12,
+  },
+  searchLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  searchLoadingText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+  },
+  searchList: {
+    paddingHorizontal: 16,
+    paddingBottom: 32,
+  },
+  searchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  searchAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  searchInfo: {
+    marginLeft: 12,
+    flex: 1,
+    gap: 4,
+  },
+  searchHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  searchTitle: {
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  searchTime: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+  },
+  searchMessageText: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+  },
+  searchHighlight: {
+    color: Colors.text,
+    backgroundColor: Colors.primary + '40',
+    fontWeight: '700',
   },
 });
