@@ -1979,10 +1979,6 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
         raise HTTPException(status_code=404, detail="Comment not found")
 
     target_user_id = comment.get("user_id")
-    if comment.get("post_id"):
-        post = await db.posts.find_one({"post_id": comment["post_id"]}, {"user_id": 1})
-        if post:
-            target_user_id = post.get("user_id", target_user_id)
     
     existing = await db.comment_likes.find_one({
         "user_id": current_user.user_id,
@@ -6237,6 +6233,7 @@ async def get_poll_results(post_id: str, current_user: User = Depends(require_au
 
 active_users = {}
 active_users_lock = asyncio.Lock()
+active_sids = {}
 stream_viewers = {}  # {stream_id: {user_id: sid}}
 
 @sio.event
@@ -6390,14 +6387,9 @@ async def handle_end_stream(sid, data):
 async def disconnect(sid):
     logger.info(f"Client {sid} disconnected")
     async with active_users_lock:
-        items_snapshot = list(active_users.items())
-
-    user_id_to_remove = next((user_id for user_id, stored_sid in items_snapshot if stored_sid == sid), None)
-
-    if user_id_to_remove:
-        async with active_users_lock:
-            if active_users.get(user_id_to_remove) == sid:
-                del active_users[user_id_to_remove]
+        user_id_to_remove = active_sids.pop(sid, None)
+        if user_id_to_remove and active_users.get(user_id_to_remove) == sid:
+            del active_users[user_id_to_remove]
 
 @sio.event
 async def register_user(sid, data):
@@ -6413,7 +6405,8 @@ async def register_user(sid, data):
         sio.enter_room(sid, f"user_{user_id}")
         async with active_users_lock:
             active_users[user_id] = sid
-        await emit_live_metrics(user_id, reason="initial")
+            active_sids[sid] = user_id
+        await emit_live_metrics(user_id, reason="connection")
 
 @sio.event
 async def join_conversation(sid, data):
@@ -6431,6 +6424,7 @@ async def join_conversation(sid, data):
         sio.enter_room(sid, f"conversation_{conversation_id}")
         async with active_users_lock:
             active_users[user_id] = sid
+            active_sids[sid] = user_id
         logger.info(f"User {user_id} joined conversation {conversation_id}")
 
 @sio.event

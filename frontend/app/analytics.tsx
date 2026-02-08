@@ -278,6 +278,14 @@ export default function AnalyticsScreen() {
   const [activityFeed, setActivityFeed] = useState<ActivityEventPayload[]>([]);
   const activityCounter = useRef(0);
 
+  const nextActivityId = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    activityCounter.current += 1;
+    return `event-${Date.now()}-${activityCounter.current}`;
+  };
+
   const formatNumber = useCallback((n: any) => {
     const num = Number(n);
     if (!Number.isFinite(num)) return '0';
@@ -335,10 +343,9 @@ export default function AnalyticsScreen() {
       setLiveMetrics(payload);
     });
     const offActivity = socketService.onActivityEvent((event) => {
-      activityCounter.current += 1;
       const eventWithId = {
         ...event,
-        id: event.notification_id || event.transaction_id || `event-${activityCounter.current}`,
+        id: event.notification_id || event.transaction_id || nextActivityId(),
       };
       setActivityFeed((prev) => {
         const updated = [eventWithId, ...prev];
