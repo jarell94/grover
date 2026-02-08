@@ -290,6 +290,7 @@ async def create_indexes():
     await safe_create_index(db.users, "is_premium", background=True, name="users_is_premium")
     await safe_create_index(db.users, "is_verified", background=True, name="users_is_verified")
     await safe_create_index(db.users, "verification_type", background=True, name="users_verification_type")
+    await safe_create_index(db.users, "is_admin", background=True, name="users_is_admin")
     
     # ========== POSTS COLLECTION ==========
     await safe_create_index(db.posts, "post_id", unique=True, background=True, name="posts_post_id_unique")
@@ -557,6 +558,7 @@ class User(BaseModel):
     bio: Optional[str] = ""
     is_premium: bool = False
     is_private: bool = False
+    is_admin: bool = False  # Admin role for platform moderation
     monetization_enabled: bool = False  # Creator monetization toggle (tips, subscriptions, paid content)
     # Verification fields
     is_verified: bool = False
@@ -7874,10 +7876,9 @@ async def verify_user(
     current_user: User = Depends(require_auth)
 ):
     """Verify a user account (admin only)"""
-    # TODO: Add admin check when admin role is implemented
-    # For now, only allow self-verification for testing
-    # if not current_user.is_admin:
-    #     raise HTTPException(status_code=403, detail="Admin access required")
+    # Check if user has admin privileges
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
     if verification_type not in ["verified", "creator", "business"]:
         raise HTTPException(status_code=400, detail="Invalid verification type")
@@ -7913,9 +7914,9 @@ async def unverify_user(
     current_user: User = Depends(require_auth)
 ):
     """Remove verification from a user (admin only)"""
-    # TODO: Add admin check when admin role is implemented
-    # if not current_user.is_admin:
-    #     raise HTTPException(status_code=403, detail="Admin access required")
+    # Check if user has admin privileges
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
     user = await db.users.find_one({"user_id": user_id})
     if not user:
@@ -7955,6 +7956,45 @@ async def get_verified_users(
     ).sort("verified_at", -1).skip(skip).limit(limit).to_list(limit)
     
     return users
+
+
+@api_router.post("/admin/set-admin/{user_id}")
+async def set_admin_role(
+    user_id: str,
+    is_admin: bool,
+    current_user: User = Depends(require_auth)
+):
+    """Grant or revoke admin role (admin only)"""
+    # Check if user has admin privileges
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Prevent removing admin from yourself
+    if user_id == current_user.user_id and not is_admin:
+        raise HTTPException(status_code=400, detail="Cannot remove admin role from yourself")
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_admin": is_admin}}
+    )
+    
+    # Log admin role change
+    logger.info(f"Admin role {'granted to' if is_admin else 'revoked from'} user {user_id} by admin {current_user.user_id}")
+    
+    # Notify user
+    action = "granted" if is_admin else "revoked"
+    await create_notification(
+        user_id,
+        "admin",
+        f"Your admin privileges have been {action}",
+        None
+    )
+    
+    return {"message": f"Admin role {'granted' if is_admin else 'revoked'} successfully", "user_id": user_id, "is_admin": is_admin}
 
 
 # ============ COLLABORATION POSTS ENDPOINTS ============

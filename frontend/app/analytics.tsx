@@ -10,12 +10,15 @@ import {
   RefreshControl,
   FlatList,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { api } from '../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -523,27 +526,38 @@ export default function AnalyticsScreen() {
               try {
                 const result = await api.exportAnalytics();
                 if (result?.csv) {
-                  // For now, show alert with option to copy
-                  // In production, you could use expo-sharing or expo-file-system
-                  Alert.alert(
-                    'Analytics Exported',
-                    'Your analytics data is ready. The CSV data has been logged to the console. In a production app, this would download the file or open a share dialog.',
-                    [
-                      { 
-                        text: 'View Console', 
-                        onPress: () => console.log('CSV Data:\n', result.csv),
-                        style: 'default' 
-                      },
-                      { text: 'OK', style: 'cancel' }
-                    ]
-                  );
-                  // Log CSV for debugging
-                  console.log('CSV Export:', result.csv);
-                  // TODO: Implement file download/share using expo-sharing
-                  // import * as Sharing from 'expo-sharing';
-                  // const fileUri = FileSystem.cacheDirectory + result.filename;
-                  // await FileSystem.writeAsStringAsync(fileUri, result.csv);
-                  // await Sharing.shareAsync(fileUri);
+                  // Check if sharing is available
+                  const isAvailable = await Sharing.isAvailableAsync();
+                  
+                  if (isAvailable) {
+                    // Create file in cache directory
+                    const fileUri = FileSystem.cacheDirectory + result.filename;
+                    await FileSystem.writeAsStringAsync(fileUri, result.csv);
+                    
+                    // Share the file
+                    await Sharing.shareAsync(fileUri, {
+                      mimeType: 'text/csv',
+                      dialogTitle: 'Export Analytics',
+                      UTI: 'public.comma-separated-values-text',
+                    });
+                    
+                    Alert.alert('Success', 'Analytics exported successfully!');
+                  } else {
+                    // Fallback for platforms without sharing
+                    Alert.alert(
+                      'Analytics Exported',
+                      'Sharing is not available on this platform. The CSV data has been logged to the console.',
+                      [
+                        { 
+                          text: 'View Console', 
+                          onPress: () => console.log('CSV Data:\n', result.csv),
+                          style: 'default' 
+                        },
+                        { text: 'OK', style: 'cancel' }
+                      ]
+                    );
+                    console.log('CSV Export:', result.csv);
+                  }
                 }
               } catch (error) {
                 console.error('Export error:', error);
