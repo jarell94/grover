@@ -12,11 +12,10 @@ config.cacheStores = [new FileStore({ root: path.join(root, "metro") })];
 // Optional: reset cache via env flag
 config.resetCache = process.env.RESET_METRO_CACHE === "1";
 
-// Worker tuning
-config.maxWorkers = Number(process.env.METRO_MAX_WORKERS || 2);
+// Worker tuning for better performance
+config.maxWorkers = Number(process.env.METRO_MAX_WORKERS || 4);
 
 // Fix React 19 + Metro ESM interop issues
-// Disable package exports for problematic ESM packages
 config.resolver.unstable_enablePackageExports = false;
 
 // Force CJS resolution for packages with ESM interop issues
@@ -26,12 +25,22 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   
   for (const pkg of problematicPackages) {
     if (moduleName === pkg || moduleName.startsWith(`${pkg}/`)) {
-      // Force resolution through standard Node resolution
       return context.resolveRequest(context, moduleName, platform);
     }
   }
   
   return context.resolveRequest(context, moduleName, platform);
+};
+
+// Performance optimizations
+config.transformer = {
+  ...config.transformer,
+  minifierConfig: {
+    keep_classnames: false,
+    keep_fnames: false,
+    mangle: true,
+    toplevel: false,
+  },
 };
 
 module.exports = config;
