@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { escapeRegExp } from '../../utils/text';
 
 /**
  * Safe time ago formatter with proper Date validation
@@ -129,35 +130,34 @@ export default function MessagesScreen() {
 
   const onRefresh = () => loadConversations('refresh');
 
-  const runSearch = useCallback(async () => {
-    if (previewSearch) return;
-    const trimmed = searchQuery.trim();
-    if (!trimmed) {
-      setSearchResults([]);
-      return;
-    }
-    setSearching(true);
-    try {
-      const results = await api.searchMessages({
-        query: trimmed,
-        senderId: senderFilter.trim() || undefined,
-        startDate: startDate.trim() || undefined,
-        endDate: endDate.trim() || undefined,
-      });
-      setSearchResults(Array.isArray(results) ? results : []);
-    } catch (error) {
-      if (__DEV__) console.error('Search messages error:', error);
-    } finally {
-      setSearching(false);
-    }
-  }, [searchQuery, senderFilter, startDate, endDate]);
-
   useEffect(() => {
     const handle = setTimeout(() => {
+      const runSearch = async () => {
+        if (previewSearch) return;
+        const trimmed = searchQuery.trim();
+        if (!trimmed) {
+          setSearchResults([]);
+          return;
+        }
+        setSearching(true);
+        try {
+          const results = await api.searchMessages({
+            query: trimmed,
+            senderId: senderFilter.trim() || undefined,
+            startDate: startDate.trim() || undefined,
+            endDate: endDate.trim() || undefined,
+          });
+          setSearchResults(Array.isArray(results) ? results : []);
+        } catch (error) {
+          if (__DEV__) console.error('Search messages error:', error);
+        } finally {
+          setSearching(false);
+        }
+      };
       runSearch();
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [runSearch]);
+  }, [searchQuery, senderFilter, startDate, endDate, previewSearch]);
 
   useEffect(() => {
     if (!previewSearch) return;
@@ -228,8 +228,6 @@ export default function MessagesScreen() {
       },
     });
   };
-
-  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const renderHighlightedText = (text: string, query: string) => {
     if (!query) return <Text style={styles.searchMessageText}>{text}</Text>;

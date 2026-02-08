@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
 import { api } from "../../services/api";
 import socketService from "../../services/socket";
+import { escapeRegExp } from "../../utils/text";
 
 interface Message {
   message_id: string;
@@ -76,8 +77,6 @@ export default function ChatScreen() {
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
   }, [messages]);
-
-  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   const renderHighlightedContent = (text: string, query?: string) => {
     if (!query) return text;
