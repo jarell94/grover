@@ -675,7 +675,10 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Optional Monetization Toggle Feature"
+    - "Edit Post UI Feature"
+    - "Edit Product UI Feature"
+    - "Notification Filtering UI Feature"
+    - "Profile Screen Navigation Fix"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
