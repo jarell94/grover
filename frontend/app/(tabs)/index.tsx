@@ -110,6 +110,7 @@ interface Post {
 // Estimated item heights for FlashList
 const ESTIMATED_POST_HEIGHT = 400;
 const ESTIMATED_POST_WITH_MEDIA_HEIGHT = 550;
+const ESTIMATED_TEMPLATE_HEIGHT = 320;
 
 // Memoized Post Component for optimal performance
 const PostCard = memo(({ 
@@ -689,6 +690,10 @@ export default function HomeScreen() {
   }, []);
 
   const overrideItemLayout = useCallback((layout: any, item: Post) => {
+    if (item.template_type) {
+      layout.size = ESTIMATED_TEMPLATE_HEIGHT;
+      return;
+    }
     layout.size = item.media_url ? ESTIMATED_POST_WITH_MEDIA_HEIGHT : ESTIMATED_POST_HEIGHT;
   }, []);
 

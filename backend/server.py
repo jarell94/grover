@@ -1650,8 +1650,7 @@ async def create_post(
     content = sanitize_string(content or "", MAX_INPUT_LENGTH, "content")
     location = sanitize_string(location or "", 200, "location") if location else None
     poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
-    sanitized_template_type = sanitize_string(template_type or "", 50, "template_type").lower() if template_type else ""
-    template_type_value = sanitized_template_type or None
+    template_type_value = sanitize_string(template_type, 50, "template_type").lower() if template_type else None
     if template_type_value and template_type_value not in QUOTE_TEMPLATE_TYPES:
         raise HTTPException(status_code=400, detail="Invalid template type")
     
@@ -1708,7 +1707,7 @@ async def create_post(
             raise HTTPException(status_code=400, detail="Invalid template style")
         sanitized_style = {}
         for key in ALLOWED_TEMPLATE_STYLE_KEYS:
-            if template_style_data.get(key):
+            if key in template_style_data:
                 sanitized_style[key] = sanitize_string(str(template_style_data[key]), 50, key)
         template_style_data = sanitized_style
     

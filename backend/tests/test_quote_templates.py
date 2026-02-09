@@ -46,3 +46,27 @@ async def test_create_post_with_template(override_auth, mock_db):
     inserted = mock_db.posts.insert_one.call_args.args[0]
     assert inserted["template_type"] == "celebration"
     assert inserted["template_style"]["background_color"] == "#111111"
+
+
+@pytest.mark.asyncio
+async def test_create_post_invalid_template_type(override_auth, mock_db):
+    payload = {"content": "Test", "template_type": "invalid"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/posts", data=payload)
+
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_create_post_invalid_template_style(override_auth, mock_db):
+    payload = {
+        "content": "Test",
+        "template_type": "announcement",
+        "template_style": "{not-json}",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/posts", data=payload)
+
+    assert response.status_code == 400
