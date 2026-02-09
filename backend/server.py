@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+from dateutil.relativedelta import relativedelta
 from io import BytesIO
 from PIL import Image
 import stripe
@@ -3087,7 +3088,9 @@ async def stripe_webhook(request: Request):
                     gift_id,
                     {"gift_id": gift_id, "tier_id": metadata.get("tier_id")}
                 )
-                recipient_id = metadata.get("recipient_user_id") or None
+                recipient_id = metadata.get("recipient_user_id")
+                if recipient_id == "":
+                    recipient_id = None
                 if recipient_id:
                     claim_url = f"{GIFT_CLAIM_BASE_URL}/{gift_id}"
                     await create_notification(
@@ -5226,7 +5229,10 @@ async def gift_subscription(
     if not tier:
         raise HTTPException(status_code=404, detail="Subscription tier not found")
     if payload.duration_months < 1 or payload.duration_months > MAX_GIFT_DURATION_MONTHS:
-        raise HTTPException(status_code=400, detail="Invalid gift duration")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gift duration must be between 1 and {MAX_GIFT_DURATION_MONTHS} months"
+        )
 
     recipient_user, recipient_email = await resolve_gift_recipient(
         payload.recipient_email,
@@ -5256,7 +5262,7 @@ async def gift_subscription(
     if total_amount < MIN_GIFT_AMOUNT:
         raise HTTPException(status_code=400, detail=f"Minimum gift is ${MIN_GIFT_AMOUNT:.0f}")
     split = calculate_revenue_split(total_amount, "subscriptions")
-    if split["platform_fee"] < 0:
+    if split["platform_fee"] < 0 or split["creator_payout"] < 0:
         raise HTTPException(status_code=400, detail="Invalid platform fee")
 
     creator_account_id = await get_stripe_account_id(user_id)
@@ -5275,7 +5281,7 @@ async def gift_subscription(
             "creator_id": user_id,
             "giver_id": current_user.user_id,
             "recipient_user_id": recipient_user.get("user_id") if recipient_user else "",
-            "duration_months": str(payload.duration_months),
+            "duration_months": str(payload.duration_months),  # Stripe metadata requires string values
             "amount": str(total_amount),
             "tier_id": payload.tier_id
         }
@@ -5308,7 +5314,8 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
     if not gift:
         raise HTTPException(status_code=404, detail="Gift not found")
     if gift.get("status") != "paid":
-        raise HTTPException(status_code=400, detail="Gift is not ready to redeem")
+        status = gift.get("status", "unknown")
+        raise HTTPException(status_code=400, detail=f"Gift cannot be redeemed (status: {status})")
 
     recipient_user_id = gift.get("recipient_user_id")
     recipient_email = gift.get("recipient_email")
@@ -5342,7 +5349,7 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         creator_payout = split["creator_payout"]
     subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
-    ends_at = now + timedelta(days=30 * duration_months)
+    ends_at = now + relativedelta(months=duration_months)
 
     await db.creator_subscriptions.insert_one({
         "subscription_id": subscription_id,
