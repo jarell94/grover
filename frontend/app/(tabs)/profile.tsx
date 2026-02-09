@@ -30,12 +30,12 @@ const openUrl = async (url: string) => {
   else Alert.alert("Invalid link", "This link can't be opened.");
 };
 
-const hasUrlFormat = (value: string) => /^https?:\/\//i.test(value) || /^[\w.-]+\.[a-z]{2,}/i.test(value);
+const hasUrlLikeFormat = (value: string) => /^https?:\/\//i.test(value) || /^[\w.-]+\.[a-z]{2,}/i.test(value);
 
 const buildSocialUrl = (value: string, base: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (hasUrlFormat(trimmed)) return trimmed;
+  if (hasUrlLikeFormat(trimmed)) return trimmed;
   const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   return `${base}${handle}`;
 };
@@ -43,9 +43,9 @@ const buildSocialUrl = (value: string, base: string) => {
 const buildDiscordUrl = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (hasUrlFormat(trimmed)) return trimmed;
-  // Discord user IDs are numeric-only strings
-  if (/^\d+$/.test(trimmed)) return `https://discord.com/users/${trimmed}`;
+  if (hasUrlLikeFormat(trimmed)) return trimmed;
+  // Discord user IDs are 17-19 digit numeric snowflakes.
+  if (/^\d{17,19}$/.test(trimmed)) return `https://discord.com/users/${trimmed}`;
   const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   return `https://discord.gg/${handle}`;
 };

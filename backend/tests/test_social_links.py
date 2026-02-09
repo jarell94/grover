@@ -43,6 +43,7 @@ async def test_update_profile_social_links(override_auth, mock_db):
     }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Endpoint accepts query parameters for profile fields.
         response = await client.put("/api/users/me", params=payload)
 
     assert response.status_code == 200
