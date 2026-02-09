@@ -104,6 +104,7 @@ stripe.api_key = STRIPE_SECRET_KEY
 MIN_TIP_AMOUNT = 1.0
 MAX_GIFT_MESSAGE_LENGTH = 500
 MAX_GIFT_HISTORY = 100
+MAX_GIFT_NOTIFICATION_LENGTH = 160
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -277,7 +278,6 @@ async def create_indexes():
     await safe_create_index(db.gift_subscriptions, "giver_id", background=True, name="gifts_giver_id")
     await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, sparse=True, name="gifts_recipient_user_id")
     await safe_create_index(db.gift_subscriptions, "recipient_email", background=True, sparse=True, name="gifts_recipient_email")
-    await safe_create_index(db.gift_subscriptions, [("recipient_user_id", 1), ("recipient_email", 1)], background=True, name="gifts_recipient_combo")
     
     # ========== CONVERSATIONS COLLECTION ==========
     await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
@@ -474,7 +474,7 @@ async def resolve_gift_recipient(recipient_email: Optional[str], recipient_usern
         email_value = sanitize_string(recipient_email, 100, "recipient email")
         if email_value and "@" not in email_value:
             raise HTTPException(status_code=400, detail="Invalid recipient email")
-        email_value = email_value.lower()
+        email_value = normalize_email(email_value)
         recipient_user = await db.users.find_one({"email": email_value}, {"_id": 0})
 
     if recipient_username:
@@ -663,6 +663,9 @@ def stripe_amount(amount: float, min_amount: float = 0.01) -> int:
     if amount < min_amount:
         raise HTTPException(status_code=400, detail=f"Amount must be at least ${min_amount:.2f}")
     return int(round(amount * 100))
+
+def normalize_email(value: Optional[str]) -> Optional[str]:
+    return value.lower() if value else None
 
 # ============ MODELS ============
 
@@ -5228,7 +5231,11 @@ async def gift_subscription(
 
     if recipient_user:
         safe_tier_name = sanitize_string(tier["name"], MAX_NAME_LENGTH, "tier name")
-        message_suffix = f" Message: {gift_message}" if gift_message else ""
+        if gift_message:
+            message_excerpt = gift_message[:MAX_GIFT_NOTIFICATION_LENGTH].rstrip()
+            message_suffix = f" Message: {message_excerpt}"
+        else:
+            message_suffix = ""
         await create_and_send_notification(
             recipient_user["user_id"],
             "subscription",
@@ -5256,7 +5263,7 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         if recipient_user_id != current_user.user_id:
             raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
     elif recipient_email:
-        if recipient_email.lower() != current_user.email.lower():
+        if normalize_email(recipient_email) != normalize_email(current_user.email):
             raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
 
     tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"], "creator_id": gift["creator_id"], "active": True})
@@ -5342,7 +5349,7 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
 
 @api_router.get("/subscriptions/gifts/received")
 async def get_received_gifts(current_user: User = Depends(require_auth)):
-    criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": current_user.email.lower()}]}
+    criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": normalize_email(current_user.email)}]}
     gifts = await db.gift_subscriptions.find(
         criteria,
         {
