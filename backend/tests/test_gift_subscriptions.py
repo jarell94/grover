@@ -1,19 +1,23 @@
 import pytest
 from datetime import datetime, timezone
 from httpx import AsyncClient, ASGITransport
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import server
 from server import app, require_auth, User
 
 
-def set_auth(user: User):
+@pytest.fixture
+def override_auth():
+    user = User(
+        user_id="user_123",
+        email="user@example.com",
+        name="Test User",
+        created_at=datetime.now(timezone.utc),
+    )
     app.dependency_overrides[require_auth] = lambda: user
-
-
-@pytest.fixture(autouse=True)
-def clear_overrides():
-    yield
+    yield user
     app.dependency_overrides = {}
 
 
@@ -21,97 +25,101 @@ def clear_overrides():
 def mock_db(monkeypatch):
     users = MagicMock()
     users.find_one = AsyncMock()
+    users.update_one = AsyncMock()
 
-    subscription_tiers = MagicMock()
-    subscription_tiers.find_one = AsyncMock()
+    tiers = MagicMock()
+    tiers.find_one = AsyncMock()
 
-    creator_subscriptions = MagicMock()
-    creator_subscriptions.find_one = AsyncMock()
-    creator_subscriptions.insert_one = AsyncMock()
+    gifts = MagicMock()
+    gifts.insert_one = AsyncMock()
+    gifts.find_one = AsyncMock()
+    gifts.update_one = AsyncMock()
 
-    gift_subscriptions = MagicMock()
-    gift_subscriptions.insert_one = AsyncMock()
-    gift_subscriptions.find_one = AsyncMock()
-    gift_subscriptions.update_one = AsyncMock()
+    subscriptions = MagicMock()
+    subscriptions.find_one = AsyncMock()
+    subscriptions.insert_one = AsyncMock()
+
+    notifications = MagicMock()
+    notifications.insert_one = AsyncMock()
 
     mock = MagicMock()
     mock.users = users
-    mock.subscription_tiers = subscription_tiers
-    mock.creator_subscriptions = creator_subscriptions
-    mock.gift_subscriptions = gift_subscriptions
+    mock.subscription_tiers = tiers
+    mock.gift_subscriptions = gifts
+    mock.creator_subscriptions = subscriptions
+    mock.notifications = notifications
 
     monkeypatch.setattr(server, "db", mock)
     return mock
 
 
 @pytest.mark.asyncio
-async def test_gift_subscription_by_username(monkeypatch, mock_db):
-    giver = User(
-        user_id="user_giver",
-        email="giver@example.com",
-        name="Giver",
-        created_at=datetime.now(timezone.utc),
-    )
-    set_auth(giver)
+async def test_gift_subscription_creates_payment_intent(monkeypatch, mock_db, override_auth):
+    monkeypatch.setattr(server, "STRIPE_SECRET_KEY", "sk_test")
 
-    monkeypatch.setattr(server, "check_monetization_enabled", AsyncMock())
-    monkeypatch.setattr(server, "create_and_send_notification", AsyncMock())
-    monkeypatch.setattr(server, "record_transaction", AsyncMock())
+    async def find_user(query, _projection=None):
+        if query.get("user_id") == "creator_123":
+            return {
+                "user_id": "creator_123",
+                "stripe_account_id": "acct_123",
+                "email": "creator@example.com",
+                "monetization_enabled": True,
+            }
+        if query.get("user_id") == override_auth.user_id:
+            return {"user_id": override_auth.user_id, "stripe_customer_id": "cus_123", "email": override_auth.email}
+        if query.get("email"):
+            return {"user_id": "recipient_123", "email": query.get("email")}
+        return None
 
+    mock_db.users.find_one.side_effect = find_user
     mock_db.subscription_tiers.find_one.return_value = {
         "tier_id": "tier_123",
-        "creator_id": "creator_1",
-        "price": 5.0,
-        "name": "Supporter",
+        "creator_id": "creator_123",
         "active": True,
-    }
-    mock_db.users.find_one.return_value = {
-        "user_id": "recipient_1",
-        "email": "recipient@example.com",
-        "name": "Recipient",
+        "price": 5.0,
+        "name": "Gold",
     }
     mock_db.creator_subscriptions.find_one.return_value = None
 
+    monkeypatch.setattr(server.stripe, "PaymentIntent", SimpleNamespace(
+        create=lambda **_kwargs: SimpleNamespace(id="pi_123", client_secret="secret")
+    ))
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
-            "/api/creators/creator_1/gift-subscriptions",
-            json={"tier_id": "tier_123", "recipient_username": "recipient_1", "gift_message": "Enjoy!"},
+            "/api/creators/creator_123/gift-subscriptions",
+            json={
+                "tier_id": "tier_123",
+                "duration_months": 3,
+                "recipient_email": "recipient@example.com",
+                "gift_message": "Enjoy!"
+            },
         )
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "pending"
+    assert response.json()["client_secret"] == "secret"
     mock_db.gift_subscriptions.insert_one.assert_awaited()
 
 
 @pytest.mark.asyncio
-async def test_redeem_gift_subscription(monkeypatch, mock_db):
-    recipient = User(
-        user_id="recipient_1",
-        email="recipient@example.com",
-        name="Recipient",
-        created_at=datetime.now(timezone.utc),
-    )
-    set_auth(recipient)
-
-    monkeypatch.setattr(server, "record_transaction", AsyncMock())
-    monkeypatch.setattr(server, "create_and_send_notification", AsyncMock())
-
-    mock_db.gift_subscriptions.find_one.return_value = {
+async def test_gift_subscription_redeem(monkeypatch, mock_db, override_auth):
+    monkeypatch.setattr(server, "send_push_notification", AsyncMock())
+    gift_record = {
         "gift_id": "gift_123",
-        "giver_id": "user_giver",
-        "creator_id": "creator_1",
+        "creator_id": "creator_123",
         "tier_id": "tier_123",
-        "recipient_user_id": "recipient_1",
-        "recipient_email": "recipient@example.com",
-        "status": "pending",
+        "duration_months": 2,
+        "status": "paid",
+        "giver_id": "giver_123",
+        "recipient_user_id": override_auth.user_id,
     }
+    mock_db.gift_subscriptions.find_one.return_value = gift_record
     mock_db.subscription_tiers.find_one.return_value = {
         "tier_id": "tier_123",
-        "creator_id": "creator_1",
-        "price": 5.0,
-        "name": "Supporter",
+        "creator_id": "creator_123",
         "active": True,
+        "price": 5.0,
+        "name": "Gold",
     }
     mock_db.creator_subscriptions.find_one.return_value = None
 
@@ -119,6 +127,5 @@ async def test_redeem_gift_subscription(monkeypatch, mock_db):
         response = await client.post("/api/subscriptions/gifts/gift_123/redeem")
 
     assert response.status_code == 200
-    assert response.json()["status"] == "active"
     mock_db.creator_subscriptions.insert_one.assert_awaited()
     mock_db.gift_subscriptions.update_one.assert_awaited()

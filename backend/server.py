@@ -102,6 +102,9 @@ STRIPE_CONNECT_REFRESH_URL = os.getenv("STRIPE_CONNECT_REFRESH_URL", "http://loc
 STRIPE_CONNECT_RETURN_URL = os.getenv("STRIPE_CONNECT_RETURN_URL", "http://localhost:3000/stripe/return")
 stripe.api_key = STRIPE_SECRET_KEY
 MIN_TIP_AMOUNT = 1.0
+MIN_GIFT_AMOUNT = 1.0
+MAX_GIFT_DURATION_MONTHS = 12
+GIFT_CLAIM_BASE_URL = os.getenv("GIFT_CLAIM_BASE_URL", "http://localhost:3000/gifts/claim")
 MAX_GIFT_MESSAGE_LENGTH = 500
 MAX_GIFT_HISTORY = 100
 MAX_GIFT_NOTIFICATION_LENGTH = 160
@@ -274,6 +277,9 @@ async def create_indexes():
     await safe_create_index(db.messages, [("conversation_id", 1), ("created_at", -1)], background=True, name="messages_conv_created")
     await safe_create_index(db.messages, [("conversation_id", 1), ("read", 1)], background=True, name="messages_conv_read")
     await safe_create_index(db.messages, [("content", "text")], background=True, name="messages_content_text")
+    await safe_create_index(db.gift_subscriptions, "gift_id", unique=True, background=True, name="gift_id_unique")
+    await safe_create_index(db.gift_subscriptions, "sender_id", background=True, name="gift_sender")
+    await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, name="gift_recipient")
     await safe_create_index(db.gift_subscriptions, "gift_id", unique=True, background=True, name="gifts_gift_id_unique")
     await safe_create_index(db.gift_subscriptions, "giver_id", background=True, name="gifts_giver_id")
     await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, sparse=True, name="gifts_recipient_user_id")
@@ -462,9 +468,13 @@ async def ensure_stripe_price(tier: dict, creator_id: str) -> str:
     )
     return price.id
 
-async def resolve_gift_recipient(recipient_email: Optional[str], recipient_username: Optional[str]) -> tuple:
-    """Resolve a gift recipient by email or username and return (user, email)."""
-    if not recipient_email and not recipient_username:
+async def resolve_gift_recipient(
+    recipient_email: Optional[str],
+    recipient_username: Optional[str],
+    recipient_user_id: Optional[str]
+) -> tuple:
+    """Resolve a gift recipient by email, username, or user_id and return (user, email)."""
+    if not recipient_email and not recipient_username and not recipient_user_id:
         raise HTTPException(status_code=400, detail="Recipient email or username is required")
 
     recipient_user = None
@@ -476,6 +486,10 @@ async def resolve_gift_recipient(recipient_email: Optional[str], recipient_usern
             raise HTTPException(status_code=400, detail="Invalid recipient email")
         email_value = normalize_email(email_value)
         recipient_user = await db.users.find_one({"email": email_value}, {"_id": 0})
+
+    if recipient_user_id:
+        validate_id(recipient_user_id, "recipient_user_id")
+        recipient_user = await db.users.find_one({"user_id": recipient_user_id}, {"_id": 0}) or recipient_user
 
     if recipient_username:
         validate_id(recipient_username, "recipient_username")
@@ -548,6 +562,7 @@ async def create_notification(user_id: str, notification_type: str, content: str
         "sale": "notify_sales",
         "mention": "notify_mentions",
         "repost": "notify_reposts",
+        "gift": "notify_sales",
         "share": "notify_reposts",  # Treat shares like reposts
     }
     
@@ -817,8 +832,10 @@ class StripePayoutRequest(BaseModel):
 
 class GiftSubscriptionRequest(BaseModel):
     tier_id: str
-    recipient_email: Optional[str] = None
+    duration_months: int
+    recipient_user_id: Optional[str] = None
     recipient_username: Optional[str] = None
+    recipient_email: Optional[str] = None
     gift_message: Optional[str] = None
 
 class Notification(BaseModel):
@@ -3058,6 +3075,30 @@ async def stripe_webhook(request: Request):
                     "You made a Stripe sale!",
                     order_id
                 )
+        elif record_type == "gift_subscription":
+            gift_id = metadata.get("gift_id")
+            await db.gift_subscriptions.update_one(
+                {"gift_id": gift_id},
+                {"$set": {"status": "paid", "payment_status": "paid", "paid_at": datetime.now(timezone.utc)}}
+            )
+            if gift_id:
+                await record_transaction(
+                    "subscriptions",
+                    amount,
+                    metadata.get("sender_id"),
+                    metadata.get("creator_id"),
+                    gift_id,
+                    {"gift_id": gift_id, "tier_id": metadata.get("tier_id")}
+                )
+                recipient_id = metadata.get("recipient_user_id") or None
+                if recipient_id:
+                    claim_url = f"{GIFT_CLAIM_BASE_URL}/{gift_id}"
+                    await create_notification(
+                        recipient_id,
+                        "gift",
+                        f"You received a gift subscription! Claim it here: {claim_url}",
+                        gift_id
+                    )
 
     if event_type == "payment_intent.payment_failed":
         metadata = data_object.get("metadata", {})
@@ -3065,8 +3106,13 @@ async def stripe_webhook(request: Request):
         status_update = {"status": "failed", "failed_at": datetime.now(timezone.utc)}
         if record_type == "tip":
             await db.tips.update_one({"tip_id": metadata.get("tip_id")}, {"$set": status_update})
-        if record_type == "marketplace":
+        elif record_type == "marketplace":
             await db.orders.update_one({"order_id": metadata.get("order_id")}, {"$set": status_update})
+        elif record_type == "gift_subscription":
+            await db.gift_subscriptions.update_one(
+                {"gift_id": metadata.get("gift_id")},
+                {"$set": {**status_update, "payment_status": "failed"}}
+            )
 
     if event_type == "charge.refunded":
         payment_intent_id = data_object.get("payment_intent")
@@ -5176,15 +5222,19 @@ async def gift_subscription(
     current_user: User = Depends(require_auth)
 ):
     """Gift a subscription to another user."""
+    require_stripe_configured()
     await check_monetization_enabled(user_id, "subscriptions")
 
     tier = await db.subscription_tiers.find_one({"tier_id": payload.tier_id, "creator_id": user_id, "active": True})
     if not tier:
         raise HTTPException(status_code=404, detail="Subscription tier not found")
+    if payload.duration_months < 1 or payload.duration_months > MAX_GIFT_DURATION_MONTHS:
+        raise HTTPException(status_code=400, detail="Invalid gift duration")
 
     recipient_user, recipient_email = await resolve_gift_recipient(
         payload.recipient_email,
-        payload.recipient_username
+        payload.recipient_username,
+        payload.recipient_user_id
     )
 
     if recipient_user and recipient_user.get("user_id") == current_user.user_id:
@@ -5205,6 +5255,34 @@ async def gift_subscription(
 
     gift_id = f"gift_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
+    total_amount = tier["price"] * payload.duration_months
+    if total_amount < MIN_GIFT_AMOUNT:
+        raise HTTPException(status_code=400, detail=f"Minimum gift is ${MIN_GIFT_AMOUNT:.0f}")
+    split = calculate_revenue_split(total_amount, "subscriptions")
+    if split["platform_fee"] < 0:
+        raise HTTPException(status_code=400, detail="Invalid platform fee")
+
+    creator_account_id = await get_stripe_account_id(user_id)
+    payer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(payer)
+    intent = stripe.PaymentIntent.create(
+        amount=stripe_amount(total_amount, min_amount=MIN_GIFT_AMOUNT),
+        currency=STRIPE_DEFAULT_CURRENCY,
+        customer=customer_id,
+        payment_method_types=["card"],
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0),
+        transfer_data={"destination": creator_account_id},
+        metadata={
+            "type": "gift_subscription",
+            "gift_id": gift_id,
+            "creator_id": user_id,
+            "sender_id": current_user.user_id,
+            "recipient_user_id": recipient_user.get("user_id") if recipient_user else "",
+            "duration_months": str(payload.duration_months),
+            "amount": str(total_amount),
+            "tier_id": payload.tier_id
+        }
+    )
     await db.gift_subscriptions.insert_one({
         "gift_id": gift_id,
         "giver_id": current_user.user_id,
@@ -5213,38 +5291,17 @@ async def gift_subscription(
         "recipient_user_id": recipient_user.get("user_id") if recipient_user else None,
         "recipient_email": recipient_email,
         "gift_message": gift_message,
-        "status": "pending",
-        "payment_status": "paid",
-        "paid_at": now,
+        "duration_months": payload.duration_months,
+        "amount": total_amount,
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "status": "pending_payment",
+        "payment_status": "pending",
+        "stripe_payment_intent_id": intent.id,
         "created_at": now
     })
 
-    split = calculate_revenue_split(tier["price"], "subscriptions")
-    await record_transaction(
-        "subscriptions",
-        tier["price"],
-        current_user.user_id,
-        user_id,
-        gift_id,
-        {"tier_id": payload.tier_id, "gift_id": gift_id, "recipient_id": recipient_user.get("user_id") if recipient_user else None}
-    )
-
-    if recipient_user:
-        safe_tier_name = sanitize_string(tier["name"], MAX_NAME_LENGTH, "tier name")
-        if gift_message:
-            message_excerpt = gift_message[:MAX_GIFT_NOTIFICATION_LENGTH].encode("utf-8", "ignore").decode("utf-8").rstrip()
-            message_suffix = f" Message: {message_excerpt}"
-        else:
-            message_suffix = ""
-        await create_and_send_notification(
-            recipient_user["user_id"],
-            "subscription",
-            f"You received a gift subscription to {safe_tier_name}!{message_suffix}",
-            gift_id,
-            current_user.user_id
-        )
-
-    return {"gift_id": gift_id, "status": "pending"}
+    return {"gift_id": gift_id, "client_secret": intent.client_secret, "status": "pending_payment"}
 
 
 @api_router.post("/subscriptions/gifts/{gift_id}/redeem")
@@ -5253,8 +5310,8 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
     gift = await db.gift_subscriptions.find_one({"gift_id": gift_id}, {"_id": 0})
     if not gift:
         raise HTTPException(status_code=404, detail="Gift not found")
-    if gift.get("status") != "pending":
-        raise HTTPException(status_code=400, detail="Gift already redeemed")
+    if gift.get("status") != "paid":
+        raise HTTPException(status_code=400, detail="Gift is not ready to redeem")
 
     recipient_user_id = gift.get("recipient_user_id")
     recipient_email = gift.get("recipient_email")
@@ -5278,22 +5335,25 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
     if existing:
         raise HTTPException(status_code=400, detail="Already subscribed to this creator")
 
-    split = calculate_revenue_split(tier["price"], "subscriptions")
+    duration_months = gift.get("duration_months", 1)
+    split = calculate_revenue_split(tier["price"] * duration_months, "subscriptions")
     subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
+    ends_at = now + timedelta(days=30 * duration_months)
 
     await db.creator_subscriptions.insert_one({
         "subscription_id": subscription_id,
         "subscriber_id": current_user.user_id,
         "creator_id": gift["creator_id"],
         "tier_id": gift["tier_id"],
-        "amount": tier["price"],
+        "amount": tier["price"] * duration_months,
         "platform_fee": split["platform_fee"],
         "creator_payout": split["creator_payout"],
         "status": "active",
         "gift_id": gift_id,
         "gifted_by": gift["giver_id"],
         "started_at": now,
+        "ends_at": ends_at,
         "created_at": now
     })
 
@@ -5320,7 +5380,7 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         current_user.user_id
     )
 
-    return {"subscription_id": subscription_id, "status": "active"}
+    return {"subscription_id": subscription_id, "status": "active", "ends_at": ends_at.isoformat()}
 
 
 @api_router.get("/subscriptions/gifts/sent")
@@ -5336,6 +5396,9 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
             "recipient_user_id": 1,
             "recipient_email": 1,
             "gift_message": 1,
+            "duration_months": 1,
+            "amount": 1,
+            "payment_status": 1,
             "status": 1,
             "created_at": 1,
             "redeemed_at": 1,
@@ -5362,6 +5425,9 @@ async def get_received_gifts(current_user: User = Depends(require_auth)):
             "recipient_user_id": 1,
             "recipient_email": 1,
             "gift_message": 1,
+            "duration_months": 1,
+            "amount": 1,
+            "payment_status": 1,
             "status": 1,
             "created_at": 1,
             "redeemed_at": 1,

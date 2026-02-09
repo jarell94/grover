@@ -20,10 +20,14 @@ def mock_db(monkeypatch):
     subscriptions.find_one = AsyncMock(return_value=None)
     subscriptions.update_one = AsyncMock()
 
+    gifts = MagicMock()
+    gifts.update_one = AsyncMock()
+
     mock = MagicMock()
     mock.tips = tips
     mock.orders = orders
     mock.creator_subscriptions = subscriptions
+    mock.gift_subscriptions = gifts
 
     monkeypatch.setattr(server, "db", mock)
     return mock
@@ -76,3 +80,40 @@ async def test_stripe_webhook_invalid_signature(monkeypatch, mock_db):
         response = await client.post("/api/stripe/webhook", content=b"{}", headers={"stripe-signature": "bad"})
 
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_stripe_webhook_gift_payment(monkeypatch, mock_db):
+    monkeypatch.setattr(server, "STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setattr(server, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+
+    event = {
+        "type": "payment_intent.succeeded",
+        "data": {
+            "object": {
+                "id": "pi_456",
+                "metadata": {
+                    "type": "gift_subscription",
+                    "gift_id": "gift_456",
+                    "creator_id": "creator_123",
+                    "sender_id": "user_123",
+                    "recipient_user_id": "user_456",
+                    "amount": "10.00",
+                    "tier_id": "tier_123",
+                },
+            }
+        },
+    }
+
+    monkeypatch.setattr(server.stripe, "Webhook", SimpleNamespace(
+        construct_event=lambda *_args, **_kwargs: event
+    ))
+    monkeypatch.setattr(server, "record_transaction", AsyncMock())
+    monkeypatch.setattr(server, "create_notification", AsyncMock())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/stripe/webhook", content=b"{}", headers={"stripe-signature": "sig"})
+
+    assert response.status_code == 200
+    mock_db.gift_subscriptions.update_one.assert_awaited()
+    server.record_transaction.assert_awaited()
