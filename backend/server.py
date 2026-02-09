@@ -1532,16 +1532,26 @@ async def unrepost_post(post_id: str, current_user: User = Depends(require_auth)
 
 @api_router.get("/posts/{post_id}/reposts")
 async def get_post_reposts(post_id: str, current_user: User = Depends(require_auth)):
-    """Get all reposts of a specific post"""
+    """Get all reposts of a specific post - OPTIMIZED"""
     reposts = await db.posts.find(
         {"is_repost": True, "original_post_id": post_id},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     
+    # Batch fetch users to avoid N+1 query
+    user_ids = list(set(r["user_id"] for r in reposts if r.get("user_id")))
+    if user_ids:
+        users = await db.users.find(
+            {"user_id": {"$in": user_ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "email": 1}
+        ).to_list(len(user_ids))
+        users_map = {u["user_id"]: u for u in users}
+    else:
+        users_map = {}
+    
     # Add user data for each repost
     for repost in reposts:
-        user = await db.users.find_one({"user_id": repost["user_id"]}, {"_id": 0})
-        repost["user"] = user
+        repost["user"] = users_map.get(repost.get("user_id"))
     
     return reposts
 
