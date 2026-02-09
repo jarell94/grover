@@ -3089,8 +3089,6 @@ async def stripe_webhook(request: Request):
                     {"gift_id": gift_id, "tier_id": metadata.get("tier_id")}
                 )
                 recipient_id = metadata.get("recipient_user_id")
-                if recipient_id == "":
-                    recipient_id = None
                 if recipient_id:
                     claim_url = f"{GIFT_CLAIM_BASE_URL}/{gift_id}"
                     await create_notification(
@@ -5263,11 +5261,22 @@ async def gift_subscription(
         raise HTTPException(status_code=400, detail=f"Minimum gift is ${MIN_GIFT_AMOUNT:.0f}")
     split = calculate_revenue_split(total_amount, "subscriptions")
     if split["platform_fee"] < 0 or split["creator_payout"] < 0:
-        raise HTTPException(status_code=400, detail="Invalid platform fee")
+        raise HTTPException(status_code=400, detail="Invalid revenue split calculation")
 
     creator_account_id = await get_stripe_account_id(user_id)
     payer = await get_user_record(current_user.user_id)
     customer_id = await get_or_create_stripe_customer(payer)
+    metadata = {
+        "type": "gift_subscription",
+        "gift_id": gift_id,
+        "creator_id": user_id,
+        "giver_id": current_user.user_id,
+        "duration_months": str(payload.duration_months),
+        "amount": str(total_amount),
+        "tier_id": payload.tier_id
+    }
+    if recipient_user:
+        metadata["recipient_user_id"] = recipient_user.get("user_id")
     intent = stripe.PaymentIntent.create(
         amount=stripe_amount(total_amount, min_amount=MIN_GIFT_AMOUNT),
         currency=STRIPE_DEFAULT_CURRENCY,
@@ -5275,16 +5284,7 @@ async def gift_subscription(
         payment_method_types=["card"],
         application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0),
         transfer_data={"destination": creator_account_id},
-        metadata={
-            "type": "gift_subscription",
-            "gift_id": gift_id,
-            "creator_id": user_id,
-            "giver_id": current_user.user_id,
-            "recipient_user_id": recipient_user.get("user_id") if recipient_user else "",
-            "duration_months": str(payload.duration_months),  # Stripe metadata requires string values
-            "amount": str(total_amount),
-            "tier_id": payload.tier_id
-        }
+        metadata=metadata
     )
     await db.gift_subscriptions.insert_one({
         "gift_id": gift_id,
