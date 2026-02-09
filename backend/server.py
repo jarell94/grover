@@ -291,6 +291,7 @@ async def create_indexes():
     await safe_create_index(db.users, "is_verified", background=True, name="users_is_verified")
     await safe_create_index(db.users, "verification_type", background=True, name="users_verification_type")
     await safe_create_index(db.users, "is_admin", background=True, name="users_is_admin")
+    await safe_create_index(db.users, "tutorial_completed", background=True, name="users_tutorial_completed")
     
     # ========== POSTS COLLECTION ==========
     await safe_create_index(db.posts, "post_id", unique=True, background=True, name="posts_post_id_unique")
@@ -579,6 +580,9 @@ class User(BaseModel):
     notify_sales: bool = True
     notify_mentions: bool = True
     notify_reposts: bool = True
+    # Tutorial/Onboarding tracking
+    tutorial_completed: bool = False  # Whether user has completed the tutorial
+    tutorial_step: int = 0  # Current tutorial step (0-10)
     created_at: datetime
 
 class Post(BaseModel):
@@ -1032,6 +1036,45 @@ async def get_notification_settings(current_user: User = Depends(require_auth)):
         "notify_sales": user.get("notify_sales", True),
         "notify_mentions": user.get("notify_mentions", True),
         "notify_reposts": user.get("notify_reposts", True),
+    }
+
+@api_router.put("/users/me/tutorial")
+async def update_tutorial_progress(
+    tutorial_completed: Optional[bool] = None,
+    tutorial_step: Optional[int] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Update user's tutorial progress"""
+    update_data = {}
+    
+    if tutorial_completed is not None:
+        update_data["tutorial_completed"] = tutorial_completed
+    
+    if tutorial_step is not None:
+        # Validate step is within range (0-10)
+        if tutorial_step < 0 or tutorial_step > 10:
+            raise HTTPException(status_code=400, detail="Tutorial step must be between 0 and 10")
+        update_data["tutorial_step"] = tutorial_step
+    
+    if update_data:
+        await db.users.update_one(
+            {"user_id": current_user.user_id},
+            {"$set": update_data}
+        )
+    
+    return {
+        "message": "Tutorial progress updated", 
+        "tutorial_completed": tutorial_completed,
+        "tutorial_step": tutorial_step
+    }
+
+@api_router.get("/users/me/tutorial")
+async def get_tutorial_progress(current_user: User = Depends(require_auth)):
+    """Get user's tutorial progress"""
+    user = await db.users.find_one({"user_id": current_user.user_id}, {"_id": 0})
+    return {
+        "tutorial_completed": user.get("tutorial_completed", False),
+        "tutorial_step": user.get("tutorial_step", 0)
     }
 
 @api_router.post("/users/{user_id}/follow")
