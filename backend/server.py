@@ -1649,7 +1649,8 @@ async def create_post(
     content = sanitize_string(content or "", MAX_INPUT_LENGTH, "content")
     location = sanitize_string(location or "", 200, "location") if location else None
     poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
-    template_type = sanitize_string(template_type or "", 50, "template_type").lower() if template_type else None
+    template_type_value = sanitize_string(template_type or "", 50, "template_type").lower() if template_type else ""
+    template_type = template_type_value or None
     if template_type and template_type not in QUOTE_TEMPLATE_TYPES:
         raise HTTPException(status_code=400, detail="Invalid template type")
     

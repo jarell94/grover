@@ -176,7 +176,7 @@ const PostCard = memo(({
 
       {item.template_type ? (
         <View style={[styles.templateCard, { backgroundColor: templateBackground }]}>
-          <Text style={styles.templateBadge}>{item.template_type.toUpperCase()}</Text>
+          <Text style={styles.templateBadge}>{item.template_type?.toUpperCase()}</Text>
           <Text style={[styles.templateText, { color: templateTextColor, fontFamily: templateFont }]}>
             {item.content}
           </Text>
@@ -387,6 +387,11 @@ export default function HomeScreen() {
   
   // Track visible video posts for auto-play
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
+
+  const activeTemplate = useMemo(
+    () => QUOTE_TEMPLATES.find((template) => template.id === selectedTemplate) || null,
+    [selectedTemplate]
+  );
 
   const handleTemplateSelect = useCallback((templateId: string) => {
     if (selectedTemplate === templateId) {
@@ -945,7 +950,7 @@ export default function HomeScreen() {
                 <View style={[styles.templatePreview, { backgroundColor: templateStyle.backgroundColor }]}>
                   <Text style={styles.templatePreviewLabel}>Preview</Text>
                   <Text style={[styles.templatePreviewText, { color: templateStyle.textColor, fontFamily: templateStyle.fontFamily }]}>
-                    {newPostContent || QUOTE_TEMPLATES.find((template) => template.id === selectedTemplate)?.sample}
+                    {newPostContent || activeTemplate?.sample}
                   </Text>
 
                   <Text style={styles.templateOptionTitle}>Background</Text>
