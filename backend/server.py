@@ -277,6 +277,7 @@ async def create_indexes():
     await safe_create_index(db.gift_subscriptions, "giver_id", background=True, name="gifts_giver_id")
     await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, sparse=True, name="gifts_recipient_user_id")
     await safe_create_index(db.gift_subscriptions, "recipient_email", background=True, sparse=True, name="gifts_recipient_email")
+    await safe_create_index(db.gift_subscriptions, [("recipient_user_id", 1), ("recipient_email", 1)], background=True, name="gifts_recipient_combo")
     
     # ========== CONVERSATIONS COLLECTION ==========
     await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
@@ -462,6 +463,7 @@ async def ensure_stripe_price(tier: dict, creator_id: str) -> str:
     return price.id
 
 async def resolve_gift_recipient(recipient_email: Optional[str], recipient_username: Optional[str]) -> tuple:
+    """Resolve a gift recipient by email or username and return (user, email)."""
     if not recipient_email and not recipient_username:
         raise HTTPException(status_code=400, detail="Recipient email or username is required")
 
@@ -489,6 +491,7 @@ async def resolve_gift_recipient(recipient_email: Optional[str], recipient_usern
     return recipient_user, email_value
 
 async def enrich_gift_history(gifts: list, include_recipient: bool = False, include_giver: bool = False) -> list:
+    """Attach tier and user metadata to gift records."""
     if not gifts:
         return gifts
 
@@ -5225,8 +5228,7 @@ async def gift_subscription(
 
     if recipient_user:
         safe_tier_name = sanitize_string(tier["name"], MAX_NAME_LENGTH, "tier name")
-        safe_message = gift_message.replace('"', "'") if gift_message else None
-        message_suffix = f" Message: {safe_message}" if safe_message else ""
+        message_suffix = f" Message: {gift_message}" if gift_message else ""
         await create_and_send_notification(
             recipient_user["user_id"],
             "subscription",
