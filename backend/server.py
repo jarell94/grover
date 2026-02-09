@@ -586,10 +586,13 @@ async def create_session(session_id: str):
     if not session_id or len(session_id) > 500:
         raise HTTPException(status_code=400, detail="Invalid session ID")
     
+    # Get auth backend URL from environment
+    auth_backend_url = os.environ.get("AUTH_BACKEND_URL", "https://demobackend.emergentagent.com")
+    
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                f"{auth_backend_url}/auth/v1/env/oauth/session-data",
                 headers={"X-Session-ID": session_id}
             )
             
