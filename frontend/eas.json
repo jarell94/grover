@@ -4,9 +4,15 @@
     "promptToConfigurePushNotifications": false
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
     "production": {
-      "distribution": "store",
-      "channel": ""
+      "distribution": "store"
     }
   }
 }
