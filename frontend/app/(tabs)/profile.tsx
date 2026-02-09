@@ -38,6 +38,15 @@ const buildSocialUrl = (value: string, base: string) => {
   return `${base}${handle}`;
 };
 
+const buildDiscordUrl = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http") || trimmed.includes("/")) return trimmed;
+  if (/^\d+$/.test(trimmed)) return `https://discord.com/users/${trimmed}`;
+  const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  return `https://discord.gg/${handle}`;
+};
+
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 export default function ProfileScreen() {
@@ -301,7 +310,7 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             )}
             {user.discord && (
-              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.discord, 'https://discord.com/users/'))}>
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildDiscordUrl(user.discord))}>
                 <Ionicons name="logo-discord" size={20} color="#5865F2" />
                 <Text style={styles.socialLinkText}>{user.discord}</Text>
               </TouchableOpacity>
@@ -622,7 +631,7 @@ export default function ProfileScreen() {
               <Ionicons name="logo-discord" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
               <TextInput
                 style={styles.socialInput}
-                placeholder="Discord user ID"
+                placeholder="Discord user ID or invite code"
                 placeholderTextColor={Colors.textSecondary}
                 value={discord}
                 onChangeText={setDiscord}
