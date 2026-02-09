@@ -8,10 +8,6 @@
     "scheme": "grover",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "updates": {
-      "enabled": false,
-      "url": ""
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.grover.app",
