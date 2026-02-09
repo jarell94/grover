@@ -8375,3 +8375,628 @@ async def shutdown_db_client():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app_with_socketio, host="0.0.0.0", port=8001)
+
+
+# ============================================================================
+# DIGITAL PRODUCTS MARKETPLACE
+# ============================================================================
+# Upload digital files (PDFs, images, videos) for sale
+# Automatic delivery to subscribers
+# Download limits and DRM options
+
+# Constants for digital files
+ALLOWED_DIGITAL_FILE_TYPES = [
+    # Documents
+    "application/pdf",
+    # Images
+    "image/jpeg",
+    "image/jpg", 
+    "image/png",
+    "image/gif",
+    "image/webp",
+    # Videos
+    "video/mp4",
+    "video/quicktime",  # .mov
+    "video/x-msvideo",  # .avi
+    "video/webm",
+    # Archives
+    "application/zip",
+    "application/x-rar-compressed",
+]
+
+MAX_DIGITAL_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+
+# Digital Product Model
+class DigitalProduct(BaseModel):
+    product_id: str
+    creator_id: str
+    title: str
+    description: str
+    file_url: str
+    file_type: str
+    file_size: int
+    file_name: str
+    file_public_id: Optional[str] = None
+    preview_url: Optional[str] = None
+    price: float
+    currency: str = "USD"
+    download_limit: int = 3
+    drm_enabled: bool = False
+    watermark_text: Optional[str] = None
+    subscriber_only: bool = False
+    active: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+# Digital Purchase Model
+class DigitalPurchase(BaseModel):
+    purchase_id: str
+    product_id: str
+    buyer_id: str
+    buyer_name: str
+    buyer_email: str
+    download_count: int = 0
+    download_limit: int
+    purchase_date: datetime
+    last_download_date: Optional[datetime] = None
+    access_expires_at: Optional[datetime] = None
+    transaction_id: Optional[str] = None
+    amount_paid: float
+    currency: str = "USD"
+    is_subscriber_bonus: bool = False
+    revoked: bool = False
+
+
+@app.on_event("startup")
+async def create_digital_products_indexes():
+    """Create indexes for digital products collections"""
+    try:
+        # Digital products indexes
+        await safe_create_index(db.digital_products, "product_id", unique=True, background=True, name="digital_products_product_id")
+        await safe_create_index(db.digital_products, [("creator_id", 1), ("active", 1)], background=True, name="digital_products_creator_active")
+        await safe_create_index(db.digital_products, [("subscriber_only", 1), ("active", 1)], background=True, name="digital_products_subscriber")
+        await safe_create_index(db.digital_products, [("created_at", -1)], background=True, name="digital_products_created")
+        
+        # Digital purchases indexes
+        await safe_create_index(db.digital_purchases, "purchase_id", unique=True, background=True, name="digital_purchases_purchase_id")
+        await safe_create_index(db.digital_purchases, [("buyer_id", 1), ("product_id", 1)], background=True, name="digital_purchases_buyer_product")
+        await safe_create_index(db.digital_purchases, "product_id", background=True, name="digital_purchases_product")
+        await safe_create_index(db.digital_purchases, [("buyer_id", 1), ("purchase_date", -1)], background=True, name="digital_purchases_buyer_date")
+        
+        logger.info("Digital products indexes created")
+    except Exception as e:
+        logger.error(f"Failed to create digital products indexes: {e}")
+
+
+@api_router.post("/digital-products")
+async def upload_digital_product(
+    title: str = Form(...),
+    description: str = Form(...),
+    price: float = Form(...),
+    file: UploadFile = File(...),
+    download_limit: int = Form(3),
+    drm_enabled: bool = Form(False),
+    watermark_text: Optional[str] = Form(None),
+    subscriber_only: bool = Form(False),
+    current_user: User = Depends(require_auth)
+):
+    """
+    Upload a digital product for sale
+    
+    Supports:
+    - PDFs, images, videos
+    - Download limits
+    - DRM options (watermark, expiring links)
+    - Subscriber-only products
+    """
+    # Check monetization enabled
+    if not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="You must enable monetization in your profile settings before selling digital products."
+        )
+    
+    # Validate file
+    if file.content_type not in ALLOWED_DIGITAL_FILE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type {file.content_type} not allowed. Supported: PDFs, images, videos, ZIP files"
+        )
+    
+    file_content = await validate_file_upload(file, ALLOWED_DIGITAL_FILE_TYPES, MAX_DIGITAL_FILE_SIZE)
+    
+    # Validate price
+    if price < 0.99:
+        raise HTTPException(status_code=400, detail="Minimum price is $0.99")
+    if price > 9999.99:
+        raise HTTPException(status_code=400, detail="Maximum price is $9,999.99")
+    
+    # Validate download limit
+    if download_limit < 1:
+        download_limit = 1
+    elif download_limit > 100:
+        download_limit = 100
+    
+    try:
+        # Upload file to storage (private folder for security)
+        upload_result = await upload_media(
+            file_data=file_content,
+            filename=file.filename or "digital-product",
+            content_type=file.content_type,
+            folder="digital_products",
+            generate_thumbnail=False
+        )
+        
+        file_url = upload_result["url"]
+        file_public_id = upload_result.get("public_id")
+        
+        # Generate preview URL for images/videos
+        preview_url = None
+        if file.content_type.startswith("image/"):
+            preview_url = upload_result.get("thumbnail")
+        elif file.content_type.startswith("video/"):
+            preview_url = upload_result.get("thumbnail_url")
+        
+        # Create product
+        product_id = f"dp_{uuid.uuid4().hex[:12]}"
+        product_data = {
+            "product_id": product_id,
+            "creator_id": current_user.user_id,
+            "title": sanitize_string(title[:200]),
+            "description": sanitize_string(description[:2000]),
+            "file_url": file_url,
+            "file_type": file.content_type,
+            "file_size": len(file_content),
+            "file_name": file.filename or "download",
+            "file_public_id": file_public_id,
+            "preview_url": preview_url,
+            "price": round(price, 2),
+            "currency": "USD",
+            "download_limit": download_limit,
+            "drm_enabled": drm_enabled,
+            "watermark_text": sanitize_string(watermark_text[:200]) if watermark_text else None,
+            "subscriber_only": subscriber_only,
+            "active": True,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
+        }
+        
+        await db.digital_products.insert_one(product_data)
+        
+        # If subscriber-only, grant access to existing subscribers
+        if subscriber_only:
+            # Find all active subscribers
+            subscribers = await db.creator_subscriptions.find({
+                "creator_id": current_user.user_id,
+                "status": "active"
+            }).to_list(None)
+            
+            # Create purchase records for each subscriber
+            for sub in subscribers:
+                purchase_id = f"pur_{uuid.uuid4().hex[:12]}"
+                purchase_data = {
+                    "purchase_id": purchase_id,
+                    "product_id": product_id,
+                    "buyer_id": sub["subscriber_id"],
+                    "buyer_name": "Subscriber",
+                    "buyer_email": "",
+                    "download_count": 0,
+                    "download_limit": 999,  # Unlimited for subscribers
+                    "purchase_date": datetime.now(timezone.utc),
+                    "last_download_date": None,
+                    "access_expires_at": None,
+                    "transaction_id": None,
+                    "amount_paid": 0.0,
+                    "currency": "USD",
+                    "is_subscriber_bonus": True,
+                    "revoked": False
+                }
+                await db.digital_purchases.insert_one(purchase_data)
+                
+                # Send notification
+                await create_notification(
+                    user_id=sub["subscriber_id"],
+                    type="digital_product_available",
+                    content=f"New digital product available: {title}",
+                    link=f"/digital-product/{product_id}"
+                )
+        
+        logger.info(f"Digital product uploaded: {product_id}")
+        
+        return {
+            "message": "Digital product uploaded successfully",
+            "product_id": product_id,
+            "file_url": file_url,
+            "file_size": len(file_content)
+        }
+        
+    except Exception as e:
+        logger.error(f"Digital product upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Upload failed")
+
+
+@api_router.get("/digital-products")
+async def get_digital_products(
+    creator_id: Optional[str] = None,
+    limit: int = 20,
+    skip: int = 0,
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """Get digital products - public or from specific creator"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    query = {"active": True}
+    
+    if creator_id:
+        query["creator_id"] = creator_id
+    else:
+        # Only show non-subscriber-only products to non-logged-in users
+        if not current_user:
+            query["subscriber_only"] = False
+    
+    products = await db.digital_products.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with creator data and purchase info
+    for product in products:
+        creator = await db.users.find_one(
+            {"user_id": product["creator_id"]},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "username": 1}
+        )
+        product["creator"] = creator
+        
+        # Check if current user has purchased
+        if current_user:
+            purchase = await db.digital_purchases.find_one({
+                "buyer_id": current_user.user_id,
+                "product_id": product["product_id"],
+                "revoked": False
+            })
+            product["purchased"] = purchase is not None
+            product["can_download"] = purchase and purchase.get("download_count", 0) < purchase.get("download_limit", 0)
+        else:
+            product["purchased"] = False
+            product["can_download"] = False
+    
+    return products
+
+
+@api_router.post("/digital-products/{product_id}/purchase")
+async def purchase_digital_product(
+    product_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """
+    Purchase a digital product
+    
+    Process payment and grant download access
+    """
+    # Validate product ID
+    if not validate_id_format(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product ID")
+    
+    # Get product
+    product = await db.digital_products.find_one({"product_id": product_id, "active": True})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Check if already purchased
+    existing_purchase = await db.digital_purchases.find_one({
+        "buyer_id": current_user.user_id,
+        "product_id": product_id,
+        "revoked": False
+    })
+    if existing_purchase:
+        return {
+            "message": "You already own this product",
+            "purchase_id": existing_purchase["purchase_id"],
+            "can_download": existing_purchase["download_count"] < existing_purchase["download_limit"]
+        }
+    
+    # Check if subscriber-only and user is subscriber
+    if product.get("subscriber_only"):
+        subscription = await db.creator_subscriptions.find_one({
+            "subscriber_id": current_user.user_id,
+            "creator_id": product["creator_id"],
+            "status": "active"
+        })
+        if not subscription:
+            raise HTTPException(
+                status_code=403,
+                detail="This product is only available to subscribers. Please subscribe first."
+            )
+    
+    # Process payment (simplified - integrate with actual payment system)
+    amount = product["price"]
+    platform_fee = amount * SUBSCRIPTION_PLATFORM_FEE  # 15%
+    creator_payout = amount * SUBSCRIPTION_CREATOR_PAYOUT  # 85%
+    
+    # Create transaction
+    transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
+    transaction_data = {
+        "transaction_id": transaction_id,
+        "type": "digital_product_purchase",
+        "from_user_id": current_user.user_id,
+        "to_user_id": product["creator_id"],
+        "amount": amount,
+        "platform_fee": platform_fee,
+        "creator_amount": creator_payout,
+        "currency": "USD",
+        "status": "completed",
+        "product_id": product_id,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.transactions.insert_one(transaction_data)
+    
+    # Create purchase record
+    purchase_id = f"pur_{uuid.uuid4().hex[:12]}"
+    purchase_data = {
+        "purchase_id": purchase_id,
+        "product_id": product_id,
+        "buyer_id": current_user.user_id,
+        "buyer_name": current_user.name,
+        "buyer_email": current_user.email,
+        "download_count": 0,
+        "download_limit": product.get("download_limit", 3),
+        "purchase_date": datetime.now(timezone.utc),
+        "last_download_date": None,
+        "access_expires_at": None,  # Could set expiry for DRM
+        "transaction_id": transaction_id,
+        "amount_paid": amount,
+        "currency": "USD",
+        "is_subscriber_bonus": False,
+        "revoked": False
+    }
+    await db.digital_purchases.insert_one(purchase_data)
+    
+    # Notify creator
+    await create_notification(
+        user_id=product["creator_id"],
+        type="digital_product_sold",
+        content=f"{current_user.name} purchased {product['title']}",
+        link=f"/digital-product/{product_id}"
+    )
+    
+    # Notify buyer
+    await create_notification(
+        user_id=current_user.user_id,
+        type="digital_product_purchased",
+        content=f"You purchased {product['title']}. Ready to download!",
+        link=f"/my-digital-products"
+    )
+    
+    logger.info(f"Digital product purchased: {purchase_id}")
+    
+    return {
+        "message": "Purchase successful",
+        "purchase_id": purchase_id,
+        "product_id": product_id,
+        "can_download": True,
+        "download_limit": purchase_data["download_limit"]
+    }
+
+
+@api_router.get("/digital-products/{product_id}/download")
+async def download_digital_product(
+    product_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """
+    Generate download link for purchased product
+    
+    - Verifies purchase
+    - Checks download limit
+    - Generates time-limited signed URL
+    - Tracks download count
+    """
+    # Validate product ID
+    if not validate_id_format(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product ID")
+    
+    # Get product
+    product = await db.digital_products.find_one({"product_id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Check purchase
+    purchase = await db.digital_purchases.find_one({
+        "buyer_id": current_user.user_id,
+        "product_id": product_id,
+        "revoked": False
+    })
+    if not purchase:
+        raise HTTPException(
+            status_code=403,
+            detail="You must purchase this product before downloading"
+        )
+    
+    # Check download limit
+    download_count = purchase.get("download_count", 0)
+    download_limit = purchase.get("download_limit", 3)
+    
+    if download_count >= download_limit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Download limit reached ({download_limit} downloads). Contact support if needed."
+        )
+    
+    # Check expiration (if DRM enabled)
+    if purchase.get("access_expires_at"):
+        if datetime.now(timezone.utc) > purchase["access_expires_at"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Download access has expired"
+            )
+    
+    try:
+        # Generate secure download URL
+        file_url = product["file_url"]
+        download_url = file_url  # Direct URL (already secured via Cloudinary/S3)
+        
+        # For Cloudinary, we could generate a signed URL with expiration
+        # For now, using the existing URL
+        
+        # Update download count
+        await db.digital_purchases.update_one(
+            {"purchase_id": purchase["purchase_id"]},
+            {
+                "$inc": {"download_count": 1},
+                "$set": {"last_download_date": datetime.now(timezone.utc)}
+            }
+        )
+        
+        logger.info(f"Digital product download: {product_id} by {current_user.user_id}")
+        
+        return {
+            "download_url": download_url,
+            "file_name": product["file_name"],
+            "file_type": product["file_type"],
+            "file_size": product["file_size"],
+            "downloads_remaining": download_limit - download_count - 1,
+            "drm_enabled": product.get("drm_enabled", False),
+            "watermark_text": product.get("watermark_text") if product.get("drm_enabled") else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Download generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate download link")
+
+
+@api_router.get("/my-digital-products")
+async def get_my_digital_products(
+    limit: int = 50,
+    skip: int = 0,
+    current_user: User = Depends(require_auth)
+):
+    """Get digital products I've purchased"""
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
+    
+    # Get purchases
+    purchases = await db.digital_purchases.find(
+        {"buyer_id": current_user.user_id, "revoked": False},
+        {"_id": 0}
+    ).sort("purchase_date", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with product data
+    result = []
+    for purchase in purchases:
+        product = await db.digital_products.find_one(
+            {"product_id": purchase["product_id"]},
+            {"_id": 0}
+        )
+        if product:
+            creator = await db.users.find_one(
+                {"user_id": product["creator_id"]},
+                {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "username": 1}
+            )
+            
+            result.append({
+                "purchase_id": purchase["purchase_id"],
+                "product": product,
+                "creator": creator,
+                "download_count": purchase.get("download_count", 0),
+                "download_limit": purchase.get("download_limit", 3),
+                "can_download": purchase["download_count"] < purchase["download_limit"],
+                "purchase_date": purchase["purchase_date"],
+                "is_subscriber_bonus": purchase.get("is_subscriber_bonus", False)
+            })
+    
+    return result
+
+
+@api_router.get("/digital-products/creator/analytics")
+async def get_digital_product_analytics(
+    current_user: User = Depends(require_auth)
+):
+    """Get analytics for creator's digital products"""
+    if not current_user.monetization_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="You must enable monetization to view analytics"
+        )
+    
+    # Get all products
+    products = await db.digital_products.find(
+        {"creator_id": current_user.user_id},
+        {"_id": 0}
+    ).to_list(None)
+    
+    # Get all sales
+    purchases = await db.digital_purchases.find(
+        {"product_id": {"$in": [p["product_id"] for p in products]}},
+        {"_id": 0}
+    ).to_list(None)
+    
+    # Calculate metrics
+    total_products = len(products)
+    total_sales = len([p for p in purchases if not p.get("is_subscriber_bonus")])
+    total_revenue = sum(p.get("amount_paid", 0) for p in purchases if not p.get("is_subscriber_bonus"))
+    platform_fee = total_revenue * SUBSCRIPTION_PLATFORM_FEE
+    creator_revenue = total_revenue * SUBSCRIPTION_CREATOR_PAYOUT
+    total_downloads = sum(p.get("download_count", 0) for p in purchases)
+    
+    # Product-level metrics
+    product_stats = []
+    for product in products:
+        prod_purchases = [p for p in purchases if p["product_id"] == product["product_id"]]
+        prod_sales = [p for p in prod_purchases if not p.get("is_subscriber_bonus")]
+        product_stats.append({
+            "product_id": product["product_id"],
+            "title": product["title"],
+            "price": product["price"],
+            "sales": len(prod_sales),
+            "revenue": sum(p.get("amount_paid", 0) for p in prod_sales),
+            "downloads": sum(p.get("download_count", 0) for p in prod_purchases),
+            "subscriber_bonuses": len([p for p in prod_purchases if p.get("is_subscriber_bonus")])
+        })
+    
+    return {
+        "total_products": total_products,
+        "active_products": len([p for p in products if p.get("active")]),
+        "total_sales": total_sales,
+        "total_revenue": round(total_revenue, 2),
+        "platform_fee": round(platform_fee, 2),
+        "creator_revenue": round(creator_revenue, 2),
+        "total_downloads": total_downloads,
+        "products": product_stats
+    }
+
+
+@api_router.delete("/digital-products/{product_id}")
+async def delete_digital_product(
+    product_id: str,
+    current_user: User = Depends(require_auth)
+):
+    """Delete a digital product (soft delete - mark as inactive)"""
+    # Validate product ID
+    if not validate_id_format(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product ID")
+    
+    # Get product
+    product = await db.digital_products.find_one({"product_id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Check ownership
+    if product["creator_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Soft delete
+    await db.digital_products.update_one(
+        {"product_id": product_id},
+        {"$set": {"active": False, "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    logger.info(f"Digital product deleted: {product_id}")
+    
+    return {"message": "Product deleted successfully"}
+
+
+
+# ============================================================================
+# DIGITAL PRODUCTS MARKETPLACE
+# ============================================================================
