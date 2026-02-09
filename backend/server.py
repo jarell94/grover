@@ -5232,7 +5232,7 @@ async def gift_subscription(
     if recipient_user:
         safe_tier_name = sanitize_string(tier["name"], MAX_NAME_LENGTH, "tier name")
         if gift_message:
-            message_excerpt = gift_message[:MAX_GIFT_NOTIFICATION_LENGTH].rstrip()
+            message_excerpt = gift_message[:MAX_GIFT_NOTIFICATION_LENGTH].encode("utf-8", "ignore").decode("utf-8").rstrip()
             message_suffix = f" Message: {message_excerpt}"
         else:
             message_suffix = ""
@@ -5349,7 +5349,8 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
 
 @api_router.get("/subscriptions/gifts/received")
 async def get_received_gifts(current_user: User = Depends(require_auth)):
-    criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": normalize_email(current_user.email)}]}
+    current_email = normalize_email(current_user.email)
+    criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": current_email}]}
     gifts = await db.gift_subscriptions.find(
         criteria,
         {
