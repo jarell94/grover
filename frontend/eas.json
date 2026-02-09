@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 5.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -12,10 +12,6 @@
       },
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.grover.dev",
-        "EXPO_PUBLIC_WS_URL": "https://api.grover.dev"
       }
     },
     "preview": {
@@ -25,10 +21,6 @@
       },
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.grover.dev",
-        "EXPO_PUBLIC_WS_URL": "https://api.grover.dev"
       }
     },
     "production": {
@@ -37,25 +29,6 @@
       },
       "android": {
         "buildType": "app-bundle"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.grover.app",
-        "EXPO_PUBLIC_WS_URL": "https://api.grover.app"
-      }
-    }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "appleId": "your-apple-id@example.com",
-        "ascAppId": "your-asc-app-id",
-        "appleTeamId": "your-team-id",
-        "sku": "grover-app-001"
-      },
-      "android": {
-        "serviceAccountKeyPath": "./google-play-service-account.json",
-        "track": "production",
-        "releaseStatus": "completed"
       }
     }
   }
