@@ -56,6 +56,7 @@ async def test_gift_subscription_by_username(monkeypatch, mock_db):
 
     monkeypatch.setattr(server, "check_monetization_enabled", AsyncMock())
     monkeypatch.setattr(server, "create_and_send_notification", AsyncMock())
+    monkeypatch.setattr(server, "record_transaction", AsyncMock())
 
     mock_db.subscription_tiers.find_one.return_value = {
         "tier_id": "tier_123",

@@ -488,6 +488,48 @@ async def resolve_gift_recipient(recipient_email: Optional[str], recipient_usern
 
     return recipient_user, email_value
 
+async def enrich_gift_history(gifts: list, include_recipient: bool = False, include_giver: bool = False) -> list:
+    if not gifts:
+        return gifts
+
+    tier_ids = {gift["tier_id"] for gift in gifts}
+    tiers_map = {}
+    if tier_ids:
+        tiers = await db.subscription_tiers.find(
+            {"tier_id": {"$in": list(tier_ids)}},
+            {"_id": 0}
+        ).to_list(len(tier_ids))
+        tiers_map = {tier["tier_id"]: tier for tier in tiers}
+
+    recipients_map = {}
+    if include_recipient:
+        recipient_ids = {gift["recipient_user_id"] for gift in gifts if gift.get("recipient_user_id")}
+        if recipient_ids:
+            recipients = await db.users.find(
+                {"user_id": {"$in": list(recipient_ids)}},
+                {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+            ).to_list(len(recipient_ids))
+            recipients_map = {recipient["user_id"]: recipient for recipient in recipients}
+
+    givers_map = {}
+    if include_giver:
+        giver_ids = {gift["giver_id"] for gift in gifts}
+        if giver_ids:
+            givers = await db.users.find(
+                {"user_id": {"$in": list(giver_ids)}},
+                {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+            ).to_list(len(giver_ids))
+            givers_map = {giver["user_id"]: giver for giver in givers}
+
+    for gift in gifts:
+        gift["tier"] = tiers_map.get(gift["tier_id"])
+        if include_recipient and gift.get("recipient_user_id"):
+            gift["recipient"] = recipients_map.get(gift["recipient_user_id"])
+        if include_giver:
+            gift["giver"] = givers_map.get(gift["giver_id"])
+
+    return gifts
+
 async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
     """Create a notification only if user has that type enabled"""
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -5156,6 +5198,7 @@ async def gift_subscription(
         gift_message = sanitize_string(payload.gift_message, MAX_GIFT_MESSAGE_LENGTH, "gift message")
 
     gift_id = f"gift_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
     await db.gift_subscriptions.insert_one({
         "gift_id": gift_id,
         "giver_id": current_user.user_id,
@@ -5165,14 +5208,27 @@ async def gift_subscription(
         "recipient_email": recipient_email,
         "gift_message": gift_message,
         "status": "pending",
-        "created_at": datetime.now(timezone.utc)
+        "payment_status": "paid",
+        "paid_at": now,
+        "created_at": now
     })
 
+    split = calculate_revenue_split(tier["price"], "subscriptions")
+    await record_transaction(
+        "subscriptions",
+        tier["price"],
+        current_user.user_id,
+        user_id,
+        gift_id,
+        {"tier_id": payload.tier_id, "gift_id": gift_id, "recipient_id": recipient_user.get("user_id") if recipient_user else None}
+    )
+
     if recipient_user:
+        message_suffix = f' "{gift_message}"' if gift_message else ""
         await create_and_send_notification(
             recipient_user["user_id"],
             "subscription",
-            f"You received a gift subscription to {tier['name']}!{f' \"{gift_message}\"' if gift_message else ''}",
+            f"You received a gift subscription to {tier['name']}!{message_suffix}",
             gift_id,
             current_user.user_id
         )
@@ -5235,15 +5291,6 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         {"$set": {"status": "redeemed", "redeemed_at": now, "redeemed_by": current_user.user_id, "subscription_id": subscription_id}}
     )
 
-    await record_transaction(
-        "subscriptions",
-        tier["price"],
-        gift["giver_id"],
-        gift["creator_id"],
-        subscription_id,
-        {"tier_id": gift["tier_id"], "gift_id": gift_id, "recipient_id": current_user.user_id}
-    )
-
     await create_and_send_notification(
         gift["creator_id"],
         "subscription",
@@ -5284,30 +5331,7 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
         }
     ).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
 
-    tier_ids = {gift["tier_id"] for gift in gifts}
-    tiers_map = {}
-    if tier_ids:
-        tiers = await db.subscription_tiers.find(
-            {"tier_id": {"$in": list(tier_ids)}},
-            {"_id": 0}
-        ).to_list(len(tier_ids))
-        tiers_map = {tier["tier_id"]: tier for tier in tiers}
-
-    recipients_map = {}
-    recipient_ids = {gift["recipient_user_id"] for gift in gifts if gift.get("recipient_user_id")}
-    if recipient_ids:
-        recipients = await db.users.find(
-            {"user_id": {"$in": list(recipient_ids)}},
-            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
-        ).to_list(len(recipient_ids))
-        recipients_map = {recipient["user_id"]: recipient for recipient in recipients}
-
-    for gift in gifts:
-        gift["tier"] = tiers_map.get(gift["tier_id"])
-        if gift.get("recipient_user_id"):
-            gift["recipient"] = recipients_map.get(gift["recipient_user_id"])
-
-    return gifts
+    return await enrich_gift_history(gifts, include_recipient=True)
 
 
 @api_router.get("/subscriptions/gifts/received")
@@ -5332,29 +5356,7 @@ async def get_received_gifts(current_user: User = Depends(require_auth)):
         }
     ).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
 
-    tier_ids = {gift["tier_id"] for gift in gifts}
-    tiers_map = {}
-    if tier_ids:
-        tiers = await db.subscription_tiers.find(
-            {"tier_id": {"$in": list(tier_ids)}},
-            {"_id": 0}
-        ).to_list(len(tier_ids))
-        tiers_map = {tier["tier_id"]: tier for tier in tiers}
-
-    givers_map = {}
-    giver_ids = {gift["giver_id"] for gift in gifts}
-    if giver_ids:
-        givers = await db.users.find(
-            {"user_id": {"$in": list(giver_ids)}},
-            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
-        ).to_list(len(giver_ids))
-        givers_map = {giver["user_id"]: giver for giver in givers}
-
-    for gift in gifts:
-        gift["tier"] = tiers_map.get(gift["tier_id"])
-        gift["giver"] = givers_map.get(gift["giver_id"])
-
-    return gifts
+    return await enrich_gift_history(gifts, include_giver=True)
 
 
 @api_router.delete("/subscriptions/{subscription_id}")
