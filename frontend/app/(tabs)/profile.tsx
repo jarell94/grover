@@ -30,12 +30,12 @@ const openUrl = async (url: string) => {
   else Alert.alert("Invalid link", "This link can't be opened.");
 };
 
-const hasUrlFormat = (value: string) => /^https?:\/\//i.test(value) || /^[\w.-]+\.[a-z]{2,}/i.test(value);
+const isFullUrlOrDomain = (value: string) => /^https?:\/\//i.test(value) || /^[\w.-]+\.[a-z]{2,}/i.test(value);
 
 const buildSocialUrl = (value: string, base: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (hasUrlFormat(trimmed)) return trimmed;
+  if (isFullUrlOrDomain(trimmed)) return trimmed;
   const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   return `${base}${handle}`;
 };
@@ -43,8 +43,8 @@ const buildSocialUrl = (value: string, base: string) => {
 const buildDiscordUrl = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (hasUrlFormat(trimmed)) return trimmed;
-  // Discord user IDs are 17-20 digit numeric snowflakes.
+  if (isFullUrlOrDomain(trimmed)) return trimmed;
+  // Discord user IDs are 17-20 digit snowflakes; profile links may depend on user settings.
   if (/^\d{17,20}$/.test(trimmed)) return `https://discord.com/users/${trimmed}`;
   const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   return `https://discord.gg/${handle}`;
