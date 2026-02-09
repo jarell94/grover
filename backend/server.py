@@ -106,6 +106,7 @@ MIN_TIP_AMOUNT = 1.0
 MIN_GIFT_AMOUNT = 1.0
 MAX_GIFT_DURATION_MONTHS = 12
 GIFT_CLAIM_BASE_URL = os.getenv("GIFT_CLAIM_BASE_URL", "http://localhost:3000/gifts/claim")
+GIFT_CLAIM_MESSAGE_TEMPLATE = "You received a gift subscription! Claim it here: {claim_url}"
 MAX_GIFT_MESSAGE_LENGTH = 500
 MAX_GIFT_HISTORY = 100
 MAX_GIFT_NOTIFICATION_LENGTH = 160
@@ -3094,7 +3095,7 @@ async def stripe_webhook(request: Request):
                     await create_notification(
                         recipient_id,
                         "gift",
-                        f"You received a gift subscription! Claim it here: {claim_url}",
+                        GIFT_CLAIM_MESSAGE_TEMPLATE.format(claim_url=claim_url),
                         gift_id
                     )
 
@@ -4933,6 +4934,9 @@ def calculate_revenue_split(amount: float, revenue_type: str) -> dict:
     # Ensure amounts add up correctly
     if platform_fee + creator_payout != amount:
         creator_payout = round(amount - platform_fee, 2)
+
+    if platform_fee < 0 or creator_payout < 0:
+        raise HTTPException(status_code=400, detail="Invalid revenue split calculation")
     
     return {
         "gross_amount": amount,
@@ -5260,8 +5264,6 @@ async def gift_subscription(
     if total_amount < MIN_GIFT_AMOUNT:
         raise HTTPException(status_code=400, detail=f"Minimum gift is ${MIN_GIFT_AMOUNT:.0f}")
     split = calculate_revenue_split(total_amount, "subscriptions")
-    if split["platform_fee"] < 0 or split["creator_payout"] < 0:
-        raise HTTPException(status_code=400, detail="Invalid revenue split calculation")
 
     creator_account_id = await get_stripe_account_id(user_id)
     payer = await get_user_record(current_user.user_id)
@@ -5271,7 +5273,7 @@ async def gift_subscription(
         "gift_id": gift_id,
         "creator_id": user_id,
         "giver_id": current_user.user_id,
-        "duration_months": str(payload.duration_months),
+        "duration_months": payload.duration_months,
         "amount": str(total_amount),
         "tier_id": payload.tier_id
     }
@@ -5315,7 +5317,12 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         raise HTTPException(status_code=404, detail="Gift not found")
     if gift.get("status") != "paid":
         status = gift.get("status", "unknown")
-        raise HTTPException(status_code=400, detail=f"Gift cannot be redeemed (status: {status})")
+        status_messages = {
+            "pending_payment": "This gift has not been paid for yet.",
+            "failed": "This gift payment failed.",
+            "redeemed": "This gift has already been redeemed.",
+        }
+        raise HTTPException(status_code=400, detail=status_messages.get(status, "Gift cannot be redeemed."))
 
     recipient_user_id = gift.get("recipient_user_id")
     recipient_email = gift.get("recipient_email")

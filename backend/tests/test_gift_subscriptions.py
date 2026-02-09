@@ -18,7 +18,7 @@ def override_auth():
     )
     app.dependency_overrides[require_auth] = lambda: user
     yield user
-    app.dependency_overrides = {}
+    app.dependency_overrides.pop(require_auth, None)
 
 
 @pytest.fixture
