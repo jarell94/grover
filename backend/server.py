@@ -245,6 +245,8 @@ async def create_indexes():
     await safe_create_index(db.users, "email", unique=True, background=True, name="users_email_unique")
     await safe_create_index(db.users, [("name", "text")], background=True, name="users_name_text")
     await safe_create_index(db.users, "is_premium", background=True, name="users_is_premium")
+    await safe_create_index(db.users, "created_at", background=True, name="users_created_at")
+    await safe_create_index(db.users, "category", background=True, name="users_category")
     
     # ========== POSTS COLLECTION ==========
     await safe_create_index(db.posts, "post_id", unique=True, background=True, name="posts_post_id_unique")
@@ -506,6 +508,176 @@ async def resolve_gift_recipient(
 def build_gift_claim_url(gift_id: str) -> str:
     return f"{GIFT_CLAIM_BASE_URL}/{gift_id}"
 
+def format_cohort_label(year: int, month: int) -> str:
+    return f"{year:04d}-{month:02d}"
+
+async def build_creator_metrics(user_id: str, user_doc: Optional[dict] = None) -> dict:
+    user_doc = user_doc or await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "category": 1, "total_earnings": 1})
+    if not user_doc:
+        return {
+            "user_id": user_id,
+            "name": None,
+            "picture": None,
+            "category": None,
+            "followers": 0,
+            "posts": 0,
+            "engagement": 0,
+            "revenue": 0,
+        }
+
+    followers = await db.follows.count_documents({"following_id": user_id})
+    stats = await db.posts.aggregate([
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": None,
+            "posts": {"$sum": 1},
+            "likes": {"$sum": "$likes_count"},
+            "comments": {"$sum": "$comments_count"},
+            "shares": {"$sum": "$shares_count"},
+        }}
+    ]).to_list(1)
+    stats_doc = stats[0] if stats else {}
+    engagement = (stats_doc.get("likes", 0) + stats_doc.get("comments", 0) + stats_doc.get("shares", 0))
+    return {
+        "user_id": user_doc.get("user_id"),
+        "name": user_doc.get("name"),
+        "picture": user_doc.get("picture"),
+        "category": user_doc.get("category"),
+        "followers": followers,
+        "posts": stats_doc.get("posts", 0),
+        "engagement": engagement,
+        "revenue": user_doc.get("total_earnings", 0),
+    }
+
+async def build_platform_average() -> dict:
+    user_count = await db.users.count_documents({})
+    if user_count == 0:
+        return {"followers": 0, "posts": 0, "engagement": 0, "revenue": 0}
+
+    total_followers = await db.follows.count_documents({})
+    post_totals = await db.posts.aggregate([
+        {"$group": {
+            "_id": None,
+            "posts": {"$sum": 1},
+            "likes": {"$sum": "$likes_count"},
+            "comments": {"$sum": "$comments_count"},
+            "shares": {"$sum": "$shares_count"},
+        }}
+    ]).to_list(1)
+    post_doc = post_totals[0] if post_totals else {}
+    engagement = post_doc.get("likes", 0) + post_doc.get("comments", 0) + post_doc.get("shares", 0)
+    revenue_total = await db.users.aggregate([
+        {"$group": {"_id": None, "total": {"$sum": "$total_earnings"}}}
+    ]).to_list(1)
+    total_revenue = revenue_total[0]["total"] if revenue_total else 0
+    return {
+        "followers": round(total_followers / user_count, 2),
+        "posts": round(post_doc.get("posts", 0) / user_count, 2),
+        "engagement": round(engagement / user_count, 2),
+        "revenue": round(total_revenue / user_count, 2),
+    }
+
+async def build_historical_benchmarks(user_id: str, months: int = 6) -> list:
+    end_date = datetime.now(timezone.utc)
+    results = []
+    for i in range(months - 1, -1, -1):
+        month_start = (end_date - relativedelta(months=i)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_end = month_start + relativedelta(months=1)
+        followers = await db.follows.count_documents({
+            "following_id": user_id,
+            "created_at": {"$gte": month_start, "$lt": month_end}
+        })
+        post_stats = await db.posts.aggregate([
+            {"$match": {"user_id": user_id, "created_at": {"$gte": month_start, "$lt": month_end}}},
+            {"$group": {
+                "_id": None,
+                "likes": {"$sum": "$likes_count"},
+                "comments": {"$sum": "$comments_count"},
+                "shares": {"$sum": "$shares_count"},
+            }}
+        ]).to_list(1)
+        post_doc = post_stats[0] if post_stats else {}
+        engagement = post_doc.get("likes", 0) + post_doc.get("comments", 0) + post_doc.get("shares", 0)
+        revenue_stats = await db.transactions.aggregate([
+            {"$match": {"to_user_id": user_id, "created_at": {"$gte": month_start, "$lt": month_end}}},
+            {"$group": {"_id": None, "total": {"$sum": "$creator_payout"}}}
+        ]).to_list(1)
+        revenue = revenue_stats[0]["total"] if revenue_stats else 0
+        results.append({
+            "month": month_start.strftime("%Y-%m"),
+            "new_followers": followers,
+            "engagement": engagement,
+            "revenue": revenue,
+        })
+    return results
+
+async def fetch_cohort_groups(start_date: datetime) -> list:
+    pipeline = [
+        {"$match": {"created_at": {"$gte": start_date}}},
+        {"$group": {
+            "_id": {"year": {"$year": "$created_at"}, "month": {"$month": "$created_at"}},
+            "user_ids": {"$addToSet": "$user_id"},
+            "count": {"$sum": 1}
+        }}
+    ]
+    cohorts = await db.users.aggregate(pipeline).to_list(200)
+    cohorts.sort(key=lambda item: (item["_id"]["year"], item["_id"]["month"]))
+    return cohorts
+
+async def build_cohort_metrics(user_ids: list, engagement_months: int = 3) -> dict:
+    total_users = len(user_ids)
+    if total_users == 0:
+        return {
+            "total_users": 0,
+            "active_users": 0,
+            "retention_rate": 0,
+            "engagement_trend": [],
+            "revenue_total": 0,
+            "ltv": 0,
+        }
+    active_since = datetime.now(timezone.utc) - timedelta(days=30)
+    active_users = await db.posts.aggregate([
+        {"$match": {"user_id": {"$in": user_ids}, "created_at": {"$gte": active_since}}},
+        {"$group": {"_id": "$user_id"}}
+    ]).to_list(total_users)
+    active_count = len(active_users)
+
+    end_date = datetime.now(timezone.utc)
+    engagement_trend = []
+    for i in range(engagement_months - 1, -1, -1):
+        month_start = (end_date - relativedelta(months=i)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_end = month_start + relativedelta(months=1)
+        stats = await db.posts.aggregate([
+            {"$match": {"user_id": {"$in": user_ids}, "created_at": {"$gte": month_start, "$lt": month_end}}},
+            {"$group": {
+                "_id": None,
+                "likes": {"$sum": "$likes_count"},
+                "comments": {"$sum": "$comments_count"},
+                "shares": {"$sum": "$shares_count"},
+            }}
+        ]).to_list(1)
+        stats_doc = stats[0] if stats else {}
+        engagement = stats_doc.get("likes", 0) + stats_doc.get("comments", 0) + stats_doc.get("shares", 0)
+        engagement_trend.append({
+            "month": month_start.strftime("%Y-%m"),
+            "engagement": engagement
+        })
+
+    revenue_stats = await db.transactions.aggregate([
+        {"$match": {"to_user_id": {"$in": user_ids}}},
+        {"$group": {"_id": None, "total": {"$sum": "$creator_payout"}}}
+    ]).to_list(1)
+    revenue_total = revenue_stats[0]["total"] if revenue_stats else 0
+    ltv = round(revenue_total / total_users, 2)
+    return {
+        "total_users": total_users,
+        "active_users": active_count,
+        "retention_rate": round(active_count / total_users, 3),
+        "engagement_trend": engagement_trend,
+        "revenue_total": revenue_total,
+        "ltv": ltv,
+    }
+
 async def enrich_gift_history(gifts: list, include_recipient: bool = False, include_giver: bool = False) -> list:
     """Attach tier and user metadata to gift records."""
     if not gifts:
@@ -695,6 +867,7 @@ class User(BaseModel):
     is_premium: bool = False
     is_private: bool = False
     monetization_enabled: bool = False  # Creator monetization toggle (tips, subscriptions, paid content)
+    category: Optional[str] = None
     website: Optional[str] = None
     twitter: Optional[str] = None
     instagram: Optional[str] = None
@@ -1054,6 +1227,7 @@ async def update_profile(
     bio: Optional[str] = None, 
     is_private: Optional[bool] = None,
     monetization_enabled: Optional[bool] = None,  # Creator monetization toggle
+    category: Optional[str] = None,
     website: Optional[str] = None,
     twitter: Optional[str] = None,
     instagram: Optional[str] = None,
@@ -1072,6 +1246,8 @@ async def update_profile(
         update_data["is_private"] = bool(is_private)
     if monetization_enabled is not None:
         update_data["monetization_enabled"] = bool(monetization_enabled)
+    if category is not None:
+        update_data["category"] = sanitize_string(category, 100, "category")
     if website is not None:
         website = sanitize_string(website, 200, "website")
         # Basic URL validation
@@ -5765,6 +5941,75 @@ async def get_content_performance(current_user: User = Depends(require_auth)):
         post["engagement_score"] = total_reactions + post.get("comments_count", 0) + post.get("shares_count", 0)
     
     return posts
+
+
+@api_router.get("/analytics/benchmarks")
+async def get_creator_benchmarks(
+    peer_ids: Optional[str] = None,
+    months: int = 6,
+    current_user: User = Depends(require_auth)
+):
+    months = max(1, min(months, 12))
+    current_user_doc = await db.users.find_one(
+        {"user_id": current_user.user_id},
+        {"_id": 0, "user_id": 1, "category": 1}
+    )
+    category = current_user_doc.get("category") if current_user_doc else None
+
+    similar_creators = []
+    if category:
+        similar_users = await db.users.find(
+            {"category": category, "user_id": {"$ne": current_user.user_id}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "category": 1, "total_earnings": 1}
+        ).limit(5).to_list(5)
+        for user in similar_users:
+            similar_creators.append(await build_creator_metrics(user["user_id"], user_doc=user))
+
+    peer_group = []
+    if peer_ids:
+        peer_list = [pid.strip() for pid in peer_ids.split(",") if pid.strip()]
+        peer_users = await db.users.find(
+            {"user_id": {"$in": peer_list}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "category": 1, "total_earnings": 1}
+        ).to_list(len(peer_list))
+        for user in peer_users:
+            peer_group.append(await build_creator_metrics(user["user_id"], user_doc=user))
+
+    platform_average = await build_platform_average()
+    historical_benchmarks = await build_historical_benchmarks(current_user.user_id, months)
+
+    return {
+        "similar_creators": similar_creators,
+        "platform_average": platform_average,
+        "historical_benchmarks": historical_benchmarks,
+        "peer_group": peer_group,
+    }
+
+
+@api_router.get("/analytics/cohorts")
+async def get_cohort_analytics(
+    months: int = 6,
+    engagement_months: int = 3,
+    current_user: User = Depends(require_auth)
+):
+    months = max(1, min(months, 12))
+    engagement_months = max(1, min(engagement_months, 6))
+    start_date = (datetime.now(timezone.utc) - relativedelta(months=months - 1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    cohorts = await fetch_cohort_groups(start_date)
+    cohort_results = []
+    for cohort in cohorts:
+        cohort_label = format_cohort_label(cohort["_id"]["year"], cohort["_id"]["month"])
+        metrics = await build_cohort_metrics(cohort["user_ids"], engagement_months)
+        cohort_results.append({
+            "cohort": cohort_label,
+            "users": metrics["total_users"],
+            "active_users": metrics["active_users"],
+            "retention_rate": metrics["retention_rate"],
+            "engagement_trend": metrics["engagement_trend"],
+            "revenue_total": metrics["revenue_total"],
+            "ltv": metrics["ltv"],
+        })
+    return {"cohorts": cohort_results}
 
 # ============ CATEGORIES ENDPOINTS ============
 
