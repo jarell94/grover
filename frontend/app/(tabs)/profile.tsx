@@ -44,8 +44,9 @@ const buildDiscordUrl = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "";
   if (isFullUrlOrDomain(trimmed)) return trimmed;
-  // Discord user IDs are 17-20 digit snowflakes; profile links may depend on user settings.
+  // Discord user IDs are 17-20 digit snowflakes; profile links may depend on user privacy settings.
   if (/^\d{17,20}$/.test(trimmed)) return `https://discord.com/users/${trimmed}`;
+  // Non-numeric values are treated as invite codes; usernames should be full URLs.
   const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   return `https://discord.gg/${handle}`;
 };
@@ -648,7 +649,7 @@ export default function ProfileScreen() {
               <Ionicons name="logo-discord" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
               <TextInput
                 style={styles.socialInput}
-                placeholder="Discord user ID or invite code"
+                placeholder="Discord user ID or invite code (discord.gg/...)"
                 placeholderTextColor={Colors.textSecondary}
                 value={discord}
                 onChangeText={setDiscord}
