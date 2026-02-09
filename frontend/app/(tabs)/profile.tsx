@@ -480,7 +480,7 @@ export default function ProfileScreen() {
       </View>
     </>
     );
-  }, [user, isPrivate, monetizationEnabled]);
+  }, [user?.is_premium, isPrivate, monetizationEnabled]);
 
   if (!user) {
     return (
