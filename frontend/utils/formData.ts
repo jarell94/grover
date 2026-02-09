@@ -48,6 +48,12 @@ export async function buildPostFormData(options: {
   pollQuestion?: string;
   pollOptions?: string[];
   pollDurationHours?: number;
+  templateType?: string;
+  templateStyle?: {
+    backgroundColor?: string;
+    textColor?: string;
+    fontFamily?: string;
+  };
 }): Promise<FormData> {
   const formData = new FormData();
 
@@ -60,6 +66,20 @@ export async function buildPostFormData(options: {
     formData.append("poll_question", options.pollQuestion.trim());
     if (options.pollOptions) formData.append("poll_options", JSON.stringify(options.pollOptions.filter(o => o.trim())));
     if (options.pollDurationHours) formData.append("poll_duration_hours", String(options.pollDurationHours));
+  }
+
+  if (options.templateType) {
+    formData.append("template_type", options.templateType);
+    if (options.templateStyle) {
+      formData.append(
+        "template_style",
+        JSON.stringify({
+          background_color: options.templateStyle.backgroundColor,
+          text_color: options.templateStyle.textColor,
+          font_family: options.templateStyle.fontFamily,
+        })
+      );
+    }
   }
 
   if (options.media?.uri) {

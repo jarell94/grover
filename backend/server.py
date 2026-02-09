@@ -111,6 +111,7 @@ MAX_GIFT_MESSAGE_LENGTH = 500
 MAX_GIFT_HISTORY = 100
 MAX_GIFT_NOTIFICATION_LENGTH = 160
 ACTIVE_COHORT_DAYS = 30
+QUOTE_TEMPLATE_TYPES = {"announcement", "poll", "question", "celebration"}
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -913,6 +914,8 @@ class Post(BaseModel):
     poll_options: Optional[List[str]] = None
     poll_votes: Optional[dict] = None  # {option_index: vote_count}
     poll_expires_at: Optional[datetime] = None
+    template_type: Optional[str] = None
+    template_style: Optional[dict] = None
     created_at: datetime
 
 class Story(BaseModel):
@@ -1638,12 +1641,17 @@ async def create_post(
     poll_question: Optional[str] = Form(None),
     poll_options: Optional[str] = Form(None),  # JSON string
     poll_duration_hours: Optional[int] = Form(24),
+    template_type: Optional[str] = Form(None),
+    template_style: Optional[str] = Form(None),
     current_user: User = Depends(require_auth)
 ):
     # Security: Sanitize and validate content
     content = sanitize_string(content or "", MAX_INPUT_LENGTH, "content")
     location = sanitize_string(location or "", 200, "location") if location else None
     poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
+    template_type = sanitize_string(template_type or "", 50, "template_type").lower() if template_type else None
+    if template_type and template_type not in QUOTE_TEMPLATE_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid template type")
     
     # Validate that at least some content exists
     if not content and not media and not poll_question:
@@ -1686,6 +1694,21 @@ async def create_post(
         import json
         poll_options_list = json.loads(poll_options) if isinstance(poll_options, str) else poll_options
         poll_expires_at = datetime.now(timezone.utc) + timedelta(hours=poll_duration_hours)
+
+    template_style_data = None
+    if template_style:
+        try:
+            import json
+            template_style_data = json.loads(template_style) if isinstance(template_style, str) else template_style
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid template style")
+        if not isinstance(template_style_data, dict):
+            raise HTTPException(status_code=400, detail="Invalid template style")
+        sanitized_style = {}
+        for key in ("background_color", "text_color", "font_family"):
+            if template_style_data.get(key):
+                sanitized_style[key] = sanitize_string(str(template_style_data[key]), 50, key)
+        template_style_data = sanitized_style or None
     
     post_id = f"post_{uuid.uuid4().hex[:12]}"
     post_data = {
@@ -1713,6 +1736,11 @@ async def create_post(
         post_data["poll_options"] = poll_options_list
         post_data["poll_votes"] = {str(i): 0 for i in range(len(poll_options_list))}
         post_data["poll_expires_at"] = poll_expires_at
+
+    if template_type:
+        post_data["template_type"] = template_type
+        if template_style_data:
+            post_data["template_style"] = template_style_data
     
     await db.posts.insert_one(post_data)
     
