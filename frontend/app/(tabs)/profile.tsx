@@ -289,7 +289,7 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             )}
             {user.facebook && (
-              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.facebook, 'https://facebook.com/'))}>
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.facebook, 'https://www.facebook.com/'))}>
                 <Ionicons name="logo-facebook" size={20} color="#1877F2" />
                 <Text style={styles.socialLinkText}>{user.facebook}</Text>
               </TouchableOpacity>
@@ -574,7 +574,7 @@ export default function ProfileScreen() {
               <Ionicons name="logo-youtube" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
               <TextInput
                 style={styles.socialInput}
-                placeholder="YouTube channel or URL"
+                placeholder="YouTube channel handle"
                 placeholderTextColor={Colors.textSecondary}
                 value={youtube}
                 onChangeText={setYoutube}
@@ -598,7 +598,7 @@ export default function ProfileScreen() {
               <Ionicons name="logo-facebook" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
               <TextInput
                 style={styles.socialInput}
-                placeholder="Facebook username or URL"
+                placeholder="Facebook username"
                 placeholderTextColor={Colors.textSecondary}
                 value={facebook}
                 onChangeText={setFacebook}
@@ -622,7 +622,7 @@ export default function ProfileScreen() {
               <Ionicons name="logo-discord" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
               <TextInput
                 style={styles.socialInput}
-                placeholder="Discord user ID or invite"
+                placeholder="Discord user ID"
                 placeholderTextColor={Colors.textSecondary}
                 value={discord}
                 onChangeText={setDiscord}
