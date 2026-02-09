@@ -84,6 +84,8 @@ async def test_gift_subscription_creates_payment_intent(monkeypatch, mock_db, ov
     monkeypatch.setattr(server.stripe, "PaymentIntent", SimpleNamespace(
         create=lambda **_kwargs: SimpleNamespace(id="pi_123", client_secret="secret")
     ))
+    customer_create = MagicMock()
+    monkeypatch.setattr(server.stripe, "Customer", SimpleNamespace(create=customer_create))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
@@ -99,6 +101,7 @@ async def test_gift_subscription_creates_payment_intent(monkeypatch, mock_db, ov
     assert response.status_code == 200
     assert response.json()["client_secret"] == "secret"
     mock_db.gift_subscriptions.insert_one.assert_awaited()
+    customer_create.assert_not_called()
 
 
 @pytest.mark.asyncio

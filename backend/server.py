@@ -503,6 +503,9 @@ async def resolve_gift_recipient(
 
     return recipient_user, email_value
 
+def build_gift_claim_url(gift_id: str) -> str:
+    return f"{GIFT_CLAIM_BASE_URL}/{gift_id}"
+
 async def enrich_gift_history(gifts: list, include_recipient: bool = False, include_giver: bool = False) -> list:
     """Attach tier and user metadata to gift records."""
     if not gifts:
@@ -3091,7 +3094,7 @@ async def stripe_webhook(request: Request):
                 )
                 recipient_id = metadata.get("recipient_user_id")
                 if recipient_id:
-                    claim_url = f"{GIFT_CLAIM_BASE_URL}/{gift_id}"
+                    claim_url = build_gift_claim_url(gift_id)
                     await create_notification(
                         recipient_id,
                         "gift",
@@ -5230,6 +5233,8 @@ async def gift_subscription(
     tier = await db.subscription_tiers.find_one({"tier_id": payload.tier_id, "creator_id": user_id, "active": True})
     if not tier:
         raise HTTPException(status_code=404, detail="Subscription tier not found")
+    if tier.get("price", 0) <= 0:
+        raise HTTPException(status_code=400, detail="Invalid subscription tier price")
     if payload.duration_months < 1 or payload.duration_months > MAX_GIFT_DURATION_MONTHS:
         raise HTTPException(
             status_code=400,
@@ -5321,6 +5326,7 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
             "pending_payment": "This gift has not been paid for yet.",
             "failed": "This gift payment failed.",
             "redeemed": "This gift has already been redeemed.",
+            "paid": "This gift has already been redeemed.",
         }
         raise HTTPException(status_code=400, detail=status_messages.get(status, "Gift cannot be redeemed."))
 
