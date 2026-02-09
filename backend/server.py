@@ -5234,7 +5234,7 @@ async def gift_subscription(
     if not tier:
         raise HTTPException(status_code=404, detail="Subscription tier not found")
     if tier.get("price", 0) <= 0:
-        raise HTTPException(status_code=400, detail="Invalid subscription tier price")
+        raise HTTPException(status_code=400, detail="Subscription tier price must be greater than zero")
     if payload.duration_months < 1 or payload.duration_months > MAX_GIFT_DURATION_MONTHS:
         raise HTTPException(
             status_code=400,
@@ -5306,7 +5306,7 @@ async def gift_subscription(
         "amount": total_amount,
         "platform_fee": split["platform_fee"],
         "creator_payout": split["creator_payout"],
-        "status": "pending_payment",
+        "status": "pending_payment",  # Redemption status, separate from Stripe payment status
         "payment_status": "pending",  # Stripe payment status separate from redemption status
         "stripe_payment_intent_id": intent.id,
         "created_at": now
