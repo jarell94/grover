@@ -225,32 +225,28 @@ export default function ProfileScreen() {
     ]);
   };
 
-  if (!user) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
-    );
-  }
-
-  const hasSocialLinks = useMemo(() => [
-    user.website,
-    user.twitter,
-    user.instagram,
-    user.linkedin,
-    user.github,
-    user.youtube,
-    user.tiktok,
-    user.facebook,
-    user.snapchat,
-    user.discord,
-    user.twitch,
-  ].some(Boolean), [user]);
+  const hasSocialLinks = useMemo(() => {
+    if (!user) return false;
+    return [
+      user.website,
+      user.twitter,
+      user.instagram,
+      user.linkedin,
+      user.github,
+      user.youtube,
+      user.tiktok,
+      user.facebook,
+      user.snapchat,
+      user.discord,
+      user.twitch,
+    ].some(Boolean);
+  }, [user]);
 
   // Profile Header Component (for FlatList ListHeaderComponent)
-  const ProfileHeader = useMemo(() => (
-    <>
+  const ProfileHeader = useMemo(() => {
+    if (!user) return null;
+    return (
+      <>
       <LinearGradient
         colors={[Colors.gradient.start, Colors.gradient.middle]}
         style={[styles.header, { paddingTop: 24 + insets.top }]}
@@ -375,11 +371,14 @@ export default function ProfileScreen() {
         scrollEnabled={false}
       />
     </>
-  ), [user, stats, insets.top, hasSocialLinks]);
+    );
+  }, [user, stats, insets.top, hasSocialLinks]);
 
   // Profile Footer Component (Quick Actions + Account)
-  const ProfileFooter = useMemo(() => (
-    <>
+  const ProfileFooter = useMemo(() => {
+    if (!user) return null;
+    return (
+      <>
       {/* Quick Actions */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -480,7 +479,17 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
     </>
-  ), [user.is_premium, isPrivate, monetizationEnabled]);
+    );
+  }, [user, isPrivate, monetizationEnabled]);
+
+  if (!user) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
