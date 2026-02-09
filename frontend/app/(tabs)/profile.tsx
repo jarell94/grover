@@ -46,7 +46,7 @@ const buildDiscordUrl = (value: string) => {
   if (hasUrlOrDomainFormat(trimmed)) return trimmed;
   // Discord user IDs are 17-20 digit snowflakes; profile links may depend on user privacy settings.
   if (/^\d{17,20}$/.test(trimmed)) return `https://discord.com/users/${trimmed}`;
-  // Non-numeric values are treated as invite codes; use full URLs for usernames.
+  // Non-numeric values are treated as server invite codes; use full profile URLs for usernames.
   const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   return `https://discord.gg/${handle}`;
 };
@@ -234,7 +234,7 @@ export default function ProfileScreen() {
     );
   }
 
-  const hasSocialLinks = [
+  const hasSocialLinks = useMemo(() => [
     user.website,
     user.twitter,
     user.instagram,
@@ -246,7 +246,7 @@ export default function ProfileScreen() {
     user.snapchat,
     user.discord,
     user.twitch,
-  ].some(Boolean);
+  ].some(Boolean), [user]);
 
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => (
@@ -375,7 +375,7 @@ export default function ProfileScreen() {
         scrollEnabled={false}
       />
     </>
-  ), [user, stats, insets.top]);
+  ), [user, stats, insets.top, hasSocialLinks]);
 
   // Profile Footer Component (Quick Actions + Account)
   const ProfileFooter = useMemo(() => (
