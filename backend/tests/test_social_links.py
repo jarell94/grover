@@ -38,7 +38,7 @@ async def test_update_profile_social_links(override_auth, mock_db):
         "tiktok": "tiktokuser",
         "facebook": "fbuser",
         "snapchat": "snapuser",
-        "discord": "123456789",
+        "discord": "123456789012345678",
         "twitch": "twitchuser",
     }
 
@@ -53,5 +53,5 @@ async def test_update_profile_social_links(override_auth, mock_db):
     assert update_doc["tiktok"] == "tiktokuser"
     assert update_doc["facebook"] == "fbuser"
     assert update_doc["snapchat"] == "snapuser"
-    assert update_doc["discord"] == "123456789"
+    assert update_doc["discord"] == "123456789012345678"
     assert update_doc["twitch"] == "twitchuser"
