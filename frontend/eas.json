@@ -1,0 +1,12 @@
+{
+  "cli": {
+    "version": ">= 5.0.0",
+    "promptToConfigurePushNotifications": false
+  },
+  "build": {
+    "production": {
+      "distribution": "store",
+      "channel": ""
+    }
+  }
+}
