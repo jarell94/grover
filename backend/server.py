@@ -5124,9 +5124,6 @@ async def gift_subscription(
     current_user: User = Depends(require_auth)
 ):
     """Gift a subscription to another user."""
-    if user_id == current_user.user_id:
-        raise HTTPException(status_code=400, detail="Cannot gift a subscription to yourself")
-
     await check_monetization_enabled(user_id, "subscriptions")
 
     tier = await db.subscription_tiers.find_one({"tier_id": payload.tier_id, "creator_id": user_id, "active": True})
@@ -5191,10 +5188,12 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
     recipient_user_id = gift.get("recipient_user_id")
     recipient_email = gift.get("recipient_email")
 
-    if recipient_user_id and recipient_user_id != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
-    if recipient_email and recipient_email.lower() != current_user.email.lower():
-        raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
+    if recipient_user_id:
+        if recipient_user_id != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
+    elif recipient_email:
+        if recipient_email.lower() != current_user.email.lower():
+            raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
 
     tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"], "creator_id": gift["creator_id"], "active": True})
     if not tier:
@@ -5266,7 +5265,7 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
     gifts = await db.gift_subscriptions.find(
         {"giver_id": current_user.user_id},
         {"_id": 0}
-    ).sort("created_at", -1).to_list(MAX_GIFT_HISTORY)
+    ).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
 
     tier_ids = {gift["tier_id"] for gift in gifts}
     tiers_map = {}
@@ -5297,7 +5296,7 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
 @api_router.get("/subscriptions/gifts/received")
 async def get_received_gifts(current_user: User = Depends(require_auth)):
     criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": current_user.email.lower()}]}
-    gifts = await db.gift_subscriptions.find(criteria, {"_id": 0}).sort("created_at", -1).to_list(MAX_GIFT_HISTORY)
+    gifts = await db.gift_subscriptions.find(criteria, {"_id": 0}).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
 
     tier_ids = {gift["tier_id"] for gift in gifts}
     tiers_map = {}
