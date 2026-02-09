@@ -273,6 +273,10 @@ async def create_indexes():
     await safe_create_index(db.messages, [("conversation_id", 1), ("created_at", -1)], background=True, name="messages_conv_created")
     await safe_create_index(db.messages, [("conversation_id", 1), ("read", 1)], background=True, name="messages_conv_read")
     await safe_create_index(db.messages, [("content", "text")], background=True, name="messages_content_text")
+    await safe_create_index(db.gift_subscriptions, "gift_id", unique=True, background=True, name="gifts_gift_id_unique")
+    await safe_create_index(db.gift_subscriptions, "giver_id", background=True, name="gifts_giver_id")
+    await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, sparse=True, name="gifts_recipient_user_id")
+    await safe_create_index(db.gift_subscriptions, "recipient_email", background=True, sparse=True, name="gifts_recipient_email")
     
     # ========== CONVERSATIONS COLLECTION ==========
     await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
@@ -5223,7 +5227,6 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         "gift_id": gift_id,
         "gifted_by": gift["giver_id"],
         "started_at": now,
-        "next_billing": now + timedelta(days=30),
         "created_at": now
     })
 
@@ -5264,7 +5267,21 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
 async def get_sent_gifts(current_user: User = Depends(require_auth)):
     gifts = await db.gift_subscriptions.find(
         {"giver_id": current_user.user_id},
-        {"_id": 0}
+        {
+            "_id": 0,
+            "gift_id": 1,
+            "giver_id": 1,
+            "creator_id": 1,
+            "tier_id": 1,
+            "recipient_user_id": 1,
+            "recipient_email": 1,
+            "gift_message": 1,
+            "status": 1,
+            "created_at": 1,
+            "redeemed_at": 1,
+            "redeemed_by": 1,
+            "subscription_id": 1
+        }
     ).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
 
     tier_ids = {gift["tier_id"] for gift in gifts}
@@ -5296,7 +5313,24 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
 @api_router.get("/subscriptions/gifts/received")
 async def get_received_gifts(current_user: User = Depends(require_auth)):
     criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": current_user.email.lower()}]}
-    gifts = await db.gift_subscriptions.find(criteria, {"_id": 0}).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
+    gifts = await db.gift_subscriptions.find(
+        criteria,
+        {
+            "_id": 0,
+            "gift_id": 1,
+            "giver_id": 1,
+            "creator_id": 1,
+            "tier_id": 1,
+            "recipient_user_id": 1,
+            "recipient_email": 1,
+            "gift_message": 1,
+            "status": 1,
+            "created_at": 1,
+            "redeemed_at": 1,
+            "redeemed_by": 1,
+            "subscription_id": 1
+        }
+    ).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
 
     tier_ids = {gift["tier_id"] for gift in gifts}
     tiers_map = {}
