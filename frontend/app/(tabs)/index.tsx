@@ -682,9 +682,9 @@ export default function HomeScreen() {
   const keyExtractor = useCallback((item: Post) => item.post_id, []);
 
   const getItemType = useCallback((item: Post) => {
+    if (item.template_type) return 'template';
     if (item.media_url) return 'media';
     if (item.has_poll) return 'poll';
-    if (item.template_type) return 'template';
     return 'text';
   }, []);
 

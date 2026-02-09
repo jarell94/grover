@@ -1651,8 +1651,8 @@ async def create_post(
     location = sanitize_string(location or "", 200, "location") if location else None
     poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
     sanitized_template_type = sanitize_string(template_type or "", 50, "template_type").lower() if template_type else ""
-    template_type = sanitized_template_type or None
-    if template_type and template_type not in QUOTE_TEMPLATE_TYPES:
+    template_type_value = sanitized_template_type or None
+    if template_type_value and template_type_value not in QUOTE_TEMPLATE_TYPES:
         raise HTTPException(status_code=400, detail="Invalid template type")
     
     # Validate that at least some content exists
@@ -1710,7 +1710,7 @@ async def create_post(
         for key in ALLOWED_TEMPLATE_STYLE_KEYS:
             if template_style_data.get(key):
                 sanitized_style[key] = sanitize_string(str(template_style_data[key]), 50, key)
-        template_style_data = sanitized_style or None
+        template_style_data = sanitized_style
     
     post_id = f"post_{uuid.uuid4().hex[:12]}"
     post_data = {
@@ -1739,9 +1739,9 @@ async def create_post(
         post_data["poll_votes"] = {str(i): 0 for i in range(len(poll_options_list))}
         post_data["poll_expires_at"] = poll_expires_at
 
-    if template_type:
-        post_data["template_type"] = template_type
-        if template_style_data:
+    if template_type_value:
+        post_data["template_type"] = template_type_value
+        if template_style_data is not None:
             post_data["template_style"] = template_style_data
     
     await db.posts.insert_one(post_data)
