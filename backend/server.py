@@ -5224,11 +5224,13 @@ async def gift_subscription(
     )
 
     if recipient_user:
-        message_suffix = f' "{gift_message}"' if gift_message else ""
+        safe_tier_name = sanitize_string(tier["name"], MAX_NAME_LENGTH, "tier name")
+        safe_message = gift_message.replace('"', "'") if gift_message else None
+        message_suffix = f" Message: {safe_message}" if safe_message else ""
         await create_and_send_notification(
             recipient_user["user_id"],
             "subscription",
-            f"You received a gift subscription to {tier['name']}!{message_suffix}",
+            f"You received a gift subscription to {safe_tier_name}!{message_suffix}",
             gift_id,
             current_user.user_id
         )
@@ -5291,10 +5293,12 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         {"$set": {"status": "redeemed", "redeemed_at": now, "redeemed_by": current_user.user_id, "subscription_id": subscription_id}}
     )
 
+    safe_recipient_name = sanitize_string(current_user.name, MAX_NAME_LENGTH, "recipient name")
+    safe_tier_name = sanitize_string(tier["name"], MAX_NAME_LENGTH, "tier name")
     await create_and_send_notification(
         gift["creator_id"],
         "subscription",
-        f"{current_user.name} redeemed a gifted subscription to {tier['name']}! (+${split['creator_payout']:.2f})",
+        f"{safe_recipient_name} redeemed a gifted subscription to {safe_tier_name}! (+${split['creator_payout']:.2f})",
         subscription_id,
         current_user.user_id
     )
@@ -5302,7 +5306,7 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
     await create_and_send_notification(
         gift["giver_id"],
         "subscription",
-        f"Your gift subscription to {current_user.name} was redeemed!",
+        f"Your gift subscription to {safe_recipient_name} was redeemed!",
         gift_id,
         current_user.user_id
     )
