@@ -553,7 +553,7 @@ async def build_creator_metrics(user_id: str, user_doc: Optional[dict] = None) -
     }
 
 async def build_platform_average() -> dict:
-    user_count = await db.users.estimated_document_count()
+    user_count = await db.users.count_documents({})
     if user_count == 0:
         return {"followers": 0, "posts": 0, "engagement": 0, "revenue": 0}
 
@@ -586,6 +586,7 @@ async def build_historical_benchmarks(user_id: str, months: int = 6) -> list:
     for i in range(months - 1, -1, -1):
         month_start = month_start_for_offset(end_date, i)
         month_end = month_start + relativedelta(months=1)
+        # Follow records track when the relationship was created, so this represents new followers.
         followers = await db.follows.count_documents({
             "following_id": user_id,
             "created_at": {"$gte": month_start, "$lt": month_end}
@@ -623,7 +624,7 @@ async def fetch_cohort_groups(start_date: datetime) -> list:
             "count": {"$sum": 1}
         }}
     ]
-    cohorts = await db.users.aggregate(pipeline).to_list(200)
+    cohorts = await db.users.aggregate(pipeline).to_list(None)
     cohorts.sort(key=lambda item: (item["_id"]["year"], item["_id"]["month"]))
     return cohorts
 
@@ -642,7 +643,7 @@ async def build_cohort_metrics(user_ids: list, engagement_months: int = 3) -> di
     active_users = await db.posts.aggregate([
         {"$match": {"user_id": {"$in": user_ids}, "created_at": {"$gte": active_since}}},
         {"$group": {"_id": "$user_id"}}
-    ]).to_list(total_users)
+    ]).to_list(None)
     active_count = len(active_users)
 
     end_date = datetime.now(timezone.utc)
