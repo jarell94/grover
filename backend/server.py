@@ -110,6 +110,7 @@ GIFT_CLAIM_MESSAGE_TEMPLATE = "You received a gift subscription! Claim it here: 
 MAX_GIFT_MESSAGE_LENGTH = 500
 MAX_GIFT_HISTORY = 100
 MAX_GIFT_NOTIFICATION_LENGTH = 160
+ACTIVE_COHORT_DAYS = 30
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -586,7 +587,7 @@ async def build_historical_benchmarks(user_id: str, months: int = 6) -> list:
     for i in range(months - 1, -1, -1):
         month_start = month_start_for_offset(end_date, i)
         month_end = month_start + relativedelta(months=1)
-        # Follow records track when the relationship was created, so this represents new followers.
+        # Follow records tracked when the relationship was created, so this represents new followers.
         followers = await db.follows.count_documents({
             "following_id": user_id,
             "created_at": {"$gte": month_start, "$lt": month_end}
@@ -639,7 +640,7 @@ async def build_cohort_metrics(user_ids: list, engagement_months: int = 3) -> di
             "revenue_total": 0,
             "ltv": 0,
         }
-    active_since = datetime.now(timezone.utc) - timedelta(days=30)
+    active_since = datetime.now(timezone.utc) - timedelta(days=ACTIVE_COHORT_DAYS)
     active_users = await db.posts.aggregate([
         {"$match": {"user_id": {"$in": user_ids}, "created_at": {"$gte": active_since}}},
         {"$group": {"_id": "$user_id"}}
