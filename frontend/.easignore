@@ -1,0 +1,5 @@
+# EAS Ignore File
+# Skip update publishing
+.git
+node_modules
+*.log
