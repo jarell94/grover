@@ -102,6 +102,7 @@ STRIPE_CONNECT_REFRESH_URL = os.getenv("STRIPE_CONNECT_REFRESH_URL", "http://loc
 STRIPE_CONNECT_RETURN_URL = os.getenv("STRIPE_CONNECT_RETURN_URL", "http://localhost:3000/stripe/return")
 stripe.api_key = STRIPE_SECRET_KEY
 MIN_TIP_AMOUNT = 1.0
+MAX_GIFT_MESSAGE_LENGTH = 500
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -455,6 +456,33 @@ async def ensure_stripe_price(tier: dict, creator_id: str) -> str:
     )
     return price.id
 
+async def resolve_gift_recipient(recipient_email: Optional[str], recipient_username: Optional[str]) -> tuple:
+    if not recipient_email and not recipient_username:
+        raise HTTPException(status_code=400, detail="Recipient email or username is required")
+
+    recipient_user = None
+    email_value = None
+
+    if recipient_email:
+        email_value = sanitize_string(recipient_email, 100, "recipient email")
+        if email_value and "@" not in email_value:
+            raise HTTPException(status_code=400, detail="Invalid recipient email")
+        email_value = email_value.lower()
+        recipient_user = await db.users.find_one({"email": email_value}, {"_id": 0})
+
+    if recipient_username:
+        validate_id(recipient_username, "recipient_username")
+        username_user = await db.users.find_one({"user_id": recipient_username}, {"_id": 0})
+        if recipient_user and username_user and recipient_user.get("user_id") != username_user.get("user_id"):
+            raise HTTPException(status_code=400, detail="Recipient email and username do not match")
+        if username_user:
+            recipient_user = username_user
+
+    if not recipient_user and not email_value:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+    return recipient_user, email_value
+
 async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
     """Create a notification only if user has that type enabled"""
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -733,6 +761,12 @@ class StripeRefundRequest(BaseModel):
 class StripePayoutRequest(BaseModel):
     amount: float
     currency: Optional[str] = STRIPE_DEFAULT_CURRENCY
+
+class GiftSubscriptionRequest(BaseModel):
+    tier_id: str
+    recipient_email: Optional[str] = None
+    recipient_username: Optional[str] = None
+    gift_message: Optional[str] = None
 
 class Notification(BaseModel):
     notification_id: str
@@ -5080,6 +5114,181 @@ async def subscribe_to_creator(
         "creator_receives": split["creator_payout"],
         "next_billing": (now + timedelta(days=30)).isoformat()
     }
+
+
+@api_router.post("/creators/{user_id}/gift-subscriptions")
+async def gift_subscription(
+    user_id: str,
+    payload: GiftSubscriptionRequest,
+    current_user: User = Depends(require_auth)
+):
+    """Gift a subscription to another user."""
+    if user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Cannot gift a subscription to yourself")
+
+    await check_monetization_enabled(user_id, "subscriptions")
+
+    tier = await db.subscription_tiers.find_one({"tier_id": payload.tier_id, "creator_id": user_id, "active": True})
+    if not tier:
+        raise HTTPException(status_code=404, detail="Subscription tier not found")
+
+    recipient_user, recipient_email = await resolve_gift_recipient(
+        payload.recipient_email,
+        payload.recipient_username
+    )
+
+    if recipient_user and recipient_user.get("user_id") == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Cannot gift a subscription to yourself")
+
+    if recipient_user:
+        existing = await db.creator_subscriptions.find_one({
+            "subscriber_id": recipient_user["user_id"],
+            "creator_id": user_id,
+            "status": "active"
+        })
+        if existing:
+            raise HTTPException(status_code=400, detail="Recipient is already subscribed")
+
+    gift_message = None
+    if payload.gift_message:
+        gift_message = sanitize_string(payload.gift_message, MAX_GIFT_MESSAGE_LENGTH, "gift message")
+
+    gift_id = f"gift_{uuid.uuid4().hex[:12]}"
+    await db.gift_subscriptions.insert_one({
+        "gift_id": gift_id,
+        "giver_id": current_user.user_id,
+        "creator_id": user_id,
+        "tier_id": payload.tier_id,
+        "recipient_user_id": recipient_user.get("user_id") if recipient_user else None,
+        "recipient_email": recipient_email,
+        "gift_message": gift_message,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc)
+    })
+
+    if recipient_user:
+        await create_and_send_notification(
+            recipient_user["user_id"],
+            "subscription",
+            f"You received a gift subscription to {tier['name']}!{f' \"{gift_message}\"' if gift_message else ''}",
+            gift_id,
+            current_user.user_id
+        )
+
+    return {"gift_id": gift_id, "status": "pending"}
+
+
+@api_router.post("/subscriptions/gifts/{gift_id}/redeem")
+async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(require_auth)):
+    """Redeem a gifted subscription."""
+    gift = await db.gift_subscriptions.find_one({"gift_id": gift_id}, {"_id": 0})
+    if not gift:
+        raise HTTPException(status_code=404, detail="Gift not found")
+    if gift.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Gift already redeemed")
+
+    recipient_user_id = gift.get("recipient_user_id")
+    recipient_email = gift.get("recipient_email")
+
+    if recipient_user_id and recipient_user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
+    if recipient_email and recipient_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
+
+    tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"], "creator_id": gift["creator_id"], "active": True})
+    if not tier:
+        raise HTTPException(status_code=404, detail="Subscription tier not found")
+
+    existing = await db.creator_subscriptions.find_one({
+        "subscriber_id": current_user.user_id,
+        "creator_id": gift["creator_id"],
+        "status": "active"
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Already subscribed to this creator")
+
+    split = calculate_revenue_split(tier["price"], "subscriptions")
+    subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+
+    await db.creator_subscriptions.insert_one({
+        "subscription_id": subscription_id,
+        "subscriber_id": current_user.user_id,
+        "creator_id": gift["creator_id"],
+        "tier_id": gift["tier_id"],
+        "amount": tier["price"],
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "status": "active",
+        "gift_id": gift_id,
+        "gifted_by": gift["giver_id"],
+        "started_at": now,
+        "next_billing": now + timedelta(days=30),
+        "created_at": now
+    })
+
+    await db.gift_subscriptions.update_one(
+        {"gift_id": gift_id},
+        {"$set": {"status": "redeemed", "redeemed_at": now, "redeemed_by": current_user.user_id, "subscription_id": subscription_id}}
+    )
+
+    await record_transaction(
+        "subscriptions",
+        tier["price"],
+        gift["giver_id"],
+        gift["creator_id"],
+        subscription_id,
+        {"tier_id": gift["tier_id"], "gift_id": gift_id, "recipient_id": current_user.user_id}
+    )
+
+    await create_and_send_notification(
+        gift["creator_id"],
+        "subscription",
+        f"{current_user.name} redeemed a gifted subscription to {tier['name']}! (+${split['creator_payout']:.2f})",
+        subscription_id,
+        current_user.user_id
+    )
+
+    await create_and_send_notification(
+        gift["giver_id"],
+        "subscription",
+        f"Your gift subscription to {current_user.name} was redeemed!",
+        gift_id,
+        current_user.user_id
+    )
+
+    return {"subscription_id": subscription_id, "status": "active"}
+
+
+@api_router.get("/subscriptions/gifts/sent")
+async def get_sent_gifts(current_user: User = Depends(require_auth)):
+    gifts = await db.gift_subscriptions.find(
+        {"giver_id": current_user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+
+    for gift in gifts:
+        tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"]}, {"_id": 0})
+        gift["tier"] = tier
+        if gift.get("recipient_user_id"):
+            recipient = await db.users.find_one({"user_id": gift["recipient_user_id"]}, {"_id": 0, "name": 1, "picture": 1})
+            gift["recipient"] = recipient
+
+    return gifts
+
+
+@api_router.get("/subscriptions/gifts/received")
+async def get_received_gifts(current_user: User = Depends(require_auth)):
+    criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": current_user.email.lower()}]}
+    gifts = await db.gift_subscriptions.find(criteria, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+    for gift in gifts:
+        tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"]}, {"_id": 0})
+        gift["tier"] = tier
+        giver = await db.users.find_one({"user_id": gift["giver_id"]}, {"_id": 0, "name": 1, "picture": 1})
+        gift["giver"] = giver
+
+    return gifts
 
 
 @api_router.delete("/subscriptions/{subscription_id}")
