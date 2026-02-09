@@ -230,6 +230,20 @@ export default function ProfileScreen() {
     );
   }
 
+  const hasSocialLinks = [
+    user.website,
+    user.twitter,
+    user.instagram,
+    user.linkedin,
+    user.github,
+    user.youtube,
+    user.tiktok,
+    user.facebook,
+    user.snapchat,
+    user.discord,
+    user.twitch,
+  ].some(Boolean);
+
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => (
     <>
@@ -253,7 +267,7 @@ export default function ProfileScreen() {
         <Text style={styles.email}>{user.email}</Text>
         {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
-        {(user.website || user.twitter || user.instagram || user.linkedin || user.github || user.youtube || user.tiktok || user.facebook || user.snapchat || user.discord || user.twitch) && (
+        {hasSocialLinks && (
           <View style={styles.socialLinks}>
             {user.website && (
               <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.website)}>
