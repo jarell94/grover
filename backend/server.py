@@ -511,6 +511,9 @@ def build_gift_claim_url(gift_id: str) -> str:
 def format_cohort_label(year: int, month: int) -> str:
     return f"{year:04d}-{month:02d}"
 
+def month_start_for_offset(end_date: datetime, offset: int) -> datetime:
+    return (end_date - relativedelta(months=offset)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
 async def build_creator_metrics(user_id: str, user_doc: Optional[dict] = None) -> dict:
     user_doc = user_doc or await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "category": 1, "total_earnings": 1})
     if not user_doc:
@@ -550,7 +553,7 @@ async def build_creator_metrics(user_id: str, user_doc: Optional[dict] = None) -
     }
 
 async def build_platform_average() -> dict:
-    user_count = await db.users.count_documents({})
+    user_count = await db.users.estimated_document_count()
     if user_count == 0:
         return {"followers": 0, "posts": 0, "engagement": 0, "revenue": 0}
 
@@ -581,7 +584,7 @@ async def build_historical_benchmarks(user_id: str, months: int = 6) -> list:
     end_date = datetime.now(timezone.utc)
     results = []
     for i in range(months - 1, -1, -1):
-        month_start = (end_date - relativedelta(months=i)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = month_start_for_offset(end_date, i)
         month_end = month_start + relativedelta(months=1)
         followers = await db.follows.count_documents({
             "following_id": user_id,
@@ -645,7 +648,7 @@ async def build_cohort_metrics(user_ids: list, engagement_months: int = 3) -> di
     end_date = datetime.now(timezone.utc)
     engagement_trend = []
     for i in range(engagement_months - 1, -1, -1):
-        month_start = (end_date - relativedelta(months=i)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = month_start_for_offset(end_date, i)
         month_end = month_start + relativedelta(months=1)
         stats = await db.posts.aggregate([
             {"$match": {"user_id": {"$in": user_ids}, "created_at": {"$gte": month_start, "$lt": month_end}}},
@@ -668,7 +671,7 @@ async def build_cohort_metrics(user_ids: list, engagement_months: int = 3) -> di
         {"$group": {"_id": None, "total": {"$sum": "$creator_payout"}}}
     ]).to_list(1)
     revenue_total = revenue_stats[0]["total"] if revenue_stats else 0
-    ltv = round(revenue_total / total_users, 2)
+    ltv = round(revenue_total / total_users, 2) if total_users else 0
     return {
         "total_users": total_users,
         "active_users": active_count,
@@ -5994,7 +5997,7 @@ async def get_cohort_analytics(
 ):
     months = max(1, min(months, 12))
     engagement_months = max(1, min(engagement_months, 6))
-    start_date = (datetime.now(timezone.utc) - relativedelta(months=months - 1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    start_date = month_start_for_offset(datetime.now(timezone.utc), months - 1)
     cohorts = await fetch_cohort_groups(start_date)
     cohort_results = []
     for cohort in cohorts:
