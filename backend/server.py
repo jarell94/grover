@@ -103,6 +103,7 @@ STRIPE_CONNECT_RETURN_URL = os.getenv("STRIPE_CONNECT_RETURN_URL", "http://local
 stripe.api_key = STRIPE_SECRET_KEY
 MIN_TIP_AMOUNT = 1.0
 MAX_GIFT_MESSAGE_LENGTH = 500
+MAX_GIFT_HISTORY = 100
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -5265,14 +5266,30 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
     gifts = await db.gift_subscriptions.find(
         {"giver_id": current_user.user_id},
         {"_id": 0}
-    ).sort("created_at", -1).to_list(100)
+    ).sort("created_at", -1).to_list(MAX_GIFT_HISTORY)
+
+    tier_ids = {gift["tier_id"] for gift in gifts}
+    tiers_map = {}
+    if tier_ids:
+        tiers = await db.subscription_tiers.find(
+            {"tier_id": {"$in": list(tier_ids)}},
+            {"_id": 0}
+        ).to_list(len(tier_ids))
+        tiers_map = {tier["tier_id"]: tier for tier in tiers}
+
+    recipients_map = {}
+    recipient_ids = {gift["recipient_user_id"] for gift in gifts if gift.get("recipient_user_id")}
+    if recipient_ids:
+        recipients = await db.users.find(
+            {"user_id": {"$in": list(recipient_ids)}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+        ).to_list(len(recipient_ids))
+        recipients_map = {recipient["user_id"]: recipient for recipient in recipients}
 
     for gift in gifts:
-        tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"]}, {"_id": 0})
-        gift["tier"] = tier
+        gift["tier"] = tiers_map.get(gift["tier_id"])
         if gift.get("recipient_user_id"):
-            recipient = await db.users.find_one({"user_id": gift["recipient_user_id"]}, {"_id": 0, "name": 1, "picture": 1})
-            gift["recipient"] = recipient
+            gift["recipient"] = recipients_map.get(gift["recipient_user_id"])
 
     return gifts
 
@@ -5280,13 +5297,29 @@ async def get_sent_gifts(current_user: User = Depends(require_auth)):
 @api_router.get("/subscriptions/gifts/received")
 async def get_received_gifts(current_user: User = Depends(require_auth)):
     criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": current_user.email.lower()}]}
-    gifts = await db.gift_subscriptions.find(criteria, {"_id": 0}).sort("created_at", -1).to_list(100)
+    gifts = await db.gift_subscriptions.find(criteria, {"_id": 0}).sort("created_at", -1).to_list(MAX_GIFT_HISTORY)
+
+    tier_ids = {gift["tier_id"] for gift in gifts}
+    tiers_map = {}
+    if tier_ids:
+        tiers = await db.subscription_tiers.find(
+            {"tier_id": {"$in": list(tier_ids)}},
+            {"_id": 0}
+        ).to_list(len(tier_ids))
+        tiers_map = {tier["tier_id"]: tier for tier in tiers}
+
+    givers_map = {}
+    giver_ids = {gift["giver_id"] for gift in gifts}
+    if giver_ids:
+        givers = await db.users.find(
+            {"user_id": {"$in": list(giver_ids)}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+        ).to_list(len(giver_ids))
+        givers_map = {giver["user_id"]: giver for giver in givers}
 
     for gift in gifts:
-        tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"]}, {"_id": 0})
-        gift["tier"] = tier
-        giver = await db.users.find_one({"user_id": gift["giver_id"]}, {"_id": 0, "name": 1, "picture": 1})
-        gift["giver"] = giver
+        gift["tier"] = tiers_map.get(gift["tier_id"])
+        gift["giver"] = givers_map.get(gift["giver_id"])
 
     return gifts
 
