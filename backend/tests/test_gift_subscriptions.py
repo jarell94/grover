@@ -102,6 +102,8 @@ async def test_gift_subscription_creates_payment_intent(monkeypatch, mock_db, ov
     assert response.json()["client_secret"] == "secret"
     mock_db.gift_subscriptions.insert_one.assert_awaited()
     customer_create.assert_not_called()
+    gift_payload = mock_db.gift_subscriptions.insert_one.call_args.args[0]
+    assert gift_payload["duration_months"] == 3
 
 
 @pytest.mark.asyncio

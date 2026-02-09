@@ -5284,6 +5284,7 @@ async def gift_subscription(
     }
     if recipient_user:
         metadata["recipient_user_id"] = recipient_user.get("user_id")
+    # Metadata only includes recipient when the account exists; email-only gifts are claimed later.
     intent = stripe.PaymentIntent.create(
         amount=stripe_amount(total_amount, min_amount=MIN_GIFT_AMOUNT),
         currency=STRIPE_DEFAULT_CURRENCY,
@@ -5306,7 +5307,7 @@ async def gift_subscription(
         "platform_fee": split["platform_fee"],
         "creator_payout": split["creator_payout"],
         "status": "pending_payment",
-        "payment_status": "pending",
+        "payment_status": "pending",  # Stripe payment status separate from redemption status
         "stripe_payment_intent_id": intent.id,
         "created_at": now
     })
@@ -5326,7 +5327,6 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
             "pending_payment": "This gift has not been paid for yet.",
             "failed": "This gift payment failed.",
             "redeemed": "This gift has already been redeemed.",
-            "paid": "This gift has already been redeemed.",
         }
         raise HTTPException(status_code=400, detail=status_messages.get(status, "Gift cannot be redeemed."))
 
