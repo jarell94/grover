@@ -96,7 +96,7 @@ async def test_stripe_webhook_gift_payment(monkeypatch, mock_db):
                     "type": "gift_subscription",
                     "gift_id": "gift_456",
                     "creator_id": "creator_123",
-                    "sender_id": "user_123",
+                    "giver_id": "user_123",
                     "recipient_user_id": "user_456",
                     "amount": "10.00",
                     "tier_id": "tier_123",

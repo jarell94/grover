@@ -277,9 +277,6 @@ async def create_indexes():
     await safe_create_index(db.messages, [("conversation_id", 1), ("created_at", -1)], background=True, name="messages_conv_created")
     await safe_create_index(db.messages, [("conversation_id", 1), ("read", 1)], background=True, name="messages_conv_read")
     await safe_create_index(db.messages, [("content", "text")], background=True, name="messages_content_text")
-    await safe_create_index(db.gift_subscriptions, "gift_id", unique=True, background=True, name="gift_id_unique")
-    await safe_create_index(db.gift_subscriptions, "sender_id", background=True, name="gift_sender")
-    await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, name="gift_recipient")
     await safe_create_index(db.gift_subscriptions, "gift_id", unique=True, background=True, name="gifts_gift_id_unique")
     await safe_create_index(db.gift_subscriptions, "giver_id", background=True, name="gifts_giver_id")
     await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, sparse=True, name="gifts_recipient_user_id")
@@ -3085,7 +3082,7 @@ async def stripe_webhook(request: Request):
                 await record_transaction(
                     "subscriptions",
                     amount,
-                    metadata.get("sender_id"),
+                    metadata.get("giver_id") or metadata.get("sender_id"),
                     metadata.get("creator_id"),
                     gift_id,
                     {"gift_id": gift_id, "tier_id": metadata.get("tier_id")}
@@ -5276,7 +5273,7 @@ async def gift_subscription(
             "type": "gift_subscription",
             "gift_id": gift_id,
             "creator_id": user_id,
-            "sender_id": current_user.user_id,
+            "giver_id": current_user.user_id,
             "recipient_user_id": recipient_user.get("user_id") if recipient_user else "",
             "duration_months": str(payload.duration_months),
             "amount": str(total_amount),
@@ -5336,7 +5333,13 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         raise HTTPException(status_code=400, detail="Already subscribed to this creator")
 
     duration_months = gift.get("duration_months", 1)
-    split = calculate_revenue_split(tier["price"] * duration_months, "subscriptions")
+    gift_amount = gift.get("amount", tier["price"] * duration_months)
+    platform_fee = gift.get("platform_fee")
+    creator_payout = gift.get("creator_payout")
+    if platform_fee is None or creator_payout is None:
+        split = calculate_revenue_split(gift_amount, "subscriptions")
+        platform_fee = split["platform_fee"]
+        creator_payout = split["creator_payout"]
     subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
     ends_at = now + timedelta(days=30 * duration_months)
@@ -5346,9 +5349,9 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
         "subscriber_id": current_user.user_id,
         "creator_id": gift["creator_id"],
         "tier_id": gift["tier_id"],
-        "amount": tier["price"] * duration_months,
-        "platform_fee": split["platform_fee"],
-        "creator_payout": split["creator_payout"],
+        "amount": gift_amount,
+        "platform_fee": platform_fee,
+        "creator_payout": creator_payout,
         "status": "active",
         "gift_id": gift_id,
         "gifted_by": gift["giver_id"],
@@ -5367,7 +5370,7 @@ async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(re
     await create_and_send_notification(
         gift["creator_id"],
         "subscription",
-        f"{safe_recipient_name} redeemed a gifted subscription to {safe_tier_name}! (+${split['creator_payout']:.2f})",
+        f"{safe_recipient_name} redeemed a gifted subscription to {safe_tier_name}! (+${creator_payout:.2f})",
         subscription_id,
         current_user.user_id
     )
