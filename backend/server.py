@@ -879,6 +879,13 @@ class User(BaseModel):
     twitter: Optional[str] = None
     instagram: Optional[str] = None
     linkedin: Optional[str] = None
+    github: Optional[str] = None
+    youtube: Optional[str] = None
+    tiktok: Optional[str] = None
+    facebook: Optional[str] = None
+    snapchat: Optional[str] = None
+    discord: Optional[str] = None
+    twitch: Optional[str] = None
     paypal_email: Optional[str] = None
     stripe_account_id: Optional[str] = None
     stripe_customer_id: Optional[str] = None
@@ -1241,6 +1248,13 @@ async def update_profile(
     twitter: Optional[str] = None,
     instagram: Optional[str] = None,
     linkedin: Optional[str] = None,
+    github: Optional[str] = None,
+    youtube: Optional[str] = None,
+    tiktok: Optional[str] = None,
+    facebook: Optional[str] = None,
+    snapchat: Optional[str] = None,
+    discord: Optional[str] = None,
+    twitch: Optional[str] = None,
     paypal_email: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
@@ -1269,6 +1283,20 @@ async def update_profile(
         update_data["instagram"] = sanitize_string(instagram, 50, "instagram")
     if linkedin is not None:
         update_data["linkedin"] = sanitize_string(linkedin, 100, "linkedin")
+    if github is not None:
+        update_data["github"] = sanitize_string(github, 100, "github")
+    if youtube is not None:
+        update_data["youtube"] = sanitize_string(youtube, 100, "youtube")
+    if tiktok is not None:
+        update_data["tiktok"] = sanitize_string(tiktok, 100, "tiktok")
+    if facebook is not None:
+        update_data["facebook"] = sanitize_string(facebook, 100, "facebook")
+    if snapchat is not None:
+        update_data["snapchat"] = sanitize_string(snapchat, 100, "snapchat")
+    if discord is not None:
+        update_data["discord"] = sanitize_string(discord, 100, "discord")
+    if twitch is not None:
+        update_data["twitch"] = sanitize_string(twitch, 100, "twitch")
     if paypal_email is not None:
         paypal_email = sanitize_string(paypal_email, 100, "paypal_email")
         # Basic email validation
