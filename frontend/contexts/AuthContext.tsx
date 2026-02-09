@@ -23,6 +23,13 @@ interface User {
   twitter?: string;
   instagram?: string;
   linkedin?: string;
+  github?: string;
+  youtube?: string;
+  tiktok?: string;
+  facebook?: string;
+  snapchat?: string;
+  discord?: string;
+  twitch?: string;
   paypal_email?: string;
   monetization_enabled?: boolean;
   follower_count?: number;

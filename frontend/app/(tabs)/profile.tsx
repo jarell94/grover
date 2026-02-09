@@ -30,6 +30,27 @@ const openUrl = async (url: string) => {
   else Alert.alert("Invalid link", "This link can't be opened.");
 };
 
+const hasValidUrlFormat = (value: string) => /^https?:\/\//i.test(value) || /^[\w.-]+\.[a-z]{2,}/i.test(value);
+
+const buildSocialUrl = (value: string, base: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (hasValidUrlFormat(trimmed)) return trimmed;
+  const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  return `${base}${handle}`;
+};
+
+const buildDiscordUrl = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (hasValidUrlFormat(trimmed)) return trimmed;
+  // Discord user IDs are typically 17-19 digit snowflakes; profile links may depend on user privacy settings.
+  if (/^\d{17,19}$/.test(trimmed)) return `https://discord.com/users/${trimmed}`;
+  // Non-numeric values are treated as server invite codes; use full profile URLs for usernames.
+  const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  return `https://discord.gg/${handle}`;
+};
+
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 export default function ProfileScreen() {
@@ -45,6 +66,13 @@ export default function ProfileScreen() {
   const [twitter, setTwitter] = useState(user?.twitter || '');
   const [instagram, setInstagram] = useState(user?.instagram || '');
   const [linkedin, setLinkedin] = useState(user?.linkedin || '');
+  const [github, setGithub] = useState(user?.github || '');
+  const [youtube, setYoutube] = useState(user?.youtube || '');
+  const [tiktok, setTiktok] = useState(user?.tiktok || '');
+  const [facebook, setFacebook] = useState(user?.facebook || '');
+  const [snapchat, setSnapchat] = useState(user?.snapchat || '');
+  const [discord, setDiscord] = useState(user?.discord || '');
+  const [twitch, setTwitch] = useState(user?.twitch || '');
   const [paypalEmail, setPaypalEmail] = useState(user?.paypal_email || '');
   const [monetizationEnabled, setMonetizationEnabled] = useState(user?.monetization_enabled || false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
@@ -70,6 +98,13 @@ export default function ProfileScreen() {
       setTwitter(user.twitter || '');
       setInstagram(user.instagram || '');
       setLinkedin(user.linkedin || '');
+      setGithub(user.github || '');
+      setYoutube(user.youtube || '');
+      setTiktok(user.tiktok || '');
+      setFacebook(user.facebook || '');
+      setSnapchat(user.snapchat || '');
+      setDiscord(user.discord || '');
+      setTwitch(user.twitch || '');
       setPaypalEmail(user.paypal_email || '');
       setMonetizationEnabled(user.monetization_enabled || false);
     }
@@ -112,6 +147,13 @@ export default function ProfileScreen() {
         twitter,
         instagram,
         linkedin,
+        github,
+        youtube,
+        tiktok,
+        facebook,
+        snapchat,
+        discord,
+        twitch,
         paypal_email: paypalEmail.trim()
       });
       await refreshUser();
@@ -183,18 +225,28 @@ export default function ProfileScreen() {
     ]);
   };
 
-  if (!user) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
-    );
-  }
+  const hasSocialLinks = useMemo(() => {
+    if (!user) return false;
+    return [
+      user.website,
+      user.twitter,
+      user.instagram,
+      user.linkedin,
+      user.github,
+      user.youtube,
+      user.tiktok,
+      user.facebook,
+      user.snapchat,
+      user.discord,
+      user.twitch,
+    ].some(Boolean);
+  }, [user]);
 
   // Profile Header Component (for FlatList ListHeaderComponent)
-  const ProfileHeader = useMemo(() => (
-    <>
+  const ProfileHeader = useMemo(() => {
+    if (!user) return null;
+    return (
+      <>
       <LinearGradient
         colors={[Colors.gradient.start, Colors.gradient.middle]}
         style={[styles.header, { paddingTop: 24 + insets.top }]}
@@ -215,7 +267,7 @@ export default function ProfileScreen() {
         <Text style={styles.email}>{user.email}</Text>
         {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
-        {(user.website || user.twitter || user.instagram || user.linkedin) && (
+        {hasSocialLinks && (
           <View style={styles.socialLinks}>
             {user.website && (
               <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.website)}>
@@ -239,6 +291,48 @@ export default function ProfileScreen() {
               <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.linkedin)}>
                 <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
                 <Text style={styles.socialLinkText}>{user.linkedin}</Text>
+              </TouchableOpacity>
+            )}
+            {user.github && (
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.github, 'https://github.com/'))}>
+                <Ionicons name="logo-github" size={20} color="#181717" />
+                <Text style={styles.socialLinkText}>{user.github}</Text>
+              </TouchableOpacity>
+            )}
+            {user.youtube && (
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.youtube, 'https://youtube.com/@'))}>
+                <Ionicons name="logo-youtube" size={20} color="#FF0000" />
+                <Text style={styles.socialLinkText}>{user.youtube}</Text>
+              </TouchableOpacity>
+            )}
+            {user.tiktok && (
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.tiktok, 'https://www.tiktok.com/@'))}>
+                <Ionicons name="logo-tiktok" size={20} color="#000000" />
+                <Text style={styles.socialLinkText}>{user.tiktok}</Text>
+              </TouchableOpacity>
+            )}
+            {user.facebook && (
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.facebook, 'https://www.facebook.com/'))}>
+                <Ionicons name="logo-facebook" size={20} color="#1877F2" />
+                <Text style={styles.socialLinkText}>{user.facebook}</Text>
+              </TouchableOpacity>
+            )}
+            {user.snapchat && (
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.snapchat, 'https://www.snapchat.com/add/'))}>
+                <Ionicons name="logo-snapchat" size={20} color="#FFFC00" />
+                <Text style={styles.socialLinkText}>{user.snapchat}</Text>
+              </TouchableOpacity>
+            )}
+            {user.discord && (
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildDiscordUrl(user.discord))}>
+                <Ionicons name="logo-discord" size={20} color="#5865F2" />
+                <Text style={styles.socialLinkText}>{user.discord}</Text>
+              </TouchableOpacity>
+            )}
+            {user.twitch && (
+              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(buildSocialUrl(user.twitch, 'https://twitch.tv/'))}>
+                <Ionicons name="logo-twitch" size={20} color="#9146FF" />
+                <Text style={styles.socialLinkText}>{user.twitch}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -277,11 +371,14 @@ export default function ProfileScreen() {
         scrollEnabled={false}
       />
     </>
-  ), [user, stats, insets.top]);
+    );
+  }, [user, stats, insets.top, hasSocialLinks]);
 
   // Profile Footer Component (Quick Actions + Account)
-  const ProfileFooter = useMemo(() => (
-    <>
+  const ProfileFooter = useMemo(() => {
+    if (!user) return null;
+    return (
+      <>
       {/* Quick Actions */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -382,7 +479,17 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
     </>
-  ), [user.is_premium, isPrivate, monetizationEnabled]);
+    );
+  }, [user?.is_premium, isPrivate, monetizationEnabled]);
+
+  if (!user) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -483,6 +590,90 @@ export default function ProfileScreen() {
                 placeholderTextColor={Colors.textSecondary}
                 value={linkedin}
                 onChangeText={setLinkedin}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-github" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="GitHub username"
+                placeholderTextColor={Colors.textSecondary}
+                value={github}
+                onChangeText={setGithub}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-youtube" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="YouTube channel handle"
+                placeholderTextColor={Colors.textSecondary}
+                value={youtube}
+                onChangeText={setYoutube}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-tiktok" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="TikTok username"
+                placeholderTextColor={Colors.textSecondary}
+                value={tiktok}
+                onChangeText={setTiktok}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-facebook" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="Facebook username"
+                placeholderTextColor={Colors.textSecondary}
+                value={facebook}
+                onChangeText={setFacebook}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-snapchat" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="Snapchat username"
+                placeholderTextColor={Colors.textSecondary}
+                value={snapchat}
+                onChangeText={setSnapchat}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-discord" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="Discord user ID or invite code"
+                placeholderTextColor={Colors.textSecondary}
+                value={discord}
+                onChangeText={setDiscord}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.socialInputContainer}>
+              <Ionicons name="logo-twitch" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.socialInput}
+                placeholder="Twitch username"
+                placeholderTextColor={Colors.textSecondary}
+                value={twitch}
+                onChangeText={setTwitch}
                 autoCapitalize="none"
               />
             </View>

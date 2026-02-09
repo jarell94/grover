@@ -279,6 +279,22 @@ export const api = {
   // Messages
   getConversations: () => apiRequest('/messages/conversations'),
   getMessages: (userId: string) => apiRequest(`/messages/${userId}`),
+  editMessage: (messageId: string, content: string) => apiRequest(`/messages/${messageId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ content }),
+  }),
+  deleteMessage: (messageId: string, deleteForEveryone = false) => apiRequest(`/messages/${messageId}/delete`, {
+    method: 'POST',
+    body: JSON.stringify({ delete_for_everyone: deleteForEveryone }),
+  }),
+  searchMessages: (params: { query: string; senderId?: string; startDate?: string; endDate?: string }) => {
+    const searchParams = new URLSearchParams();
+    searchParams.set('q', params.query);
+    if (params.senderId) searchParams.set('sender_id', params.senderId);
+    if (params.startDate) searchParams.set('start_date', params.startDate);
+    if (params.endDate) searchParams.set('end_date', params.endDate);
+    return apiRequest(`/messages/search?${searchParams.toString()}`);
+  },
 
   // Analytics
   getRevenue: () => apiRequest('/analytics/revenue'),

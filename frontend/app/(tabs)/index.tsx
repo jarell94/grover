@@ -27,6 +27,51 @@ import MediaDisplay from '../../components/MediaDisplay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+const QUOTE_TEMPLATES = [
+  {
+    id: 'announcement',
+    label: 'Announcement',
+    sample: 'Big announcement! Stay tuned 🎉',
+    backgroundColor: '#1E3A8A',
+    textColor: '#F8FAFC',
+    fontFamily: 'System',
+  },
+  {
+    id: 'poll',
+    label: 'Poll',
+    sample: 'Quick poll: what should I share next?',
+    backgroundColor: '#0F766E',
+    textColor: '#ECFEFF',
+    fontFamily: 'System',
+  },
+  {
+    id: 'question',
+    label: 'Question',
+    sample: 'Question for you: what inspires you today?',
+    backgroundColor: '#7C2D12',
+    textColor: '#FFF7ED',
+    fontFamily: 'System',
+  },
+  {
+    id: 'celebration',
+    label: 'Celebration',
+    sample: 'Celebrating a big win today! 🎊',
+    backgroundColor: '#9D174D',
+    textColor: '#FFF1F2',
+    fontFamily: 'System',
+  },
+];
+
+const TEMPLATE_COLORS = ['#0F172A', '#1E3A8A', '#7C3AED', '#DC2626', '#0F766E', '#9D174D', '#F97316'];
+const TEMPLATE_TEXT_COLORS = ['#F8FAFC', '#E2E8F0', '#0F172A', '#111827', '#FEF9C3', '#FFF7ED'];
+const FONT_OPTIONS = ['System', 'serif', 'sans-serif', 'monospace'];
+
+const DEFAULT_TEMPLATE_STYLE = {
+  backgroundColor: Colors.card,
+  textColor: Colors.text,
+  fontFamily: 'System',
+};
+
 interface Post {
   post_id: string;
   user_id: string;
@@ -54,11 +99,18 @@ interface Post {
   poll_options?: string[];
   poll_votes?: { [key: string]: number };
   poll_expires_at?: string;
+  template_type?: string;
+  template_style?: {
+    background_color?: string;
+    text_color?: string;
+    font_family?: string;
+  };
 }
 
 // Estimated item heights for FlashList
 const ESTIMATED_POST_HEIGHT = 400;
 const ESTIMATED_POST_WITH_MEDIA_HEIGHT = 550;
+const ESTIMATED_TEMPLATE_HEIGHT = 320;
 
 // Memoized Post Component for optimal performance
 const PostCard = memo(({ 
@@ -85,6 +137,10 @@ const PostCard = memo(({
   nextVideoUri?: string;
 }) => {
   const displayPost = item.is_repost && item.original_post ? item.original_post : item;
+  const templateStyle = item.template_style || {};
+  const templateBackground = templateStyle.background_color || Colors.card;
+  const templateTextColor = templateStyle.text_color || Colors.text;
+  const templateFont = templateStyle.font_family || 'System';
   
   return (
     <View style={styles.postCard}>
@@ -119,7 +175,16 @@ const PostCard = memo(({
         </View>
       )}
 
-      <Text style={styles.postContent}>{item.content}</Text>
+      {item.template_type ? (
+        <View style={[styles.templateCard, { backgroundColor: templateBackground }]}>
+          <Text style={styles.templateBadge}>{item.template_type?.toUpperCase()}</Text>
+          <Text style={[styles.templateText, { color: templateTextColor, fontFamily: templateFont }]}>
+            {item.content}
+          </Text>
+        </View>
+      ) : (
+        <Text style={styles.postContent}>{item.content}</Text>
+      )}
 
       {item.location && (
         <View style={styles.postMeta}>
@@ -305,6 +370,8 @@ export default function HomeScreen() {
   const [uploading, setUploading] = useState(false);
   const [taggedUsers, setTaggedUsers] = useState('');
   const [location, setLocation] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [templateStyle, setTemplateStyle] = useState(DEFAULT_TEMPLATE_STYLE);
   const [commentsModalVisible, setCommentsModalVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<any[]>([]);
@@ -321,6 +388,30 @@ export default function HomeScreen() {
   
   // Track visible video posts for auto-play
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
+
+  const activeTemplate = useMemo(
+    () => QUOTE_TEMPLATES.find((template) => template.id === selectedTemplate) || null,
+    [selectedTemplate]
+  );
+
+  const handleTemplateSelect = useCallback((templateId: string) => {
+    if (selectedTemplate === templateId) {
+      setSelectedTemplate(null);
+      setTemplateStyle(DEFAULT_TEMPLATE_STYLE);
+      return;
+    }
+    const template = QUOTE_TEMPLATES.find((item) => item.id === templateId);
+    if (!template) return;
+    setSelectedTemplate(template.id);
+    setTemplateStyle({
+      backgroundColor: template.backgroundColor,
+      textColor: template.textColor,
+      fontFamily: template.fontFamily,
+    });
+    if (!newPostContent.trim()) {
+      setNewPostContent(template.sample);
+    }
+  }, [newPostContent, selectedTemplate]);
   
   // Refs for pagination and list
   const skipRef = useRef(0);
@@ -592,12 +683,17 @@ export default function HomeScreen() {
   const keyExtractor = useCallback((item: Post) => item.post_id, []);
 
   const getItemType = useCallback((item: Post) => {
+    if (item.template_type) return 'template';
     if (item.media_url) return 'media';
     if (item.has_poll) return 'poll';
     return 'text';
   }, []);
 
   const overrideItemLayout = useCallback((layout: any, item: Post) => {
+    if (item.template_type) {
+      layout.size = ESTIMATED_TEMPLATE_HEIGHT;
+      return;
+    }
     layout.size = item.media_url ? ESTIMATED_POST_WITH_MEDIA_HEIGHT : ESTIMATED_POST_HEIGHT;
   }, []);
 
@@ -662,6 +758,8 @@ export default function HomeScreen() {
         pollQuestion: showPollOption ? pollQuestion : undefined,
         pollOptions: showPollOption ? pollOptions : undefined,
         pollDurationHours: showPollOption ? pollDuration : undefined,
+        templateType: selectedTemplate || undefined,
+        templateStyle: selectedTemplate ? templateStyle : undefined,
       });
 
       await api.createPost(formData);
@@ -674,6 +772,8 @@ export default function HomeScreen() {
       setPollQuestion('');
       setPollOptions(['', '']);
       setPollDuration(24);
+      setSelectedTemplate(null);
+      setTemplateStyle(DEFAULT_TEMPLATE_STYLE);
       setCreateModalVisible(false);
       
       loadFeed(true);
@@ -833,6 +933,79 @@ export default function HomeScreen() {
               value={location}
               onChangeText={setLocation}
             />
+
+            <View style={styles.templateSection}>
+              <Text style={styles.sectionTitle}>Quote Templates</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {QUOTE_TEMPLATES.map((template) => (
+                  <TouchableOpacity
+                    key={template.id}
+                    style={[
+                      styles.templateOption,
+                      selectedTemplate === template.id && styles.templateOptionSelected,
+                    ]}
+                    onPress={() => handleTemplateSelect(template.id)}
+                  >
+                    <Text style={styles.templateOptionLabel}>{template.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {selectedTemplate && (
+                <View style={[styles.templatePreview, { backgroundColor: templateStyle.backgroundColor }]}>
+                  <Text style={styles.templatePreviewLabel}>Preview</Text>
+                  <Text style={[styles.templatePreviewText, { color: templateStyle.textColor, fontFamily: templateStyle.fontFamily }]}>
+                    {newPostContent || activeTemplate?.sample}
+                  </Text>
+
+                  <Text style={styles.templateOptionTitle}>Background</Text>
+                  <View style={styles.colorRow}>
+                    {TEMPLATE_COLORS.map((color) => (
+                      <TouchableOpacity
+                        key={color}
+                        style={[
+                          styles.colorOption,
+                          { backgroundColor: color },
+                          templateStyle.backgroundColor === color && styles.colorOptionSelected,
+                        ]}
+                        onPress={() => setTemplateStyle((prev) => ({ ...prev, backgroundColor: color }))}
+                      />
+                    ))}
+                  </View>
+
+                  <Text style={styles.templateOptionTitle}>Text</Text>
+                  <View style={styles.colorRow}>
+                    {TEMPLATE_TEXT_COLORS.map((color) => (
+                      <TouchableOpacity
+                        key={color}
+                        style={[
+                          styles.colorOption,
+                          { backgroundColor: color },
+                          templateStyle.textColor === color && styles.colorOptionSelected,
+                        ]}
+                        onPress={() => setTemplateStyle((prev) => ({ ...prev, textColor: color }))}
+                      />
+                    ))}
+                  </View>
+
+                  <Text style={styles.templateOptionTitle}>Font</Text>
+                  <View style={styles.fontRow}>
+                    {FONT_OPTIONS.map((font) => (
+                      <TouchableOpacity
+                        key={font}
+                        style={[
+                          styles.fontOption,
+                          templateStyle.fontFamily === font && styles.fontOptionSelected,
+                        ]}
+                        onPress={() => setTemplateStyle((prev) => ({ ...prev, fontFamily: font }))}
+                      >
+                        <Text style={styles.fontOptionText}>{font}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
 
             {/* Poll Toggle */}
             <TouchableOpacity
@@ -1145,6 +1318,22 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 8,
   },
+  templateCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  templateBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginBottom: 8,
+    letterSpacing: 0.6,
+  },
+  templateText: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
   postMeta: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1357,6 +1546,91 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 14,
     marginBottom: 12,
+  },
+  templateSection: {
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 8,
+  },
+  templateOption: {
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  templateOptionSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
+  },
+  templateOptionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  templatePreview: {
+    marginTop: 12,
+    borderRadius: 16,
+    padding: 16,
+  },
+  templatePreviewLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  templatePreviewText: {
+    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  templateOptionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: 6,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  colorOption: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorOptionSelected: {
+    borderColor: Colors.text,
+  },
+  fontRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  fontOption: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  fontOptionSelected: {
+    borderColor: Colors.primary,
+  },
+  fontOptionText: {
+    fontSize: 12,
+    color: Colors.text,
   },
   pollToggle: {
     flexDirection: 'row',

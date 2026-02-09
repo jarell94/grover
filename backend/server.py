@@ -16,8 +16,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+from dateutil.relativedelta import relativedelta
 from io import BytesIO
 from PIL import Image
+import stripe
 from paypal_service import create_payment, execute_payment, get_payment_details
 from paypal_payout_service import send_payout
 
@@ -88,6 +90,29 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB (increased for video uploads to cloud)
 MAX_INPUT_LENGTH = 10000  # Max characters for text input
 MAX_BIO_LENGTH = 500
 MAX_NAME_LENGTH = 100
+MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
+MESSAGE_DELETE_WINDOW = timedelta(hours=1)
+FOLLOWER_MILESTONES = [10, 50, 100, 250, 500, 1000, 5000, 10000]
+MAX_CONVERSATIONS_FOR_SEARCH = 200
+MAX_SEARCH_RESULTS = 100
+MAX_USERS_FOR_SEARCH = 200
+STRIPE_DEFAULT_CURRENCY = os.getenv("STRIPE_DEFAULT_CURRENCY", "usd")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_CONNECT_REFRESH_URL = os.getenv("STRIPE_CONNECT_REFRESH_URL", "http://localhost:3000/stripe/refresh")
+STRIPE_CONNECT_RETURN_URL = os.getenv("STRIPE_CONNECT_RETURN_URL", "http://localhost:3000/stripe/return")
+stripe.api_key = STRIPE_SECRET_KEY
+MIN_TIP_AMOUNT = 1.0
+MIN_GIFT_AMOUNT = 1.0
+MAX_GIFT_DURATION_MONTHS = 12
+GIFT_CLAIM_BASE_URL = os.getenv("GIFT_CLAIM_BASE_URL", "http://localhost:3000/gifts/claim")
+GIFT_CLAIM_MESSAGE_TEMPLATE = "You received a gift subscription! Claim it here: {claim_url}"
+MAX_GIFT_MESSAGE_LENGTH = 500
+MAX_GIFT_HISTORY = 100
+MAX_GIFT_NOTIFICATION_LENGTH = 160
+ACTIVE_COHORT_DAYS = 30
+QUOTE_TEMPLATE_TYPES = {"announcement", "poll", "question", "celebration"}
+ALLOWED_TEMPLATE_STYLE_KEYS = ("background_color", "text_color", "font_family")
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
@@ -223,6 +248,8 @@ async def create_indexes():
     await safe_create_index(db.users, "email", unique=True, background=True, name="users_email_unique")
     await safe_create_index(db.users, [("name", "text")], background=True, name="users_name_text")
     await safe_create_index(db.users, "is_premium", background=True, name="users_is_premium")
+    await safe_create_index(db.users, "created_at", background=True, name="users_created_at")
+    await safe_create_index(db.users, "category", background=True, name="users_category")
     
     # ========== POSTS COLLECTION ==========
     await safe_create_index(db.posts, "post_id", unique=True, background=True, name="posts_post_id_unique")
@@ -256,6 +283,11 @@ async def create_indexes():
     await safe_create_index(db.messages, "message_id", unique=True, background=True, name="messages_message_id_unique")
     await safe_create_index(db.messages, [("conversation_id", 1), ("created_at", -1)], background=True, name="messages_conv_created")
     await safe_create_index(db.messages, [("conversation_id", 1), ("read", 1)], background=True, name="messages_conv_read")
+    await safe_create_index(db.messages, [("content", "text")], background=True, name="messages_content_text")
+    await safe_create_index(db.gift_subscriptions, "gift_id", unique=True, background=True, name="gifts_gift_id_unique")
+    await safe_create_index(db.gift_subscriptions, "giver_id", background=True, name="gifts_giver_id")
+    await safe_create_index(db.gift_subscriptions, "recipient_user_id", background=True, sparse=True, name="gifts_recipient_user_id")
+    await safe_create_index(db.gift_subscriptions, "recipient_email", background=True, sparse=True, name="gifts_recipient_email")
     
     # ========== CONVERSATIONS COLLECTION ==========
     await safe_create_index(db.conversations, "conversation_id", unique=True, background=True, name="conversations_id_unique")
@@ -353,6 +385,11 @@ async def health_check():
     health_status["services"]["paypal"] = {
         "status": "configured" if paypal_configured else "not_configured"
     }
+
+    # Check Stripe configuration
+    health_status["services"]["stripe"] = {
+        "status": "configured" if STRIPE_SECRET_KEY else "not_configured"
+    }
     
     # Check Redis cache status
     health_status["services"]["redis"] = {
@@ -376,6 +413,321 @@ async def readiness_check():
 
 # ============ HELPER FUNCTIONS ============
 
+def generate_notification_id() -> str:
+    return f"notif_{uuid.uuid4().hex[:12]}"
+
+def normalize_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalize naive datetimes to UTC-aware values."""
+    if value and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+def require_stripe_configured() -> None:
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+
+async def get_user_record(user_id: str) -> dict:
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+async def get_or_create_stripe_customer(user: dict) -> str:
+    if user.get("stripe_customer_id"):
+        return user["stripe_customer_id"]
+    customer = stripe.Customer.create(
+        email=user.get("email"),
+        name=user.get("name"),
+        metadata={"user_id": user.get("user_id")}
+    )
+    await db.users.update_one(
+        {"user_id": user.get("user_id")},
+        {"$set": {"stripe_customer_id": customer.id}}
+    )
+    return customer.id
+
+async def get_stripe_account_id(user_id: str) -> str:
+    user = await get_user_record(user_id)
+    account_id = user.get("stripe_account_id")
+    if not account_id:
+        raise HTTPException(status_code=400, detail="Creator has not connected Stripe")
+    return account_id
+
+async def ensure_stripe_price(tier: dict, creator_id: str) -> str:
+    if tier.get("stripe_price_id"):
+        return tier["stripe_price_id"]
+    product = stripe.Product.create(
+        name=tier.get("name", "Creator Subscription"),
+        metadata={"creator_id": creator_id, "tier_id": tier.get("tier_id")}
+    )
+    price = stripe.Price.create(
+        product=product.id,
+        unit_amount=int(tier.get("price", 0) * 100),
+        currency=STRIPE_DEFAULT_CURRENCY,
+        recurring={"interval": "month"}
+    )
+    await db.subscription_tiers.update_one(
+        {"tier_id": tier.get("tier_id")},
+        {"$set": {"stripe_product_id": product.id, "stripe_price_id": price.id}}
+    )
+    return price.id
+
+async def resolve_gift_recipient(
+    recipient_email: Optional[str],
+    recipient_username: Optional[str],
+    recipient_user_id: Optional[str]
+) -> tuple:
+    """Resolve a gift recipient by email, username, or user_id and return (user, email)."""
+    if not recipient_email and not recipient_username and not recipient_user_id:
+        raise HTTPException(status_code=400, detail="Recipient email or username is required")
+
+    recipient_user = None
+    email_value = None
+
+    if recipient_email:
+        email_value = sanitize_string(recipient_email, 100, "recipient email")
+        if email_value and "@" not in email_value:
+            raise HTTPException(status_code=400, detail="Invalid recipient email")
+        email_value = normalize_email(email_value)
+        recipient_user = await db.users.find_one({"email": email_value}, {"_id": 0})
+
+    if recipient_user_id:
+        validate_id(recipient_user_id, "recipient_user_id")
+        recipient_user = await db.users.find_one({"user_id": recipient_user_id}, {"_id": 0}) or recipient_user
+
+    if recipient_username:
+        validate_id(recipient_username, "recipient_username")
+        username_user = await db.users.find_one({"user_id": recipient_username}, {"_id": 0})
+        if recipient_user and username_user and recipient_user.get("user_id") != username_user.get("user_id"):
+            raise HTTPException(status_code=400, detail="Recipient email and username do not match")
+        if username_user:
+            recipient_user = username_user
+
+    if not recipient_user and not email_value:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+    return recipient_user, email_value
+
+def build_gift_claim_url(gift_id: str) -> str:
+    return f"{GIFT_CLAIM_BASE_URL}/{gift_id}"
+
+def format_cohort_label(year: int, month: int) -> str:
+    return f"{year:04d}-{month:02d}"
+
+def month_start_for_offset(end_date: datetime, offset: int) -> datetime:
+    return (end_date - relativedelta(months=offset)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+async def build_creator_metrics(user_id: str, user_doc: Optional[dict] = None) -> dict:
+    user_doc = user_doc or await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "category": 1, "total_earnings": 1})
+    if not user_doc:
+        return {
+            "user_id": user_id,
+            "name": None,
+            "picture": None,
+            "category": None,
+            "followers": 0,
+            "posts": 0,
+            "engagement": 0,
+            "revenue": 0,
+        }
+
+    followers = await db.follows.count_documents({"following_id": user_id})
+    stats = await db.posts.aggregate([
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": None,
+            "posts": {"$sum": 1},
+            "likes": {"$sum": "$likes_count"},
+            "comments": {"$sum": "$comments_count"},
+            "shares": {"$sum": "$shares_count"},
+        }}
+    ]).to_list(1)
+    stats_doc = stats[0] if stats else {}
+    engagement = (stats_doc.get("likes", 0) + stats_doc.get("comments", 0) + stats_doc.get("shares", 0))
+    return {
+        "user_id": user_doc.get("user_id"),
+        "name": user_doc.get("name"),
+        "picture": user_doc.get("picture"),
+        "category": user_doc.get("category"),
+        "followers": followers,
+        "posts": stats_doc.get("posts", 0),
+        "engagement": engagement,
+        "revenue": user_doc.get("total_earnings", 0),
+    }
+
+async def build_platform_average() -> dict:
+    user_count = await db.users.count_documents({})
+    if user_count == 0:
+        return {"followers": 0, "posts": 0, "engagement": 0, "revenue": 0}
+
+    total_followers = await db.follows.count_documents({})
+    post_totals = await db.posts.aggregate([
+        {"$group": {
+            "_id": None,
+            "posts": {"$sum": 1},
+            "likes": {"$sum": "$likes_count"},
+            "comments": {"$sum": "$comments_count"},
+            "shares": {"$sum": "$shares_count"},
+        }}
+    ]).to_list(1)
+    post_doc = post_totals[0] if post_totals else {}
+    engagement = post_doc.get("likes", 0) + post_doc.get("comments", 0) + post_doc.get("shares", 0)
+    revenue_total = await db.users.aggregate([
+        {"$group": {"_id": None, "total": {"$sum": "$total_earnings"}}}
+    ]).to_list(1)
+    total_revenue = revenue_total[0]["total"] if revenue_total else 0
+    return {
+        "followers": round(total_followers / user_count, 2),
+        "posts": round(post_doc.get("posts", 0) / user_count, 2),
+        "engagement": round(engagement / user_count, 2),
+        "revenue": round(total_revenue / user_count, 2),
+    }
+
+async def build_historical_benchmarks(user_id: str, months: int = 6) -> list:
+    end_date = datetime.now(timezone.utc)
+    results = []
+    for i in range(months - 1, -1, -1):
+        month_start = month_start_for_offset(end_date, i)
+        month_end = month_start + relativedelta(months=1)
+        # Follow records tracked when the relationship was created, so this represents new followers.
+        followers = await db.follows.count_documents({
+            "following_id": user_id,
+            "created_at": {"$gte": month_start, "$lt": month_end}
+        })
+        post_stats = await db.posts.aggregate([
+            {"$match": {"user_id": user_id, "created_at": {"$gte": month_start, "$lt": month_end}}},
+            {"$group": {
+                "_id": None,
+                "likes": {"$sum": "$likes_count"},
+                "comments": {"$sum": "$comments_count"},
+                "shares": {"$sum": "$shares_count"},
+            }}
+        ]).to_list(1)
+        post_doc = post_stats[0] if post_stats else {}
+        engagement = post_doc.get("likes", 0) + post_doc.get("comments", 0) + post_doc.get("shares", 0)
+        revenue_stats = await db.transactions.aggregate([
+            {"$match": {"to_user_id": user_id, "created_at": {"$gte": month_start, "$lt": month_end}}},
+            {"$group": {"_id": None, "total": {"$sum": "$creator_payout"}}}
+        ]).to_list(1)
+        revenue = revenue_stats[0]["total"] if revenue_stats else 0
+        results.append({
+            "month": month_start.strftime("%Y-%m"),
+            "new_followers": followers,
+            "engagement": engagement,
+            "revenue": revenue,
+        })
+    return results
+
+async def fetch_cohort_groups(start_date: datetime) -> list:
+    pipeline = [
+        {"$match": {"created_at": {"$gte": start_date}}},
+        {"$group": {
+            "_id": {"year": {"$year": "$created_at"}, "month": {"$month": "$created_at"}},
+            "user_ids": {"$addToSet": "$user_id"},
+            "count": {"$sum": 1}
+        }}
+    ]
+    cohorts = await db.users.aggregate(pipeline).to_list(None)
+    cohorts.sort(key=lambda item: (item["_id"]["year"], item["_id"]["month"]))
+    return cohorts
+
+async def build_cohort_metrics(user_ids: list, engagement_months: int = 3) -> dict:
+    total_users = len(user_ids)
+    if total_users == 0:
+        return {
+            "total_users": 0,
+            "active_users": 0,
+            "retention_rate": 0,
+            "engagement_trend": [],
+            "revenue_total": 0,
+            "ltv": 0,
+        }
+    active_since = datetime.now(timezone.utc) - timedelta(days=ACTIVE_COHORT_DAYS)
+    active_users = await db.posts.aggregate([
+        {"$match": {"user_id": {"$in": user_ids}, "created_at": {"$gte": active_since}}},
+        {"$group": {"_id": "$user_id"}}
+    ]).to_list(None)
+    active_count = len(active_users)
+
+    end_date = datetime.now(timezone.utc)
+    engagement_trend = []
+    for i in range(engagement_months - 1, -1, -1):
+        month_start = month_start_for_offset(end_date, i)
+        month_end = month_start + relativedelta(months=1)
+        stats = await db.posts.aggregate([
+            {"$match": {"user_id": {"$in": user_ids}, "created_at": {"$gte": month_start, "$lt": month_end}}},
+            {"$group": {
+                "_id": None,
+                "likes": {"$sum": "$likes_count"},
+                "comments": {"$sum": "$comments_count"},
+                "shares": {"$sum": "$shares_count"},
+            }}
+        ]).to_list(1)
+        stats_doc = stats[0] if stats else {}
+        engagement = stats_doc.get("likes", 0) + stats_doc.get("comments", 0) + stats_doc.get("shares", 0)
+        engagement_trend.append({
+            "month": month_start.strftime("%Y-%m"),
+            "engagement": engagement
+        })
+
+    revenue_stats = await db.transactions.aggregate([
+        {"$match": {"to_user_id": {"$in": user_ids}}},
+        {"$group": {"_id": None, "total": {"$sum": "$creator_payout"}}}
+    ]).to_list(1)
+    revenue_total = revenue_stats[0]["total"] if revenue_stats else 0
+    ltv = round(revenue_total / total_users, 2) if total_users else 0
+    return {
+        "total_users": total_users,
+        "active_users": active_count,
+        "retention_rate": round(active_count / total_users, 3),
+        "engagement_trend": engagement_trend,
+        "revenue_total": revenue_total,
+        "ltv": ltv,
+    }
+
+async def enrich_gift_history(gifts: list, include_recipient: bool = False, include_giver: bool = False) -> list:
+    """Attach tier and user metadata to gift records."""
+    if not gifts:
+        return gifts
+
+    tier_ids = {gift["tier_id"] for gift in gifts}
+    tiers_map = {}
+    if tier_ids:
+        tiers = await db.subscription_tiers.find(
+            {"tier_id": {"$in": list(tier_ids)}},
+            {"_id": 0}
+        ).to_list(len(tier_ids))
+        tiers_map = {tier["tier_id"]: tier for tier in tiers}
+
+    recipients_map = {}
+    if include_recipient:
+        recipient_ids = {gift["recipient_user_id"] for gift in gifts if gift.get("recipient_user_id")}
+        if recipient_ids:
+            recipients = await db.users.find(
+                {"user_id": {"$in": list(recipient_ids)}},
+                {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+            ).to_list(len(recipient_ids))
+            recipients_map = {recipient["user_id"]: recipient for recipient in recipients}
+
+    givers_map = {}
+    if include_giver:
+        giver_ids = {gift["giver_id"] for gift in gifts}
+        if giver_ids:
+            givers = await db.users.find(
+                {"user_id": {"$in": list(giver_ids)}},
+                {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+            ).to_list(len(giver_ids))
+            givers_map = {giver["user_id"]: giver for giver in givers}
+
+    for gift in gifts:
+        gift["tier"] = tiers_map.get(gift["tier_id"])
+        if include_recipient and gift.get("recipient_user_id"):
+            gift["recipient"] = recipients_map.get(gift["recipient_user_id"])
+        if include_giver:
+            gift["giver"] = givers_map.get(gift["giver_id"])
+
+    return gifts
+
 async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
     """Create a notification only if user has that type enabled"""
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -391,6 +743,7 @@ async def create_notification(user_id: str, notification_type: str, content: str
         "sale": "notify_sales",
         "mention": "notify_mentions",
         "repost": "notify_reposts",
+        "gift": "notify_sales",
         "share": "notify_reposts",  # Treat shares like reposts
     }
     
@@ -399,7 +752,7 @@ async def create_notification(user_id: str, notification_type: str, content: str
     # Check if user has this notification type enabled (default to True)
     if user.get(pref_field, True):
         notification_data = {
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "notification_id": generate_notification_id(),
             "user_id": user_id,
             "type": notification_type,
             "content": content,
@@ -410,6 +763,105 @@ async def create_notification(user_id: str, notification_type: str, content: str
             notification_data["related_id"] = related_id
         
         await db.notifications.insert_one(notification_data)
+        await emit_activity_event(user_id, {
+            "notification_id": notification_data["notification_id"],
+            "type": notification_type,
+            "content": content,
+            "related_id": related_id,
+            "created_at": notification_data["created_at"].isoformat(),
+        })
+
+
+async def emit_to_user(user_id: str, event: str, payload: dict):
+    """Emit a socket event to a specific user room."""
+    if not user_id:
+        return
+    await sio.emit(event, payload, room=f"user_{user_id}")
+
+
+def is_follower_milestone(count: int) -> bool:
+    return count in FOLLOWER_MILESTONES
+
+
+async def build_live_metrics(user_id: str) -> dict:
+    """Build live metrics payload for sockets."""
+    followers_count = await db.follows.count_documents({"following_id": user_id})
+
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": None,
+            "total_posts": {"$sum": 1},
+            "total_likes": {"$sum": "$likes_count"},
+            "total_comments": {"$sum": "$comments_count"},
+            "total_shares": {"$sum": "$shares_count"},
+        }}
+    ]
+    aggregates = await db.posts.aggregate(pipeline).to_list(1)
+    totals = aggregates[0] if aggregates else {}
+
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "total_earnings": 1, "earnings_balance": 1}
+    )
+    total_revenue = (user or {}).get("total_earnings", 0)
+    earnings_balance = (user or {}).get("earnings_balance", 0)
+
+    return {
+        "user_id": user_id,
+        "followers_count": followers_count,
+        "total_posts": totals.get("total_posts", 0),
+        "total_likes": totals.get("total_likes", 0),
+        "total_comments": totals.get("total_comments", 0),
+        "total_shares": totals.get("total_shares", 0),
+        "total_revenue": total_revenue,
+        "earnings_balance": earnings_balance,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def emit_live_metrics(user_id: str, reason: str = None):
+    payload = await build_live_metrics(user_id)
+    if reason:
+        payload["reason"] = reason
+    await emit_to_user(user_id, "live_metrics", payload)
+
+
+async def emit_activity_event(user_id: str, payload: dict):
+    await emit_to_user(user_id, "activity_event", payload)
+
+
+async def emit_follower_milestone(user_id: str, follower_count: int):
+    if not is_follower_milestone(follower_count):
+        return
+    await emit_to_user(user_id, "milestone", {
+        "type": "followers",
+        "value": follower_count,
+        "message": f"You reached {follower_count} followers!",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+
+async def emit_message_deleted(conversation_id: Optional[str], message_id: str, deleted_at: datetime):
+    if not conversation_id:
+        return
+    await sio.emit("message_deleted", {
+        "message_id": message_id,
+        "conversation_id": conversation_id,
+        "deleted_for_everyone": True,
+        "deleted_at": deleted_at.isoformat(),
+        "content": "Message deleted",
+        "is_deleted": True
+    }, room=f"conversation_{conversation_id}")
+
+def stripe_amount(amount: float, min_amount: float = 0.01) -> int:
+    """Convert a dollar amount to Stripe's integer cents with minimum validation."""
+    if amount < min_amount:
+        raise HTTPException(status_code=400, detail=f"Amount must be at least ${min_amount:.2f}")
+    return int(round(amount * 100))
+
+def normalize_email(value: Optional[str]) -> Optional[str]:
+    return value.lower() if value else None
 
 # ============ MODELS ============
 
@@ -422,11 +874,21 @@ class User(BaseModel):
     is_premium: bool = False
     is_private: bool = False
     monetization_enabled: bool = False  # Creator monetization toggle (tips, subscriptions, paid content)
+    category: Optional[str] = None
     website: Optional[str] = None
     twitter: Optional[str] = None
     instagram: Optional[str] = None
     linkedin: Optional[str] = None
+    github: Optional[str] = None
+    youtube: Optional[str] = None
+    tiktok: Optional[str] = None
+    facebook: Optional[str] = None
+    snapchat: Optional[str] = None
+    discord: Optional[str] = None
+    twitch: Optional[str] = None
     paypal_email: Optional[str] = None
+    stripe_account_id: Optional[str] = None
+    stripe_customer_id: Optional[str] = None
     # Notification preferences
     notify_followers: bool = True
     notify_likes: bool = True
@@ -460,6 +922,8 @@ class Post(BaseModel):
     poll_options: Optional[List[str]] = None
     poll_votes: Optional[dict] = None  # {option_index: vote_count}
     poll_expires_at: Optional[datetime] = None
+    template_type: Optional[str] = None
+    template_style: Optional[dict] = None
     created_at: datetime
 
 class Story(BaseModel):
@@ -522,6 +986,48 @@ class Message(BaseModel):
     content: str
     read: bool = False
     created_at: datetime
+    edited_at: Optional[datetime] = None
+    edit_history: Optional[List[dict]] = None
+    deleted_for: List[str] = []
+    deleted_for_everyone: bool = False
+    deleted_at: Optional[datetime] = None
+
+class MessageEdit(BaseModel):
+    content: str
+
+class MessageDelete(BaseModel):
+    delete_for_everyone: bool = False
+
+class StripePaymentMethodRequest(BaseModel):
+    payment_method_id: str
+
+class StripeTipRequest(BaseModel):
+    amount: float
+    currency: Optional[str] = STRIPE_DEFAULT_CURRENCY
+    message: Optional[str] = None
+
+class StripeSubscriptionRequest(BaseModel):
+    tier_id: str
+
+class StripeOrderRequest(BaseModel):
+    product_id: str
+    quantity: int = 1
+
+class StripeRefundRequest(BaseModel):
+    payment_intent_id: str
+    amount: Optional[float] = None
+
+class StripePayoutRequest(BaseModel):
+    amount: float
+    currency: Optional[str] = STRIPE_DEFAULT_CURRENCY
+
+class GiftSubscriptionRequest(BaseModel):
+    tier_id: str
+    duration_months: int
+    recipient_user_id: Optional[str] = None
+    recipient_username: Optional[str] = None
+    recipient_email: Optional[str] = None
+    gift_message: Optional[str] = None
 
 class Notification(BaseModel):
     notification_id: str
@@ -737,10 +1243,18 @@ async def update_profile(
     bio: Optional[str] = None, 
     is_private: Optional[bool] = None,
     monetization_enabled: Optional[bool] = None,  # Creator monetization toggle
+    category: Optional[str] = None,
     website: Optional[str] = None,
     twitter: Optional[str] = None,
     instagram: Optional[str] = None,
     linkedin: Optional[str] = None,
+    github: Optional[str] = None,
+    youtube: Optional[str] = None,
+    tiktok: Optional[str] = None,
+    facebook: Optional[str] = None,
+    snapchat: Optional[str] = None,
+    discord: Optional[str] = None,
+    twitch: Optional[str] = None,
     paypal_email: Optional[str] = None,
     current_user: User = Depends(require_auth)
 ):
@@ -755,6 +1269,8 @@ async def update_profile(
         update_data["is_private"] = bool(is_private)
     if monetization_enabled is not None:
         update_data["monetization_enabled"] = bool(monetization_enabled)
+    if category is not None:
+        update_data["category"] = sanitize_string(category, 100, "category")
     if website is not None:
         website = sanitize_string(website, 200, "website")
         # Basic URL validation
@@ -767,6 +1283,20 @@ async def update_profile(
         update_data["instagram"] = sanitize_string(instagram, 50, "instagram")
     if linkedin is not None:
         update_data["linkedin"] = sanitize_string(linkedin, 100, "linkedin")
+    if github is not None:
+        update_data["github"] = sanitize_string(github, 100, "github")
+    if youtube is not None:
+        update_data["youtube"] = sanitize_string(youtube, 100, "youtube")
+    if tiktok is not None:
+        update_data["tiktok"] = sanitize_string(tiktok, 100, "tiktok")
+    if facebook is not None:
+        update_data["facebook"] = sanitize_string(facebook, 100, "facebook")
+    if snapchat is not None:
+        update_data["snapchat"] = sanitize_string(snapchat, 100, "snapchat")
+    if discord is not None:
+        update_data["discord"] = sanitize_string(discord, 100, "discord")
+    if twitch is not None:
+        update_data["twitch"] = sanitize_string(twitch, 100, "twitch")
     if paypal_email is not None:
         paypal_email = sanitize_string(paypal_email, 100, "paypal_email")
         # Basic email validation
@@ -848,6 +1378,7 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
             "follower_id": current_user.user_id,
             "following_id": user_id
         })
+        await emit_live_metrics(user_id, reason="followers")
         return {"message": "Unfollowed", "following": False}
     else:
         # Follow
@@ -863,6 +1394,10 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
             "follow",
             f"{current_user.name} started following you"
         )
+        
+        followers_count = await db.follows.count_documents({"following_id": user_id})
+        await emit_live_metrics(user_id, reason="followers")
+        await emit_follower_milestone(user_id, followers_count)
         
         return {"message": "Followed", "following": True}
 
@@ -1135,12 +1670,17 @@ async def create_post(
     poll_question: Optional[str] = Form(None),
     poll_options: Optional[str] = Form(None),  # JSON string
     poll_duration_hours: Optional[int] = Form(24),
+    template_type: Optional[str] = Form(None),
+    template_style: Optional[str] = Form(None),
     current_user: User = Depends(require_auth)
 ):
     # Security: Sanitize and validate content
     content = sanitize_string(content or "", MAX_INPUT_LENGTH, "content")
     location = sanitize_string(location or "", 200, "location") if location else None
     poll_question = sanitize_string(poll_question or "", 500, "poll_question") if poll_question else None
+    template_type_value = sanitize_string(template_type, 50, "template_type").lower() if template_type else None
+    if template_type_value and template_type_value not in QUOTE_TEMPLATE_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid template type")
     
     # Validate that at least some content exists
     if not content and not media and not poll_question:
@@ -1183,6 +1723,21 @@ async def create_post(
         import json
         poll_options_list = json.loads(poll_options) if isinstance(poll_options, str) else poll_options
         poll_expires_at = datetime.now(timezone.utc) + timedelta(hours=poll_duration_hours)
+
+    template_style_data = None
+    if template_style:
+        try:
+            import json
+            template_style_data = json.loads(template_style) if isinstance(template_style, str) else template_style
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid template style")
+        if not isinstance(template_style_data, dict):
+            raise HTTPException(status_code=400, detail="Invalid template style")
+        sanitized_style = {}
+        for key in ALLOWED_TEMPLATE_STYLE_KEYS:
+            if key in template_style_data:
+                sanitized_style[key] = sanitize_string(str(template_style_data[key]), 50, key)
+        template_style_data = sanitized_style
     
     post_id = f"post_{uuid.uuid4().hex[:12]}"
     post_data = {
@@ -1210,6 +1765,11 @@ async def create_post(
         post_data["poll_options"] = poll_options_list
         post_data["poll_votes"] = {str(i): 0 for i in range(len(poll_options_list))}
         post_data["poll_expires_at"] = poll_expires_at
+
+    if template_type_value:
+        post_data["template_type"] = template_type_value
+        if template_style_data is not None:
+            post_data["template_style"] = template_style_data
     
     await db.posts.insert_one(post_data)
     
@@ -1261,7 +1821,7 @@ async def react_to_post(
                 {"post_id": post_id},
                 {"$set": {"reaction_counts": reaction_counts}}
             )
-            
+            await emit_live_metrics(post["user_id"], reason="engagement")
             return {"reacted": False, "reaction_type": None, "reaction_counts": reaction_counts}
         else:
             # Change reaction
@@ -1279,7 +1839,7 @@ async def react_to_post(
                 {"post_id": post_id},
                 {"$set": {"reaction_counts": reaction_counts}}
             )
-            
+            await emit_live_metrics(post["user_id"], reason="engagement")
             return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
     else:
         # New reaction
@@ -1316,6 +1876,8 @@ async def react_to_post(
                 f"{current_user.name} reacted {reaction_emoji} to your post",
                 post_id
             )
+        
+        await emit_live_metrics(post["user_id"], reason="engagement")
         
         return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
 
@@ -1434,6 +1996,8 @@ async def share_post(post_id: str, current_user: User = Depends(require_auth)):
             post_id
         )
     
+    await emit_live_metrics(post["user_id"], reason="engagement")
+
     return {"message": "Post shared", "shares_count": post.get("shares_count", 0) + 1}
 
 @api_router.post("/posts/{post_id}/repost")
@@ -1497,6 +2061,8 @@ async def repost_post(
             repost_id
         )
     
+    await emit_live_metrics(original_post["user_id"], reason="engagement")
+
     return {
         "message": "Post reposted successfully",
         "repost_id": repost_id,
@@ -1869,6 +2435,8 @@ async def create_comment(
                 comment_id
             )
     
+    await emit_live_metrics(post["user_id"], reason="engagement")
+
     return {"comment_id": comment_id, "message": "Comment created"}
 
 @api_router.post("/comments/{comment_id}/like")
@@ -1877,6 +2445,8 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
     comment = await db.comments.find_one({"comment_id": comment_id}, {"_id": 0})
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
+
+    target_user_id = comment.get("user_id")
     
     existing = await db.comment_likes.find_one({
         "user_id": current_user.user_id,
@@ -1893,6 +2463,7 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
             {"comment_id": comment_id},
             {"$inc": {"likes_count": -1}}
         )
+        await emit_live_metrics(target_user_id, reason="engagement")
         return {"message": "Comment unliked", "liked": False}
     else:
         # Like
@@ -1908,15 +2479,24 @@ async def like_comment(comment_id: str, current_user: User = Depends(require_aut
         
         # Create notification for comment owner
         if comment["user_id"] != current_user.user_id:
+            notification_id = generate_notification_id()
             await db.notifications.insert_one({
-                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "notification_id": notification_id,
                 "user_id": comment["user_id"],
                 "type": "comment_like",
                 "content": f"{current_user.name} liked your comment",
                 "read": False,
                 "created_at": datetime.now(timezone.utc)
             })
+            await emit_activity_event(comment["user_id"], {
+                "notification_id": notification_id,
+                "type": "comment_like",
+                "content": f"{current_user.name} liked your comment",
+                "related_id": comment_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
         
+        await emit_live_metrics(target_user_id, reason="engagement")
         return {"message": "Comment liked", "liked": True}
 
 @api_router.delete("/comments/{comment_id}")
@@ -2375,6 +2955,461 @@ async def execute_paypal_payment(
     else:
         raise HTTPException(status_code=500, detail=result.get("error", "Payment execution failed"))
 
+# ============ STRIPE ENDPOINTS ============
+
+@api_router.post("/stripe/connect/account")
+async def create_stripe_connect_account(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    account_id = user.get("stripe_account_id")
+    if not account_id:
+        account = stripe.Account.create(
+            type="express",
+            email=user.get("email"),
+            capabilities={"card_payments": {"requested": True}, "transfers": {"requested": True}},
+            metadata={"user_id": current_user.user_id}
+        )
+        account_id = account.id
+        await db.users.update_one(
+            {"user_id": current_user.user_id},
+            {"$set": {"stripe_account_id": account_id}}
+        )
+
+    account_link = stripe.AccountLink.create(
+        account=account_id,
+        refresh_url=STRIPE_CONNECT_REFRESH_URL,
+        return_url=STRIPE_CONNECT_RETURN_URL,
+        type="account_onboarding"
+    )
+    return {"account_id": account_id, "url": account_link.url}
+
+@api_router.post("/stripe/connect/account-link")
+async def create_stripe_account_link(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    account_id = await get_stripe_account_id(current_user.user_id)
+    account_link = stripe.AccountLink.create(
+        account=account_id,
+        refresh_url=STRIPE_CONNECT_REFRESH_URL,
+        return_url=STRIPE_CONNECT_RETURN_URL,
+        type="account_onboarding"
+    )
+    return {"account_id": account_id, "url": account_link.url}
+
+@api_router.get("/stripe/connect/status")
+async def get_stripe_connect_status(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    account_id = await get_stripe_account_id(current_user.user_id)
+    account = stripe.Account.retrieve(account_id)
+    return {
+        "account_id": account_id,
+        "charges_enabled": getattr(account, "charges_enabled", None),
+        "payouts_enabled": getattr(account, "payouts_enabled", None),
+        "details_submitted": getattr(account, "details_submitted", None),
+    }
+
+@api_router.post("/stripe/payment-methods/setup-intent")
+async def create_stripe_setup_intent(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(user)
+    intent = stripe.SetupIntent.create(
+        customer=customer_id,
+        payment_method_types=["card"]
+    )
+    return {"client_secret": intent.client_secret}
+
+@api_router.post("/stripe/payment-methods/attach")
+async def attach_stripe_payment_method(
+    payload: StripePaymentMethodRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(user)
+    stripe.PaymentMethod.attach(payload.payment_method_id, customer=customer_id)
+    stripe.Customer.modify(
+        customer_id,
+        invoice_settings={"default_payment_method": payload.payment_method_id}
+    )
+    methods = stripe.PaymentMethod.list(customer=customer_id, type="card")
+    return {"payment_methods": methods.data}
+
+@api_router.get("/stripe/payment-methods")
+async def list_stripe_payment_methods(current_user: User = Depends(require_auth)):
+    require_stripe_configured()
+    user = await get_user_record(current_user.user_id)
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        return {"payment_methods": []}
+    methods = stripe.PaymentMethod.list(customer=customer_id, type="card")
+    return {"payment_methods": methods.data}
+
+@api_router.post("/stripe/tips/{user_id}")
+async def create_stripe_tip(
+    user_id: str,
+    payload: StripeTipRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    validate_id(user_id, "user_id")
+    await check_monetization_enabled(user_id, "tips")
+    creator_account_id = await get_stripe_account_id(user_id)
+    payer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(payer)
+    split = calculate_revenue_split(payload.amount, "tips")
+    if split["platform_fee"] < 0:
+        raise HTTPException(status_code=400, detail="Invalid platform fee")
+    tip_id = f"tip_{uuid.uuid4().hex[:12]}"
+    intent = stripe.PaymentIntent.create(
+        amount=stripe_amount(payload.amount, min_amount=MIN_TIP_AMOUNT),
+        currency=payload.currency or STRIPE_DEFAULT_CURRENCY,
+        customer=customer_id,
+        payment_method_types=["card"],
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0),
+        transfer_data={"destination": creator_account_id},
+        metadata={
+            "type": "tip",
+            "tip_id": tip_id,
+            "from_user_id": current_user.user_id,
+            "to_user_id": user_id,
+            "amount": str(payload.amount)
+        }
+    )
+    await db.tips.insert_one({
+        "tip_id": tip_id,
+        "from_user_id": current_user.user_id,
+        "to_user_id": user_id,
+        "amount": payload.amount,
+        "message": payload.message,
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "status": "pending",
+        "stripe_payment_intent_id": intent.id,
+        "created_at": datetime.now(timezone.utc)
+    })
+    return {"tip_id": tip_id, "client_secret": intent.client_secret}
+
+@api_router.post("/stripe/creators/{user_id}/subscriptions")
+async def create_stripe_subscription(
+    user_id: str,
+    payload: StripeSubscriptionRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    validate_id(user_id, "user_id")
+    await check_monetization_enabled(user_id, "subscriptions")
+    tier = await db.subscription_tiers.find_one({"tier_id": payload.tier_id, "creator_id": user_id, "active": True})
+    if not tier:
+        raise HTTPException(status_code=404, detail="Subscription tier not found")
+    creator_account_id = await get_stripe_account_id(user_id)
+    payer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(payer)
+    price_id = await ensure_stripe_price(tier, user_id)
+    tier_price = tier.get("price", 0)
+    split = calculate_revenue_split(tier_price, "subscriptions")
+    platform_fee_percent = (split["platform_fee"] / tier_price) * 100 if tier_price > 0 else 0
+
+    subscription = stripe.Subscription.create(
+        customer=customer_id,
+        items=[{"price": price_id}],
+        payment_behavior="default_incomplete",
+        expand=["latest_invoice.payment_intent"],
+        application_fee_percent=platform_fee_percent,
+        transfer_data={"destination": creator_account_id},
+        metadata={
+            "type": "subscription",
+            "creator_id": user_id,
+            "tier_id": payload.tier_id,
+            "subscriber_id": current_user.user_id
+        }
+    )
+    now = datetime.now(timezone.utc)
+    subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
+    await db.creator_subscriptions.insert_one({
+        "subscription_id": subscription_id,
+        "subscriber_id": current_user.user_id,
+        "creator_id": user_id,
+        "tier_id": payload.tier_id,
+        "amount": tier_price,
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "status": "pending",
+        "stripe_subscription_id": subscription.id,
+        "started_at": now,
+        "created_at": now
+    })
+    latest_invoice = getattr(subscription, "latest_invoice", None)
+    payment_intent = getattr(latest_invoice, "payment_intent", None) if latest_invoice else None
+    client_secret = None
+    if payment_intent:
+        client_secret = getattr(payment_intent, "client_secret", None)
+    return {
+        "subscription_id": subscription_id,
+        "stripe_subscription_id": subscription.id,
+        "client_secret": client_secret
+    }
+
+@api_router.post("/stripe/orders")
+async def create_stripe_order(
+    payload: StripeOrderRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    product = await db.products.find_one({"product_id": payload.product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if payload.quantity < 1:
+        raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+    seller_id = product["user_id"]
+    seller_account_id = await get_stripe_account_id(seller_id)
+    buyer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(buyer)
+    amount = product["price"] * payload.quantity
+    split = calculate_revenue_split(amount, "products")
+    if split["platform_fee"] < 0:
+        raise HTTPException(status_code=400, detail="Invalid platform fee")
+    order_id = f"order_{uuid.uuid4().hex[:12]}"
+
+    intent = stripe.PaymentIntent.create(
+        amount=stripe_amount(amount),
+        currency=STRIPE_DEFAULT_CURRENCY,
+        customer=customer_id,
+        payment_method_types=["card"],
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0),
+        transfer_data={"destination": seller_account_id},
+        metadata={
+            "type": "marketplace",
+            "order_id": order_id,
+            "buyer_id": current_user.user_id,
+            "seller_id": seller_id,
+            "product_id": payload.product_id,
+            "amount": str(amount)
+        }
+    )
+
+    await db.orders.insert_one({
+        "order_id": order_id,
+        "buyer_id": current_user.user_id,
+        "seller_id": seller_id,
+        "product_id": payload.product_id,
+        "amount": amount,
+        "platform_fee": split["platform_fee"],
+        "seller_amount": split["creator_payout"],
+        "status": "pending",
+        "stripe_payment_intent_id": intent.id,
+        "created_at": datetime.now(timezone.utc)
+    })
+
+    return {"order_id": order_id, "client_secret": intent.client_secret}
+
+@api_router.post("/stripe/refunds")
+async def create_stripe_refund(
+    payload: StripeRefundRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    if payload.amount is not None and payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Refund amount must be greater than zero")
+    refund_amount = stripe_amount(payload.amount, min_amount=0) if payload.amount is not None else None
+    refund = stripe.Refund.create(
+        payment_intent=payload.payment_intent_id,
+        amount=refund_amount
+    )
+    tip_update = await db.tips.update_one(
+        {"stripe_payment_intent_id": payload.payment_intent_id},
+        {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+    )
+    order_update = await db.orders.update_one(
+        {"stripe_payment_intent_id": payload.payment_intent_id},
+        {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+    )
+    if tip_update.matched_count == 0 and order_update.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Payment intent not found")
+    return {"refund_id": refund.id, "status": refund.status}
+
+@api_router.post("/stripe/payouts")
+async def create_stripe_payout(
+    payload: StripePayoutRequest,
+    current_user: User = Depends(require_auth)
+):
+    require_stripe_configured()
+    account_id = await get_stripe_account_id(current_user.user_id)
+    payout = stripe.Payout.create(
+        amount=stripe_amount(payload.amount),
+        currency=payload.currency or STRIPE_DEFAULT_CURRENCY,
+        metadata={"user_id": current_user.user_id},
+        stripe_account=account_id
+    )
+    payout_id = f"payout_{uuid.uuid4().hex[:12]}"
+    status = getattr(payout, "status", None)
+    await db.payouts.insert_one({
+        "payout_id": payout_id,
+        "user_id": current_user.user_id,
+        "amount": payload.amount,
+        "currency": payload.currency or STRIPE_DEFAULT_CURRENCY,
+        "stripe_payout_id": payout.id,
+        "status": status or "pending",
+        "created_at": datetime.now(timezone.utc)
+    })
+    return {"payout_id": payout_id, "stripe_payout_id": payout.id, "status": status}
+
+@api_router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    require_stripe_configured()
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Stripe webhook secret not configured")
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    event_type = event.get("type")
+    data_object = event.get("data", {}).get("object", {})
+
+    if event_type == "payment_intent.succeeded":
+        metadata = data_object.get("metadata", {})
+        record_type = metadata.get("type")
+        amount = float(metadata.get("amount", "0"))
+        if record_type == "tip":
+            tip_id = metadata.get("tip_id")
+            await db.tips.update_one(
+                {"tip_id": tip_id},
+                {"$set": {"status": "completed", "paid_at": datetime.now(timezone.utc)}}
+            )
+            if tip_id:
+                await record_transaction(
+                    "tips",
+                    amount,
+                    metadata.get("from_user_id"),
+                    metadata.get("to_user_id"),
+                    tip_id,
+                    {"stripe_payment_intent_id": data_object.get("id")}
+                )
+                await create_and_send_notification(
+                    metadata.get("to_user_id"),
+                    "tip",
+                    "You received a Stripe tip!",
+                    tip_id,
+                    metadata.get("from_user_id")
+                )
+        elif record_type == "marketplace":
+            order_id = metadata.get("order_id")
+            await db.orders.update_one(
+                {"order_id": order_id},
+                {"$set": {"status": "completed", "paid_at": datetime.now(timezone.utc)}}
+            )
+            if order_id:
+                await record_transaction(
+                    "products",
+                    amount,
+                    metadata.get("buyer_id"),
+                    metadata.get("seller_id"),
+                    order_id,
+                    {"product_id": metadata.get("product_id")}
+                )
+                await create_notification(
+                    metadata.get("seller_id"),
+                    "sale",
+                    "You made a Stripe sale!",
+                    order_id
+                )
+        elif record_type == "gift_subscription":
+            gift_id = metadata.get("gift_id")
+            await db.gift_subscriptions.update_one(
+                {"gift_id": gift_id},
+                {"$set": {"status": "paid", "payment_status": "paid", "paid_at": datetime.now(timezone.utc)}}
+            )
+            if gift_id:
+                await record_transaction(
+                    "subscriptions",
+                    amount,
+                    metadata.get("giver_id") or metadata.get("sender_id"),
+                    metadata.get("creator_id"),
+                    gift_id,
+                    {"gift_id": gift_id, "tier_id": metadata.get("tier_id")}
+                )
+                recipient_id = metadata.get("recipient_user_id")
+                if recipient_id:
+                    claim_url = build_gift_claim_url(gift_id)
+                    await create_notification(
+                        recipient_id,
+                        "gift",
+                        GIFT_CLAIM_MESSAGE_TEMPLATE.format(claim_url=claim_url),
+                        gift_id
+                    )
+
+    if event_type == "payment_intent.payment_failed":
+        metadata = data_object.get("metadata", {})
+        record_type = metadata.get("type")
+        status_update = {"status": "failed", "failed_at": datetime.now(timezone.utc)}
+        if record_type == "tip":
+            await db.tips.update_one({"tip_id": metadata.get("tip_id")}, {"$set": status_update})
+        elif record_type == "marketplace":
+            await db.orders.update_one({"order_id": metadata.get("order_id")}, {"$set": status_update})
+        elif record_type == "gift_subscription":
+            await db.gift_subscriptions.update_one(
+                {"gift_id": metadata.get("gift_id")},
+                {"$set": {**status_update, "payment_status": "failed"}}
+            )
+
+    if event_type == "charge.refunded":
+        payment_intent_id = data_object.get("payment_intent")
+        if payment_intent_id:
+            await db.tips.update_one(
+                {"stripe_payment_intent_id": payment_intent_id},
+                {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+            )
+            await db.orders.update_one(
+                {"stripe_payment_intent_id": payment_intent_id},
+                {"$set": {"status": "refunded", "refunded_at": datetime.now(timezone.utc)}}
+            )
+
+    if event_type == "invoice.paid":
+        subscription_id = data_object.get("subscription")
+        if subscription_id:
+            subscription = await db.creator_subscriptions.find_one({"stripe_subscription_id": subscription_id})
+            if subscription and subscription.get("status") != "active":
+                await db.creator_subscriptions.update_one(
+                    {"stripe_subscription_id": subscription_id},
+                    {"$set": {"status": "active", "paid_at": datetime.now(timezone.utc)}}
+                )
+                await record_transaction(
+                    "subscriptions",
+                    subscription.get("amount", 0),
+                    subscription.get("subscriber_id"),
+                    subscription.get("creator_id"),
+                    subscription.get("subscription_id"),
+                    {"tier_id": subscription.get("tier_id")}
+                )
+
+    if event_type == "invoice.payment_failed":
+        subscription_id = data_object.get("subscription")
+        if subscription_id:
+            await db.creator_subscriptions.update_one(
+                {"stripe_subscription_id": subscription_id},
+                {"$set": {"status": "past_due", "failed_at": datetime.now(timezone.utc)}}
+            )
+
+    if event_type == "customer.subscription.deleted":
+        subscription_id = data_object.get("id")
+        if subscription_id:
+            await db.creator_subscriptions.update_one(
+                {"stripe_subscription_id": subscription_id},
+                {"$set": {"status": "cancelled", "cancelled_at": datetime.now(timezone.utc)}}
+            )
+
+    if event_type == "payout.paid":
+        payout_id = data_object.get("id")
+        if payout_id:
+            await db.payouts.update_one(
+                {"stripe_payout_id": payout_id},
+                {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}}
+            )
+
+    return {"status": "success"}
+
 @api_router.post("/orders")
 async def create_order(
     product_id: str,
@@ -2398,13 +3433,21 @@ async def create_order(
     })
     
     # Create notification
+    notification_id = generate_notification_id()
     await db.notifications.insert_one({
-        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "notification_id": notification_id,
         "user_id": product["user_id"],
         "type": "purchase",
         "content": f"{current_user.name} purchased {product['name']}",
         "read": False,
         "created_at": datetime.now(timezone.utc)
+    })
+    await emit_activity_event(product["user_id"], {
+        "notification_id": notification_id,
+        "type": "purchase",
+        "content": f"{current_user.name} purchased {product['name']}",
+        "related_id": order_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     })
     
     return {"order_id": order_id, "message": "Order created"}
@@ -2447,6 +3490,86 @@ async def get_conversations(current_user: User = Depends(require_auth)):
     
     return conversations
 
+@api_router.get("/messages/search")
+async def search_messages(
+    q: str,
+    sender_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(require_auth)
+):
+    """Search messages across all conversations."""
+    query_text = sanitize_string(q, 200, "query")
+    if not query_text:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    conversations = await db.conversations.find(
+        {"participants": current_user.user_id},
+        {"_id": 0, "conversation_id": 1, "participants": 1}
+    ).to_list(MAX_CONVERSATIONS_FOR_SEARCH)
+    conversation_ids = [c["conversation_id"] for c in conversations]
+    if not conversation_ids:
+        return []
+
+    participant_map = {}
+    other_user_ids = []
+    for conv in conversations:
+        other_id = next((p for p in conv.get("participants", []) if p != current_user.user_id), None)
+        participant_map[conv["conversation_id"]] = other_id
+        if other_id:
+            other_user_ids.append(other_id)
+
+    users = await db.users.find(
+        {"user_id": {"$in": list(set(other_user_ids))}},
+        {"_id": 0, "user_id": 1, "name": 1, "picture": 1}
+    ).to_list(MAX_USERS_FOR_SEARCH)
+    users_map = {u["user_id"]: u for u in users}
+
+    query: dict = {
+        "conversation_id": {"$in": conversation_ids},
+        "deleted_for_everyone": {"$ne": True},
+        "deleted_for": {"$ne": current_user.user_id},
+        "content": {"$regex": re.escape(query_text), "$options": "i"},
+    }
+
+    if sender_id:
+        validate_id(sender_id, "sender_id")
+        query["sender_id"] = sender_id
+
+    if start_date or end_date:
+        created_filter: dict = {}
+        if start_date:
+            try:
+                start_dt = normalize_datetime(datetime.fromisoformat(start_date))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date")
+            created_filter["$gte"] = start_dt
+        if end_date:
+            try:
+                end_dt = normalize_datetime(datetime.fromisoformat(end_date))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date")
+            created_filter["$lte"] = end_dt
+        query["created_at"] = created_filter
+
+    messages = await db.messages.find(query, {"_id": 0}).sort("created_at", -1).limit(MAX_SEARCH_RESULTS).to_list(MAX_SEARCH_RESULTS)
+
+    results = []
+    for message in messages:
+        conv_id = message.get("conversation_id")
+        other_user_id = participant_map.get(conv_id)
+        result = {
+            "message_id": message.get("message_id"),
+            "conversation_id": conv_id,
+            "sender_id": message.get("sender_id"),
+            "content": message.get("content", ""),
+            "created_at": message.get("created_at"),
+            "other_user": users_map.get(other_user_id),
+        }
+        results.append(result)
+
+    return results
+
 @api_router.get("/messages/{user_id}")
 async def get_messages(user_id: str, current_user: User = Depends(require_auth)):
     # Find or create conversation
@@ -2470,6 +3593,15 @@ async def get_messages(user_id: str, current_user: User = Depends(require_auth))
         {"_id": 0}
     ).sort("created_at", 1).to_list(1000)
     
+    filtered_messages = []
+    for message in messages:
+        if current_user.user_id in message.get("deleted_for", []):
+            continue
+        if message.get("deleted_for_everyone"):
+            message["content"] = "Message deleted"
+            message["is_deleted"] = True
+        filtered_messages.append(message)
+
     # Mark as read
     await db.messages.update_many(
         {
@@ -2480,7 +3612,143 @@ async def get_messages(user_id: str, current_user: User = Depends(require_auth))
         {"$set": {"read": True}}
     )
     
-    return {"conversation_id": conv["conversation_id"], "messages": messages}
+    return {"conversation_id": conv["conversation_id"], "messages": filtered_messages}
+
+@api_router.patch("/messages/{message_id}")
+async def edit_message(
+    message_id: str,
+    payload: MessageEdit,
+    current_user: User = Depends(require_auth)
+):
+    """Edit a message within the allowed edit window."""
+    validate_id(message_id, "message_id")
+    new_content = sanitize_string(payload.content, MAX_INPUT_LENGTH, "message content")
+    if not new_content:
+        raise HTTPException(status_code=400, detail="Message content cannot be empty")
+
+    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if message.get("sender_id") != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this message")
+    if message.get("deleted_for_everyone"):
+        raise HTTPException(status_code=400, detail="Cannot edit a deleted message")
+
+    created_at = normalize_datetime(message.get("created_at"))
+    if not created_at:
+        raise HTTPException(status_code=400, detail="Message timestamp missing")
+
+    now = datetime.now(timezone.utc)
+    if now - created_at > MESSAGE_EDIT_WINDOW:
+        raise HTTPException(status_code=400, detail="Edit window expired")
+
+    previous_edit_timestamp = message.get("edited_at") or created_at
+    update_ops = {
+        "$set": {"content": new_content, "edited_at": now},
+        "$push": {
+            "edit_history": {
+                "content": message.get("content", ""),
+                # Timestamp when the replaced content was last set (created or edited)
+                "last_modified_at": previous_edit_timestamp,
+                "replaced_at": now
+            }
+        }
+    }
+    await db.messages.update_one({"message_id": message_id}, update_ops)
+
+    conversation_id = message.get("conversation_id")
+    if conversation_id:
+        conversation = await db.conversations.find_one(
+            {"conversation_id": conversation_id},
+            {"_id": 0, "last_message": 1}
+        )
+        if conversation and conversation.get("last_message") == message.get("content"):
+            await db.conversations.update_one(
+                {"conversation_id": conversation_id},
+                {"$set": {"last_message": new_content}}
+            )
+
+        message_data = {
+            "message_id": message_id,
+            "conversation_id": conversation_id,
+            "sender_id": current_user.user_id,
+            "content": new_content,
+            "created_at": created_at.isoformat(),
+            "edited_at": now.isoformat()
+        }
+        await sio.emit("message_edited", message_data, room=f"conversation_{conversation_id}")
+
+    return {
+        "message_id": message_id,
+        "content": new_content,
+        "edited_at": now
+    }
+
+@api_router.post("/messages/{message_id}/delete")
+async def delete_message(
+    message_id: str,
+    payload: MessageDelete,
+    current_user: User = Depends(require_auth)
+):
+    """Delete a message for self or everyone."""
+    validate_id(message_id, "message_id")
+    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if payload.delete_for_everyone:
+        if message.get("sender_id") != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete for everyone")
+        if message.get("deleted_for_everyone"):
+            conversation_id = message.get("conversation_id")
+            deleted_at = message.get("deleted_at")
+            if deleted_at:
+                await emit_message_deleted(conversation_id, message_id, deleted_at)
+            return {
+                "message_id": message_id,
+                "deleted_for_everyone": True,
+                "deleted_at": deleted_at.isoformat() if deleted_at else None
+            }
+
+        created_at = normalize_datetime(message.get("created_at"))
+        if not created_at or datetime.now(timezone.utc) - created_at > MESSAGE_DELETE_WINDOW:
+            raise HTTPException(status_code=400, detail="Cannot delete for everyone: delete window expired")
+        if message.get("read") is True:
+            raise HTTPException(status_code=400, detail="Cannot delete for everyone: message has been read")
+        if message.get("edited_at") is not None:
+            raise HTTPException(status_code=400, detail="Cannot delete for everyone: message has been edited")
+
+        deleted_at = datetime.now(timezone.utc)
+        await db.messages.update_one(
+            {"message_id": message_id},
+            {"$set": {"deleted_for_everyone": True, "deleted_at": deleted_at}}
+        )
+
+        conversation_id = message.get("conversation_id")
+        if conversation_id:
+            conversation = await db.conversations.find_one(
+                {"conversation_id": conversation_id},
+                {"_id": 0, "last_message": 1}
+            )
+            if conversation and conversation.get("last_message") == message.get("content"):
+                await db.conversations.update_one(
+                    {"conversation_id": conversation_id},
+                    {"$set": {"last_message": "Message deleted"}}
+                )
+
+            await emit_message_deleted(conversation_id, message_id, deleted_at)
+
+        return {
+            "message_id": message_id,
+            "deleted_for_everyone": True,
+            "deleted_at": deleted_at.isoformat()
+        }
+
+    await db.messages.update_one(
+        {"message_id": message_id},
+        {"$addToSet": {"deleted_for": current_user.user_id}}
+    )
+    return {"message_id": message_id, "deleted_for_everyone": False}
 
 # ============ RICH MESSAGES ENDPOINTS ============
 
@@ -2507,7 +3775,10 @@ async def send_post_in_dm(
         "shared_post_id": post_id,
         "shared_post": post,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await create_notification(receiver_id, "message", f"{current_user.name} shared a post with you", message_id)
@@ -2539,7 +3810,10 @@ async def send_voice_message(
         "voice_data": audio_base64,
         "duration": duration,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await create_notification(receiver_id, "message", f"{current_user.name} sent a voice message", message_id)
@@ -2578,7 +3852,10 @@ async def send_video_message(
         "thumbnail": thumbnail_base64,
         "duration": duration,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await create_notification(receiver_id, "message", f"{current_user.name} sent a video", message_id)
@@ -2602,7 +3879,10 @@ async def send_gif_message(
         "type": "gif",
         "gif_url": gif_url,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     return {"message_id": message_id, "message": "GIF sent"}
@@ -3285,7 +4565,7 @@ async def create_and_send_notification(
     send_push: bool = True
 ):
     """Create in-app notification and optionally send push notification"""
-    notification_id = f"notif_{uuid.uuid4().hex[:12]}"
+    notification_id = generate_notification_id()
     
     notification_data = {
         "notification_id": notification_id,
@@ -3299,6 +4579,14 @@ async def create_and_send_notification(
     }
     
     await db.notifications.insert_one(notification_data)
+    await emit_activity_event(user_id, {
+        "notification_id": notification_id,
+        "type": notification_type,
+        "content": content,
+        "related_id": related_id,
+        "actor_id": actor_id,
+        "created_at": notification_data["created_at"].isoformat(),
+    })
     
     # Send push notification
     if send_push:
@@ -3887,6 +5175,9 @@ def calculate_revenue_split(amount: float, revenue_type: str) -> dict:
     # Ensure amounts add up correctly
     if platform_fee + creator_payout != amount:
         creator_payout = round(amount - platform_fee, 2)
+
+    if platform_fee < 0 or creator_payout < 0:
+        raise HTTPException(status_code=400, detail="Invalid revenue split calculation")
     
     return {
         "gross_amount": amount,
@@ -3935,6 +5226,15 @@ async def record_transaction(
             }
         }
     )
+    
+    await emit_live_metrics(to_user_id, reason="revenue")
+    await emit_activity_event(to_user_id, {
+        "transaction_id": transaction["transaction_id"],
+        "type": "revenue",
+        "content": f"Received ${transaction['creator_payout']:.2f} ({transaction_type})",
+        "amount": transaction["creator_payout"],
+        "created_at": transaction["created_at"].isoformat(),
+    })
     
     return transaction
 
@@ -4156,6 +5456,248 @@ async def subscribe_to_creator(
         "creator_receives": split["creator_payout"],
         "next_billing": (now + timedelta(days=30)).isoformat()
     }
+
+
+@api_router.post("/creators/{user_id}/gift-subscriptions")
+async def gift_subscription(
+    user_id: str,
+    payload: GiftSubscriptionRequest,
+    current_user: User = Depends(require_auth)
+):
+    """Gift a subscription to another user."""
+    require_stripe_configured()
+    await check_monetization_enabled(user_id, "subscriptions")
+
+    tier = await db.subscription_tiers.find_one({"tier_id": payload.tier_id, "creator_id": user_id, "active": True})
+    if not tier:
+        raise HTTPException(status_code=404, detail="Subscription tier not found")
+    if tier.get("price", 0) <= 0:
+        raise HTTPException(status_code=400, detail="Subscription tier price must be greater than zero")
+    if payload.duration_months < 1 or payload.duration_months > MAX_GIFT_DURATION_MONTHS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gift duration must be between 1 and {MAX_GIFT_DURATION_MONTHS} months"
+        )
+
+    recipient_user, recipient_email = await resolve_gift_recipient(
+        payload.recipient_email,
+        payload.recipient_username,
+        payload.recipient_user_id
+    )
+
+    if recipient_user and recipient_user.get("user_id") == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Cannot gift a subscription to yourself")
+
+    if recipient_user:
+        existing = await db.creator_subscriptions.find_one({
+            "subscriber_id": recipient_user["user_id"],
+            "creator_id": user_id,
+            "status": "active"
+        })
+        if existing:
+            raise HTTPException(status_code=400, detail="Recipient is already subscribed")
+
+    gift_message = None
+    if payload.gift_message:
+        gift_message = sanitize_string(payload.gift_message, MAX_GIFT_MESSAGE_LENGTH, "gift message")
+
+    gift_id = f"gift_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    total_amount = tier["price"] * payload.duration_months
+    if total_amount < MIN_GIFT_AMOUNT:
+        raise HTTPException(status_code=400, detail=f"Minimum gift is ${MIN_GIFT_AMOUNT:.0f}")
+    split = calculate_revenue_split(total_amount, "subscriptions")
+
+    creator_account_id = await get_stripe_account_id(user_id)
+    payer = await get_user_record(current_user.user_id)
+    customer_id = await get_or_create_stripe_customer(payer)
+    metadata = {
+        "type": "gift_subscription",
+        "gift_id": gift_id,
+        "creator_id": user_id,
+        "giver_id": current_user.user_id,
+        "duration_months": payload.duration_months,
+        "amount": str(total_amount),
+        "tier_id": payload.tier_id
+    }
+    if recipient_user:
+        metadata["recipient_user_id"] = recipient_user.get("user_id")
+    # Metadata only includes recipient when the account exists; email-only gifts are claimed later.
+    intent = stripe.PaymentIntent.create(
+        amount=stripe_amount(total_amount, min_amount=MIN_GIFT_AMOUNT),
+        currency=STRIPE_DEFAULT_CURRENCY,
+        customer=customer_id,
+        payment_method_types=["card"],
+        application_fee_amount=stripe_amount(split["platform_fee"], min_amount=0),
+        transfer_data={"destination": creator_account_id},
+        metadata=metadata
+    )
+    await db.gift_subscriptions.insert_one({
+        "gift_id": gift_id,
+        "giver_id": current_user.user_id,
+        "creator_id": user_id,
+        "tier_id": payload.tier_id,
+        "recipient_user_id": recipient_user.get("user_id") if recipient_user else None,
+        "recipient_email": recipient_email,
+        "gift_message": gift_message,
+        "duration_months": payload.duration_months,
+        "amount": total_amount,
+        "platform_fee": split["platform_fee"],
+        "creator_payout": split["creator_payout"],
+        "status": "pending_payment",  # Redemption status, separate from Stripe payment status
+        "payment_status": "pending",  # Stripe payment status separate from redemption status
+        "stripe_payment_intent_id": intent.id,
+        "created_at": now
+    })
+
+    return {"gift_id": gift_id, "client_secret": intent.client_secret, "status": "pending_payment"}
+
+
+@api_router.post("/subscriptions/gifts/{gift_id}/redeem")
+async def redeem_gift_subscription(gift_id: str, current_user: User = Depends(require_auth)):
+    """Redeem a gifted subscription."""
+    gift = await db.gift_subscriptions.find_one({"gift_id": gift_id}, {"_id": 0})
+    if not gift:
+        raise HTTPException(status_code=404, detail="Gift not found")
+    if gift.get("status") != "paid":
+        status = gift.get("status", "unknown")
+        status_messages = {
+            "pending_payment": "This gift has not been paid for yet.",
+            "failed": "This gift payment failed.",
+            "redeemed": "This gift has already been redeemed.",
+        }
+        raise HTTPException(status_code=400, detail=status_messages.get(status, "Gift cannot be redeemed."))
+
+    recipient_user_id = gift.get("recipient_user_id")
+    recipient_email = gift.get("recipient_email")
+
+    if recipient_user_id:
+        if recipient_user_id != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
+    elif recipient_email:
+        if normalize_email(recipient_email) != normalize_email(current_user.email):
+            raise HTTPException(status_code=403, detail="Not authorized to redeem this gift")
+
+    tier = await db.subscription_tiers.find_one({"tier_id": gift["tier_id"], "creator_id": gift["creator_id"], "active": True})
+    if not tier:
+        raise HTTPException(status_code=404, detail="Subscription tier not found")
+
+    existing = await db.creator_subscriptions.find_one({
+        "subscriber_id": current_user.user_id,
+        "creator_id": gift["creator_id"],
+        "status": "active"
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Already subscribed to this creator")
+
+    duration_months = gift.get("duration_months", 1)
+    gift_amount = gift.get("amount", tier["price"] * duration_months)
+    platform_fee = gift.get("platform_fee")
+    creator_payout = gift.get("creator_payout")
+    if platform_fee is None or creator_payout is None:
+        split = calculate_revenue_split(gift_amount, "subscriptions")
+        platform_fee = split["platform_fee"]
+        creator_payout = split["creator_payout"]
+    subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    ends_at = now + relativedelta(months=duration_months)
+
+    await db.creator_subscriptions.insert_one({
+        "subscription_id": subscription_id,
+        "subscriber_id": current_user.user_id,
+        "creator_id": gift["creator_id"],
+        "tier_id": gift["tier_id"],
+        "amount": gift_amount,
+        "platform_fee": platform_fee,
+        "creator_payout": creator_payout,
+        "status": "active",
+        "gift_id": gift_id,
+        "gifted_by": gift["giver_id"],
+        "started_at": now,
+        "ends_at": ends_at,
+        "created_at": now
+    })
+
+    await db.gift_subscriptions.update_one(
+        {"gift_id": gift_id},
+        {"$set": {"status": "redeemed", "redeemed_at": now, "redeemed_by": current_user.user_id, "subscription_id": subscription_id}}
+    )
+
+    safe_recipient_name = sanitize_string(current_user.name, MAX_NAME_LENGTH, "recipient name")
+    safe_tier_name = sanitize_string(tier["name"], MAX_NAME_LENGTH, "tier name")
+    await create_and_send_notification(
+        gift["creator_id"],
+        "subscription",
+        f"{safe_recipient_name} redeemed a gifted subscription to {safe_tier_name}! (+${creator_payout:.2f})",
+        subscription_id,
+        current_user.user_id
+    )
+
+    await create_and_send_notification(
+        gift["giver_id"],
+        "subscription",
+        f"Your gift subscription to {safe_recipient_name} was redeemed!",
+        gift_id,
+        current_user.user_id
+    )
+
+    return {"subscription_id": subscription_id, "status": "active", "ends_at": ends_at.isoformat()}
+
+
+@api_router.get("/subscriptions/gifts/sent")
+async def get_sent_gifts(current_user: User = Depends(require_auth)):
+    gifts = await db.gift_subscriptions.find(
+        {"giver_id": current_user.user_id},
+        {
+            "_id": 0,
+            "gift_id": 1,
+            "giver_id": 1,
+            "creator_id": 1,
+            "tier_id": 1,
+            "recipient_user_id": 1,
+            "recipient_email": 1,
+            "gift_message": 1,
+            "duration_months": 1,
+            "amount": 1,
+            "payment_status": 1,
+            "status": 1,
+            "created_at": 1,
+            "redeemed_at": 1,
+            "redeemed_by": 1,
+            "subscription_id": 1
+        }
+    ).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
+
+    return await enrich_gift_history(gifts, include_recipient=True)
+
+
+@api_router.get("/subscriptions/gifts/received")
+async def get_received_gifts(current_user: User = Depends(require_auth)):
+    current_email = normalize_email(current_user.email)
+    criteria = {"$or": [{"recipient_user_id": current_user.user_id}, {"recipient_email": current_email}]}
+    gifts = await db.gift_subscriptions.find(
+        criteria,
+        {
+            "_id": 0,
+            "gift_id": 1,
+            "giver_id": 1,
+            "creator_id": 1,
+            "tier_id": 1,
+            "recipient_user_id": 1,
+            "recipient_email": 1,
+            "gift_message": 1,
+            "duration_months": 1,
+            "amount": 1,
+            "payment_status": 1,
+            "status": 1,
+            "created_at": 1,
+            "redeemed_at": 1,
+            "redeemed_by": 1,
+            "subscription_id": 1
+        }
+    ).sort("created_at", -1).limit(MAX_GIFT_HISTORY).to_list(MAX_GIFT_HISTORY)
+
+    return await enrich_gift_history(gifts, include_giver=True)
 
 
 @api_router.delete("/subscriptions/{subscription_id}")
@@ -4461,6 +6003,75 @@ async def get_content_performance(current_user: User = Depends(require_auth)):
         post["engagement_score"] = total_reactions + post.get("comments_count", 0) + post.get("shares_count", 0)
     
     return posts
+
+
+@api_router.get("/analytics/benchmarks")
+async def get_creator_benchmarks(
+    peer_ids: Optional[str] = None,
+    months: int = 6,
+    current_user: User = Depends(require_auth)
+):
+    months = max(1, min(months, 12))
+    current_user_doc = await db.users.find_one(
+        {"user_id": current_user.user_id},
+        {"_id": 0, "user_id": 1, "category": 1}
+    )
+    category = current_user_doc.get("category") if current_user_doc else None
+
+    similar_creators = []
+    if category:
+        similar_users = await db.users.find(
+            {"category": category, "user_id": {"$ne": current_user.user_id}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "category": 1, "total_earnings": 1}
+        ).limit(5).to_list(5)
+        for user in similar_users:
+            similar_creators.append(await build_creator_metrics(user["user_id"], user_doc=user))
+
+    peer_group = []
+    if peer_ids:
+        peer_list = [pid.strip() for pid in peer_ids.split(",") if pid.strip()]
+        peer_users = await db.users.find(
+            {"user_id": {"$in": peer_list}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "category": 1, "total_earnings": 1}
+        ).to_list(len(peer_list))
+        for user in peer_users:
+            peer_group.append(await build_creator_metrics(user["user_id"], user_doc=user))
+
+    platform_average = await build_platform_average()
+    historical_benchmarks = await build_historical_benchmarks(current_user.user_id, months)
+
+    return {
+        "similar_creators": similar_creators,
+        "platform_average": platform_average,
+        "historical_benchmarks": historical_benchmarks,
+        "peer_group": peer_group,
+    }
+
+
+@api_router.get("/analytics/cohorts")
+async def get_cohort_analytics(
+    months: int = 6,
+    engagement_months: int = 3,
+    current_user: User = Depends(require_auth)
+):
+    months = max(1, min(months, 12))
+    engagement_months = max(1, min(engagement_months, 6))
+    start_date = month_start_for_offset(datetime.now(timezone.utc), months - 1)
+    cohorts = await fetch_cohort_groups(start_date)
+    cohort_results = []
+    for cohort in cohorts:
+        cohort_label = format_cohort_label(cohort["_id"]["year"], cohort["_id"]["month"])
+        metrics = await build_cohort_metrics(cohort["user_ids"], engagement_months)
+        cohort_results.append({
+            "cohort": cohort_label,
+            "users": metrics["total_users"],
+            "active_users": metrics["active_users"],
+            "retention_rate": metrics["retention_rate"],
+            "engagement_trend": metrics["engagement_trend"],
+            "revenue_total": metrics["revenue_total"],
+            "ltv": metrics["ltv"],
+        })
+    return {"cohorts": cohort_results}
 
 # ============ CATEGORIES ENDPOINTS ============
 
@@ -5180,7 +6791,10 @@ async def reply_to_story(
         "story_reply": True,
         "story_id": story_id,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     await db.stories.update_one(
@@ -6025,6 +7639,8 @@ async def get_poll_results(post_id: str, current_user: User = Depends(require_au
 # ============ SOCKET.IO HANDLERS ============
 
 active_users = {}
+active_users_lock = asyncio.Lock()
+active_sids = {}
 stream_viewers = {}  # {stream_id: {user_id: sid}}
 
 @sio.event
@@ -6177,10 +7793,31 @@ async def handle_end_stream(sid, data):
 @sio.event
 async def disconnect(sid):
     logger.info(f"Client {sid} disconnected")
-    for user_id in list(active_users.keys()):
-        if active_users[user_id] == sid:
-            del active_users[user_id]
-            break
+    async with active_users_lock:
+        user_id_to_remove = active_sids.pop(sid, None)
+        if user_id_to_remove and active_users.get(user_id_to_remove) == sid:
+            del active_users[user_id_to_remove]
+
+@sio.event
+async def register_user(sid, data):
+    """Register a user room for live metrics and activity updates."""
+    user_id = data.get("user_id")
+    if user_id:
+        try:
+            validate_id(user_id, "user_id")
+        except HTTPException:
+            return
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 1})
+        if not user:
+            return
+        async with active_users_lock:
+            old_sid = active_users.get(user_id)
+            if old_sid and old_sid != sid:
+                active_sids.pop(old_sid, None)
+            active_users[user_id] = sid
+            active_sids[sid] = user_id
+            sio.enter_room(sid, f"user_{user_id}")
+        await emit_live_metrics(user_id, reason="connection")
 
 @sio.event
 async def join_conversation(sid, data):
@@ -6188,8 +7825,20 @@ async def join_conversation(sid, data):
     user_id = data.get("user_id")
     
     if conversation_id and user_id:
-        sio.enter_room(sid, f"conversation_{conversation_id}")
-        active_users[user_id] = sid
+        try:
+            validate_id(user_id, "user_id")
+        except HTTPException:
+            return
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 1})
+        if not user:
+            return
+        async with active_users_lock:
+            old_sid = active_users.get(user_id)
+            if old_sid and old_sid != sid:
+                active_sids.pop(old_sid, None)
+            active_users[user_id] = sid
+            active_sids[sid] = user_id
+            sio.enter_room(sid, f"conversation_{conversation_id}")
         logger.info(f"User {user_id} joined conversation {conversation_id}")
 
 @sio.event
@@ -6208,7 +7857,10 @@ async def send_message(sid, data):
         "sender_id": sender_id,
         "content": content,
         "read": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(timezone.utc),
+        "deleted_for": [],
+        "deleted_for_everyone": False,
+        "deleted_at": None
     })
     
     # Update conversation
@@ -6231,7 +7883,9 @@ async def send_message(sid, data):
         "sender_name": sender["name"] if sender else "Unknown",
         "sender_picture": sender["picture"] if sender else None,
         "content": content,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "deleted_for_everyone": False,
+        "is_deleted": False
     }
     await sio.emit('new_message', message_data, room=f"conversation_{conversation_id}")
 

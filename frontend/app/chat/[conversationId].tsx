@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -10,21 +11,35 @@ import {
   Platform,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Pressable,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
 import { api } from "../../services/api";
 import socketService from "../../services/socket";
+import { splitHighlightedParts } from "../../utils/text";
 
 interface Message {
   message_id: string;
   sender_id: string;
   content: string;
   created_at: string;
+  edited_at?: string | null;
+  deleted_for_everyone?: boolean;
+  deleted_at?: string | null;
+  is_deleted?: boolean;
+  read?: boolean;
 }
 
 const NEAR_BOTTOM_PX = 120;
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
+// Keep in sync with backend MESSAGE_DELETE_WINDOW (1 hour)
+const DELETE_WINDOW_MS = 60 * 60 * 1000;
+const PREVIEW_MODE_DELETED_VALUE = "deleted";
+const PREVIEW_CONVERSATION_ID = "conv_preview";
+const SCROLL_TO_MESSAGE_DELAY_MS = 100;
+const HIGHLIGHT_ALPHA = "55";
 
 export default function ChatScreen() {
   const params = useLocalSearchParams();
@@ -34,9 +49,14 @@ export default function ChatScreen() {
   const userId = params.userId as string | undefined;
   const otherUserId = params.otherUserId as string | undefined;
   const otherUserName = params.otherUserName as string | undefined;
+  const focusMessageId = params.focusMessageId as string | undefined;
+  const highlightTerm = params.highlightTerm as string | undefined;
+  const previewValue = Array.isArray(params.preview) ? params.preview[0] : params.preview;
+  const previewMode = previewValue === PREVIEW_MODE_DELETED_VALUE || conversationId === PREVIEW_CONVERSATION_ID;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
   const [otherTyping, setOtherTyping] = useState(false);
 
@@ -59,11 +79,48 @@ export default function ChatScreen() {
     );
   }, [messages]);
 
+  const renderHighlightedContent = (text: string, query?: string) => {
+    if (!query) return text;
+    const parts = splitHighlightedParts(text, query);
+    const lower = query.toLowerCase();
+    return (
+      <Text>
+        {parts.map((part, index) => {
+          const partLower = part.toLowerCase();
+          return partLower === lower ? (
+            <Text key={index} style={styles.highlightText}>
+              {part}
+            </Text>
+          ) : (
+            <Text key={index}>{part}</Text>
+          );
+        })}
+      </Text>
+    );
+  };
+
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
       flatListRef.current?.scrollToEnd({ animated });
     });
   };
+
+  useEffect(() => {
+    if (!focusMessageId || sortedMessages.length === 0) return;
+    const index = sortedMessages.findIndex((message) => message.message_id === focusMessageId);
+    if (index >= 0) {
+      const timeoutId = setTimeout(() => {
+        try {
+          flatListRef.current?.scrollToIndex({ index, animated: true });
+        } catch (error) {
+          if (__DEV__) {
+            console.warn("scrollToIndex failed", { error, index, focusMessageId, message: (error as Error)?.message });
+          }
+        }
+      }, SCROLL_TO_MESSAGE_DELAY_MS);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [focusMessageId, sortedMessages]);
 
   const markRead = async () => {
     if (!conversationId) return;
@@ -77,6 +134,27 @@ export default function ChatScreen() {
 
   const loadMessages = async () => {
     try {
+      if (previewMode) {
+        const now = new Date();
+        setMessages([
+          {
+            message_id: "preview_deleted_message",
+            sender_id: userId || "user_123",
+            content: "Message deleted",
+            created_at: new Date(now.getTime() - 5 * 60 * 1000).toISOString(),
+            deleted_for_everyone: true,
+            deleted_at: new Date(now.getTime() - 4 * 60 * 1000).toISOString(),
+            is_deleted: true,
+          },
+          {
+            message_id: "preview_reply",
+            sender_id: otherUserId || "user_456",
+            content: "New message after deletion.",
+            created_at: new Date(now.getTime() - 1 * 60 * 1000).toISOString(),
+          },
+        ]);
+        return;
+      }
       if (!otherUserId) return;
       const response = await api.getMessages(otherUserId);
       const list: Message[] = response?.messages || [];
@@ -91,9 +169,73 @@ export default function ChatScreen() {
     }
   };
 
+  const canEditMessage = (message: Message) => {
+    if (!userId || message.sender_id !== userId) return false;
+    if (message.is_deleted || message.deleted_for_everyone) return false;
+    if (!message.content?.trim()) return false;
+    const createdAt = new Date(message.created_at).getTime();
+    if (Number.isNaN(createdAt) || !Number.isFinite(createdAt)) {
+      if (__DEV__) console.warn("Invalid message timestamp", message.created_at);
+      return false;
+    }
+    return Date.now() - createdAt <= EDIT_WINDOW_MS;
+  };
+
+  const canDeleteForEveryone = (message: Message) => {
+    if (!userId || message.sender_id !== userId) return false;
+    if (message.is_deleted || message.deleted_for_everyone) return false;
+    if (message.read) return false;
+    if (message.edited_at != null) return false;
+    const createdAt = new Date(message.created_at).getTime();
+    if (Number.isNaN(createdAt) || !Number.isFinite(createdAt)) return false;
+    return Date.now() - createdAt <= DELETE_WINDOW_MS;
+  };
+
+  const handleDelete = async (message: Message, deleteForEveryone: boolean) => {
+    try {
+      const response = await api.deleteMessage(message.message_id, deleteForEveryone);
+      if (deleteForEveryone) {
+        const deletedAt = response?.deleted_at || new Date().toISOString();
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.message_id === message.message_id
+              ? {
+                  ...item,
+                  content: "Message deleted",
+                  deleted_for_everyone: true,
+                  deleted_at: deletedAt,
+                  is_deleted: true,
+                }
+              : item
+          )
+        );
+      } else {
+        setMessages((prev) => prev.filter((item) => item.message_id !== message.message_id));
+      }
+    } catch (error) {
+      if (__DEV__) console.error("Delete message error:", error);
+      Alert.alert("Unable to delete message", "Please try again.");
+    }
+  };
+
+  const startEdit = (message: Message) => {
+    if (!canEditMessage(message)) return;
+    setEditingMessageId(message.message_id);
+    setInputText(message.content);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setInputText("");
+  };
+
   useEffect(() => {
     // Initial load
     loadMessages();
+
+    if (previewMode) {
+      return () => {};
+    }
 
     // Join conversation for sockets
     if (conversationId && userId) {
@@ -120,6 +262,30 @@ export default function ChatScreen() {
       }, 50);
     });
 
+    const offMessageEdited = socketService.onMessageEdited((updated: Message) => {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.message_id === updated.message_id ? { ...message, ...updated } : message
+        )
+      );
+    });
+
+    const offMessageDeleted = socketService.onMessageDeleted((deleted) => {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.message_id === deleted.message_id
+            ? {
+                ...message,
+                content: deleted.content || "Message deleted",
+                deleted_for_everyone: true,
+                deleted_at: deleted.deleted_at,
+                is_deleted: true,
+              }
+            : message
+        )
+      );
+    });
+
     // Typing indicator support
     const offTyping = socketService.onTyping((payload) => {
       if (!conversationId) return;
@@ -135,6 +301,8 @@ export default function ChatScreen() {
       // Cleanup listeners
       offNewMessage?.();
       offTyping?.();
+      offMessageEdited?.();
+      offMessageDeleted?.();
       
       // Leave conversation
       if (conversationId && userId) {
@@ -146,15 +314,56 @@ export default function ChatScreen() {
         clearTimeout(typingStopTimeout.current);
       }
     };
-  }, [conversationId, userId, otherUserId]);
+  }, [conversationId, userId, otherUserId, previewMode]);
 
-  const handleSend = () => {
-    if (!inputText.trim() || !conversationId || !userId) return;
+  const handleSend = async () => {
+    const trimmed = inputText.trim();
+    if (!trimmed) return;
+
+    if (editingMessageId) {
+      try {
+        const response = await api.editMessage(editingMessageId, trimmed);
+        const missing = [];
+        if (!response?.message_id) missing.push("message_id");
+        if (!response?.edited_at) missing.push("edited_at");
+        if (!response?.content) missing.push("content");
+        if (missing.length) {
+          if (__DEV__) {
+            console.error("Edit response missing fields", missing);
+          }
+          throw new Error(`Edit response missing required fields: ${missing.join(", ")}`);
+        }
+        if (response.message_id !== editingMessageId) {
+          throw new Error("Edit response returned unexpected message_id");
+        }
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.message_id === editingMessageId
+              ? {
+                  ...message,
+                  content: response.content,
+                  edited_at: response.edited_at,
+                }
+              : message
+          )
+        );
+      } catch (error) {
+        if (__DEV__) console.error("Edit message error:", error);
+        Alert.alert("Unable to edit message", "Please try again.");
+      } finally {
+        emitTyping(false);
+        setEditingMessageId(null);
+        setInputText("");
+      }
+      return;
+    }
+
+    if (!conversationId || !userId) return;
 
     // Stop typing immediately when sending
     emitTyping(false);
 
-    socketService.sendMessage(conversationId, userId, inputText.trim());
+    socketService.sendMessage(conversationId, userId, trimmed);
     setInputText("");
 
     // Optimistic scroll if at bottom
@@ -197,17 +406,66 @@ export default function ChatScreen() {
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === userId;
+    const editable = canEditMessage(item);
+    const canDeleteEveryone = canDeleteForEveryone(item);
+    const isDeleted = item.is_deleted || item.deleted_for_everyone;
+    const displayContent = isDeleted ? "Message deleted" : item.content;
+    const shouldHighlight = highlightTerm && item.message_id === focusMessageId && !isDeleted;
+
+    const openMessageActions = () => {
+      const actions: { text: string; onPress?: () => void; style?: "destructive" | "cancel" }[] = [];
+
+      if (isDeleted) {
+        Alert.alert("Message options", "", [{ text: "Close", style: "cancel" }]);
+        return;
+      }
+
+      if (editable) {
+        actions.push({ text: "Edit", onPress: () => startEdit(item) });
+      }
+
+      actions.push({ text: "Delete for me", style: "destructive", onPress: () => handleDelete(item, false) });
+
+      if (canDeleteEveryone) {
+        actions.push({
+          text: "Delete for everyone",
+          style: "destructive",
+          onPress: () => handleDelete(item, true),
+        });
+      }
+
+      actions.push({ text: "Cancel", style: "cancel" });
+      Alert.alert("Message options", "", actions);
+    };
 
     return (
       <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
-        <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
-          <Text style={[styles.messageText, isMe ? styles.myText : styles.theirText]}>
-            {item.content}
+        <Pressable
+          onLongPress={openMessageActions}
+          accessibilityLabel="Message actions"
+        >
+          <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
+            <Text
+              style={[
+                styles.messageText,
+                isMe ? styles.myText : styles.theirText,
+                isDeleted && styles.deletedText,
+              ]}
+            >
+              {shouldHighlight ? renderHighlightedContent(displayContent, highlightTerm) : displayContent}
+            </Text>
+          </View>
+        </Pressable>
+        <View style={styles.timestampRow}>
+          <Text style={styles.timestamp}>
+            {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </Text>
+          {item.edited_at && !isDeleted && (
+            <Text style={styles.editedText} accessibilityLabel="Message edited">
+              edited
+            </Text>
+          )}
         </View>
-        <Text style={styles.timestamp}>
-          {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </Text>
       </View>
     );
   };
@@ -237,6 +495,12 @@ export default function ChatScreen() {
         renderItem={renderMessage}
         keyExtractor={(item) => item.message_id}
         contentContainerStyle={styles.messagesList}
+        onScrollToIndexFailed={(info) => {
+          flatListRef.current?.scrollToOffset({
+            offset: info.averageItemLength * info.index,
+            animated: true,
+          });
+        }}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={() => {
@@ -269,22 +533,32 @@ export default function ChatScreen() {
         </TouchableOpacity>
       )}
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Type a message..."
-          placeholderTextColor={Colors.textSecondary}
-          value={inputText}
-          onChangeText={onChangeText}
-          multiline
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!inputText.trim()}
-        >
-          <Ionicons name="send" size={20} color="#fff" />
-        </TouchableOpacity>
+      <View style={styles.composerContainer}>
+        {editingMessageId && (
+          <View style={styles.editingBanner}>
+            <Text style={styles.editingText}>Editing message</Text>
+            <TouchableOpacity onPress={cancelEdit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.editingCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder={editingMessageId ? "Edit your message..." : "Type a message..."}
+            placeholderTextColor={Colors.textSecondary}
+            value={inputText}
+            onChangeText={onChangeText}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={!inputText.trim()}
+          >
+            <Ionicons name={editingMessageId ? "checkmark" : "send"} size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -320,18 +594,34 @@ const styles = StyleSheet.create({
   messageText: { fontSize: 14 },
   myText: { color: "#fff" },
   theirText: { color: Colors.text },
+  deletedText: { fontStyle: "italic", color: Colors.textSecondary },
+  highlightText: { backgroundColor: Colors.primary + HIGHLIGHT_ALPHA, color: Colors.text },
 
+  timestampRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   timestamp: { fontSize: 10, color: Colors.textSecondary },
+  editedText: { fontSize: 10, color: Colors.textSecondary },
 
   emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 64 },
   emptyText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
 
-  inputContainer: {
-    flexDirection: "row",
-    padding: 16,
+  composerContainer: {
     backgroundColor: Colors.card,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+  },
+  editingBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  editingText: { fontSize: 12, color: Colors.textSecondary, fontWeight: "600" },
+  editingCancel: { fontSize: 12, color: Colors.primary, fontWeight: "600" },
+  inputContainer: {
+    flexDirection: "row",
+    padding: 16,
     gap: 12,
   },
   input: {
