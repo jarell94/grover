@@ -9,6 +9,7 @@
 - Added expo.install.exclude for @types/jest to bypass expo-doctor preinstall checks.
 - Added app.config.js to enforce newArchEnabled and gradleProperties at build time.
 - Removed @types/jest from dependencies to stop EAS preinstall failures.
+- Removed .env ignores from .gitignore to allow Emergent deployment to include env files.
 
 ### Remaining Backlog
 **P0**
