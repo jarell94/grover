@@ -693,7 +693,6 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Smoke test after Expo SDK 54 dependency updates"
     - "Edit Post UI Feature"
     - "Edit Product UI Feature"
     - "Notification Filtering UI Feature"
