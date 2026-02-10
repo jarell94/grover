@@ -8,7 +8,6 @@
     "scheme": "grover",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "owner": null,
     "runtimeVersion": {
       "policy": "sdkVersion"
     },
