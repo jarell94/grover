@@ -9,7 +9,7 @@ import aiohttp
 import json
 from datetime import datetime
 
-BASE_URL = "https://grover-social-1.preview.emergentagent.com/api"
+BASE_URL = "https://build-rescue-8.preview.emergentagent.com/api"
 
 async def test_specific_endpoints():
     """Test specific endpoints that showed issues"""

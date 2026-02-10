@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 # Configuration
-BASE_URL = "https://grover-social-1.preview.emergentagent.com/api"
+BASE_URL = "https://build-rescue-8.preview.emergentagent.com/api"
 
 class EditEndpointsTester:
     def __init__(self):

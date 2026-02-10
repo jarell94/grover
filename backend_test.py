@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 # Configuration
-BASE_URL = "https://grover-social-1.preview.emergentagent.com/api"
+BASE_URL = "https://build-rescue-8.preview.emergentagent.com/api"
 TEST_USER_EMAIL = "testuser@grover.com"
 TEST_USER_NAME = "Test User"
 

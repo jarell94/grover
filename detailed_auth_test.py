@@ -10,7 +10,7 @@ import json
 import uuid
 from datetime import datetime
 
-BASE_URL = "https://grover-social-1.preview.emergentagent.com/api"
+BASE_URL = "https://build-rescue-8.preview.emergentagent.com/api"
 
 async def detailed_authorization_test():
     """Test authorization with detailed logging"""
