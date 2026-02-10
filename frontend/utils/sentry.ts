@@ -6,6 +6,11 @@ const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
 const ENVIRONMENT = process.env.EXPO_PUBLIC_ENVIRONMENT || 'development';
 
 export const initSentry = () => {
+  // Avoid initializing Sentry during server-side rendering on web
+  if (Platform.OS === 'web' && typeof window === 'undefined') {
+    return;
+  }
+
   if (!SENTRY_DSN) {
     console.warn('Sentry DSN not configured - error tracking disabled');
     return;
