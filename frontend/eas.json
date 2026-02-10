@@ -20,6 +20,7 @@
         "EXPO_USE_NEW_ARCHITECTURE": "1",
         "NPM_CONFIG_PRODUCTION": "false",
         "ORG_GRADLE_PROJECT_newArchEnabled": "true",
+        "RCT_NEW_ARCH_ENABLED": "1",
         "EXPO_PUBLIC_API_URL": "https://api.grover.dev",
         "EXPO_PUBLIC_WS_URL": "https://api.grover.dev"
       }
@@ -38,6 +39,7 @@
         "EXPO_USE_NEW_ARCHITECTURE": "1",
         "NPM_CONFIG_PRODUCTION": "false",
         "ORG_GRADLE_PROJECT_newArchEnabled": "true",
+        "RCT_NEW_ARCH_ENABLED": "1",
         "EXPO_PUBLIC_API_URL": "https://api.grover.dev",
         "EXPO_PUBLIC_WS_URL": "https://api.grover.dev"
       }
@@ -55,6 +57,7 @@
         "EXPO_USE_NEW_ARCHITECTURE": "1",
         "NPM_CONFIG_PRODUCTION": "false",
         "ORG_GRADLE_PROJECT_newArchEnabled": "true",
+        "RCT_NEW_ARCH_ENABLED": "1",
         "EXPO_PUBLIC_API_URL": "https://api.grover.app",
         "EXPO_PUBLIC_WS_URL": "https://api.grover.app"
       }
