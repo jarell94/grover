@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/Colors';
+import { normalizeImageUrl, normalizeRemoteUrl } from '../utils/normalizeRemoteUrl';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -56,7 +57,10 @@ const formatTime = (ms: number) => {
 };
 
 const resolveUri = (uri: string, type: string) => {
-  if (uri.startsWith('http')) return uri;
+  const normalized = type === 'image'
+    ? normalizeImageUrl(uri, 1400)
+    : normalizeRemoteUrl(uri);
+  if (normalized.startsWith('http')) return normalized;
   const mimeMap: Record<string, string> = {
     image: 'image/jpeg',
     video: 'video/mp4',
