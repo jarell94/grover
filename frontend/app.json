@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "grover",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "runtimeVersion": {
       "policy": "sdkVersion"
     },
