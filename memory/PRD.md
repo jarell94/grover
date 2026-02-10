@@ -7,6 +7,8 @@
 - iOS build patch applied via postinstall script (RCTReleaseLevel fix).
 - Build hygiene updates: moved @types/jest to dependencies and removed package-lock.json.
 - Added expo.install.exclude for @types/jest to bypass expo-doctor preinstall checks.
+- Added app.config.js to enforce newArchEnabled and gradleProperties at build time.
+- Removed @types/jest from dependencies to stop EAS preinstall failures.
 
 ### Remaining Backlog
 **P0**
