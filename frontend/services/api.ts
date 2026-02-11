@@ -45,11 +45,24 @@ let API_URL: string;
 
 const initializeUrls = () => {
   if (!BACKEND_URL) {
-    BACKEND_URL = getBackendUrl();
-    
-    // Normalize: remove trailing slash and append /api
-    API_URL = `${BACKEND_URL.replace(/\/+$/, '')}/api`;
-    console.log('API Configuration:', { BACKEND_URL, API_URL });
+    try {
+      BACKEND_URL = getBackendUrl();
+      
+      // Normalize: remove trailing slash and append /api
+      API_URL = `${BACKEND_URL.replace(/\/+$/, '')}/api`;
+      
+      if (__DEV__) {
+        console.log('✓ API Configuration initialized:', { 
+          BACKEND_URL, 
+          API_URL,
+          platform: Platform.OS,
+          isDev: __DEV__
+        });
+      }
+    } catch (error: any) {
+      console.error('✗ Failed to initialize API URLs:', error.message);
+      throw error;
+    }
   }
 };
 
@@ -136,16 +149,35 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     
     // Handle timeout
     if (error.name === 'AbortError') {
-      throw new Error('Request timeout. Please check your connection.');
+      const timeoutError = new Error(`Request timeout after ${REQUEST_TIMEOUT}ms. URL: ${url}`);
+      if (__DEV__) {
+        console.error('API Request Timeout:', { url, timeout: REQUEST_TIMEOUT });
+      }
+      throw timeoutError;
     }
     
-    // Handle network errors
-    if (error.message === 'Network request failed') {
-      throw new Error('Network error. Please check your connection.');
+    // Handle network errors with more context
+    if (error.message === 'Network request failed' || error.message === 'Failed to fetch') {
+      const networkError = new Error(`Network error: Unable to reach ${url}. Please check your connection and ensure the backend is running.`);
+      if (__DEV__) {
+        console.error('API Network Error:', { 
+          url, 
+          backendUrl: BACKEND_URL,
+          error: error.message,
+          hint: 'Check if EXPO_PUBLIC_BACKEND_URL is set correctly and backend server is running'
+        });
+      }
+      throw networkError;
     }
     
+    // Log all other errors with context
     if (__DEV__) {
-      console.error('API Request Failed:', { url, error: error.message });
+      console.error('API Request Failed:', { 
+        url, 
+        method: options.method || 'GET',
+        error: error.message,
+        stack: error.stack 
+      });
     }
     throw error;
   }
