@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { makeRedirectUri } from 'expo-auth-session';
-import { Platform, AppState } from 'react-native';
+import { Platform, AppState, Alert } from 'react-native';
 import { api, setAuthToken } from '../services/api';
 import socketService from '../services/socket';
 import { setUser as setSentryUser, addBreadcrumb } from '../utils/sentry';
@@ -47,6 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const isProcessingAuth = useRef(false);
   const appState = useRef(AppState.currentState);
+  const hasShownNetworkAlert = useRef(false);
 
   // Process redirect URL to extract session and authenticate
   const processRedirectUrl = useCallback(async (url: string): Promise<boolean> => {
@@ -145,6 +146,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userData = await api.getMe();
         setUser(userData);
         
+        // Reset network alert flag on successful authentication
+        hasShownNetworkAlert.current = false;
+        
         // Set user in Sentry for error tracking
         setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
         
@@ -155,8 +159,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Socket connection failed:', error);
         }
       }
-    } catch (error) {
-      console.error('Auth check failed:', error);
+    } catch (error: unknown) {
+      // Enhanced error logging with detailed information
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorName = error instanceof Error ? error.name : 'Error';
+      console.error('Auth check failed:', {
+        message: errorMessage,
+        type: errorName,
+        timestamp: new Date().toISOString(),
+      });
+      
+      // Check if it's a network-related error (case-insensitive)
+      // This matches error messages thrown by api.ts for network failures:
+      // - "Network error. Please check your connection." (line 144)
+      // - "Request timeout. Please check your connection." (line 139)
+      // Also catches AbortError from request timeouts
+      const errorMessageLower = errorMessage.toLowerCase();
+      const isNetworkError = 
+        errorMessageLower.includes('network') ||
+        errorMessageLower.includes('timeout') ||
+        errorMessageLower.includes('connection') ||
+        errorName === 'AbortError';
+      
+      if (isNetworkError) {
+        // Show user-friendly alert for network issues (only once per session)
+        if (!hasShownNetworkAlert.current) {
+          hasShownNetworkAlert.current = true;
+          Alert.alert(
+            'Connection Issue',
+            'Unable to verify your session due to a network problem. Please check your internet connection and try again.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
+      
       await AsyncStorage.removeItem('session_token');
     } finally {
       setLoading(false);
@@ -296,6 +332,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAuthToken(null);
       setUser(null);
       socketService.disconnect();
+      
+      // Reset network alert flag on logout
+      hasShownNetworkAlert.current = false;
       
       // Clear Sentry user context
       setSentryUser(null);
