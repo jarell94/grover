@@ -83,6 +83,16 @@ except ImportError:
     AGORA_AVAILABLE = False
     print("Warning: agora_token_builder not installed. Live streaming will be limited.")
 
+# AI Service (OpenAI/Claude)
+from ai_service import (
+    init_ai_clients,
+    is_ai_available,
+    generate_caption,
+    suggest_hashtags,
+    recommend_posting_time,
+    generate_content_ideas
+)
+
 # ============ SECURITY CONSTANTS ============
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB (increased for video uploads to cloud)
 MAX_INPUT_LENGTH = 10000  # Max characters for text input
@@ -92,6 +102,9 @@ ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "im
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"]
 ALLOWED_AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"]
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES + ALLOWED_VIDEO_TYPES + ALLOWED_AUDIO_TYPES
+
+# Interest keywords for content recommendations
+INTEREST_KEYWORDS = ["music", "art", "tech", "fashion", "food", "fitness", "gaming", "education", "business"]
 
 # ID validation pattern (alphanumeric with underscores)
 ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,50}$')
@@ -313,6 +326,8 @@ async def startup_event():
         logger.info("Redis cache connected")
     else:
         logger.warning("Redis cache not available - running without caching")
+    # Initialize AI clients
+    init_ai_clients()
     logger.info("Application startup complete")
 
 # ============ HEALTH CHECK ENDPOINT ============
@@ -4474,6 +4489,134 @@ async def get_content_performance(current_user: User = Depends(require_auth)):
         post["engagement_score"] = total_reactions + post.get("comments_count", 0) + post.get("shares_count", 0)
     
     return posts
+
+# ============ AI CONTENT ASSISTANT ENDPOINTS ============
+
+@api_router.post("/ai/generate-caption")
+async def ai_generate_caption(
+    content: str = Form(...),
+    image_description: Optional[str] = Form(None),
+    tone: str = Form("casual"),
+    current_user: User = Depends(require_auth)
+):
+    """Generate AI-powered caption for a post"""
+    if not is_ai_available():
+        raise HTTPException(status_code=503, detail="AI service not available")
+    
+    caption = await generate_caption(content, image_description, tone)
+    return {"caption": caption}
+
+@api_router.post("/ai/suggest-hashtags")
+async def ai_suggest_hashtags(
+    content: str = Form(...),
+    max_hashtags: int = Form(10),
+    current_user: User = Depends(require_auth)
+):
+    """Get AI-suggested hashtags for content"""
+    if not is_ai_available():
+        raise HTTPException(status_code=503, detail="AI service not available")
+    
+    hashtags = await suggest_hashtags(content, max_hashtags)
+    return {"hashtags": hashtags}
+
+@api_router.get("/ai/posting-time-recommendation")
+async def ai_posting_time_recommendation(current_user: User = Depends(require_auth)):
+    """Get recommendation for best time to post"""
+    # Get user stats for analysis
+    total_posts = await db.posts.count_documents({"user_id": current_user.user_id})
+    total_followers = await db.follows.count_documents({"following_id": current_user.user_id})
+    
+    user_stats = {
+        "total_posts": total_posts,
+        "total_followers": total_followers
+    }
+    
+    recommendation = await recommend_posting_time(user_stats)
+    return recommendation
+
+@api_router.get("/ai/content-ideas")
+async def ai_content_ideas(current_user: User = Depends(require_auth)):
+    """Generate AI-powered content ideas"""
+    # Get user interests from bio or posts
+    user = await db.users.find_one({"user_id": current_user.user_id}, {"_id": 0})
+    
+    # Extract interests from bio (simple keyword extraction)
+    interests = []
+    if user and user.get("bio"):
+        bio_lower = user["bio"].lower()
+        interests = [kw for kw in INTEREST_KEYWORDS if kw in bio_lower]
+    
+    # Get trending topics (placeholder - in real implementation, analyze popular posts)
+    trending_topics = ["social media", "content creation", "digital marketing"]
+    
+    ideas = await generate_content_ideas(interests if interests else None, trending_topics)
+    return {"ideas": ideas}
+
+@api_router.get("/analytics/audience-demographics")
+async def get_audience_demographics(current_user: User = Depends(require_auth)):
+    """Get audience demographics for the creator"""
+    # Get all followers
+    followers = await db.follows.find(
+        {"following_id": current_user.user_id},
+        {"follower_id": 1, "_id": 0}
+    ).to_list(10000)
+    
+    follower_ids = [f["follower_id"] for f in followers]
+    
+    # Get follower user data
+    follower_users = await db.users.find(
+        {"user_id": {"$in": follower_ids}},
+        {"_id": 0, "age": 1, "location": 1, "interests": 1}
+    ).to_list(10000)
+    
+    # Calculate age demographics (simulated - in real app, users would provide age)
+    age_groups = {
+        "13-17": 0,
+        "18-24": 0,
+        "25-34": 0,
+        "35-44": 0,
+        "45-54": 0,
+        "55+": 0
+    }
+    
+    # Simulate age distribution (in production, this would use actual user data)
+    total_followers = len(follower_users)
+    if total_followers > 0:
+        age_groups = {
+            "13-17": int(total_followers * 0.12),
+            "18-24": int(total_followers * 0.35),
+            "25-34": int(total_followers * 0.30),
+            "35-44": int(total_followers * 0.15),
+            "45-54": int(total_followers * 0.06),
+            "55+": int(total_followers * 0.02)
+        }
+    
+    # Location demographics (simulated)
+    top_locations = []
+    if total_followers > 0:
+        top_locations = [
+            {"location": "United States", "count": int(total_followers * 0.45), "percentage": 45},
+            {"location": "United Kingdom", "count": int(total_followers * 0.15), "percentage": 15},
+            {"location": "Canada", "count": int(total_followers * 0.10), "percentage": 10},
+            {"location": "Australia", "count": int(total_followers * 0.08), "percentage": 8},
+            {"location": "Other", "count": int(total_followers * 0.22), "percentage": 22}
+        ]
+    
+    # Gender demographics (simulated)
+    gender_distribution = {}
+    if total_followers > 0:
+        gender_distribution = {
+            "male": int(total_followers * 0.48),
+            "female": int(total_followers * 0.48),
+            "other": int(total_followers * 0.04)
+        }
+    
+    return {
+        "total_followers": total_followers,
+        "age_groups": age_groups,
+        "top_locations": top_locations,
+        "gender_distribution": gender_distribution
+    }
 
 # ============ CATEGORIES ENDPOINTS ============
 
