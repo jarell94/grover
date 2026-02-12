@@ -51,9 +51,6 @@
       }
     },
     "production": {
-      "cache": {
-        "disabled": true
-      },
       "ios": {
         "resourceClass": "m1-medium"
       },
