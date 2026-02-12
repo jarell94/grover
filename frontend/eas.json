@@ -6,6 +6,9 @@
   },
   "build": {
     "development": {
+      "cache": {
+        "disabled": true
+      },
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
@@ -26,6 +29,9 @@
       }
     },
     "preview": {
+      "cache": {
+        "disabled": true
+      },
       "distribution": "internal",
       "ios": {
         "resourceClass": "m1-medium"
@@ -45,6 +51,9 @@
       }
     },
     "production": {
+      "cache": {
+        "disabled": true
+      },
       "ios": {
         "resourceClass": "m1-medium"
       },
