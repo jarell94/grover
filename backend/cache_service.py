@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Redis Caching Service for Grover Backend
 
