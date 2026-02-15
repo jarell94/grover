@@ -156,7 +156,7 @@ ALLOWED_ORIGINS=https://grover.app,https://www.grover.app
 
 # Redis (optional but recommended)
 REDIS_URL=redis://your-redis-url:6379
-# If you don't want caching, you can omit REDIS_URL and leave the redis dependency installed (or remove it if you manage optional deps separately).
+# If you omit REDIS_URL, the app will run without caching. You can keep the redis dependency installed or remove it if you manage optional deps separately.
 ```
 
 ## Assets to Create
