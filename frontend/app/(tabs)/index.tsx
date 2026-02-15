@@ -255,6 +255,8 @@ const PostCard = memo(({
   );
 });
 
+PostCard.displayName = 'PostCard';
+
 // Memoized Story Item
 const StoryItem = memo(({ userStory, index, stories, isCreateButton }: any) => {
   if (isCreateButton) {
@@ -298,6 +300,8 @@ const StoryItem = memo(({ userStory, index, stories, isCreateButton }: any) => {
     </TouchableOpacity>
   );
 });
+
+StoryItem.displayName = 'StoryItem';
 
 export default function HomeScreen() {
   const { user } = useAuth();

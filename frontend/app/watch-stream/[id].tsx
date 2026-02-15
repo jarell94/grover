@@ -409,9 +409,9 @@ export default function WatchStreamScreen() {
     // On native, show Agora view or waiting state
     if (hostUid != null) {
       return (
-        <AgoraView
+        <RtcSurfaceView
           style={StyleSheet.absoluteFill}
-          uid={hostUid}
+          canvas={{ uid: hostUid }}
         />
       );
     }
