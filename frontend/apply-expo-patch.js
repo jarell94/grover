@@ -18,22 +18,18 @@ if (fs.existsSync(swiftFilePath)) {
   if (content.includes(patchMarker)) {
     console.log('  ExpoReactNativeFactory.swift already patched');
   } else if (content.includes('RCTReleaseLevel') || content.includes('releaseLevel:')) {
-    const initPattern = /@objc public override init\(delegate: any RCTReactNativeFactoryDelegate\)\s*\{[\s\S]*?\}/;
+    const initPatternWithRelease = /@objc public override init\(delegate: any RCTReactNativeFactoryDelegate\)[\s\S]*?super\.init\(delegate:\s*delegate,\s*releaseLevel:[^)]+\)[\s\S]*?\}/;
+    const initPattern = /@objc public override init\(delegate: any RCTReactNativeFactoryDelegate\)[\s\S]*?\}/;
     const replacement = `@objc public override init(delegate: any RCTReactNativeFactoryDelegate) {
     ${patchMarker}
     super.init(delegate: delegate)
   }`;
 
-    if (initPattern.test(content)) {
+    if (initPatternWithRelease.test(content)) {
+      content = content.replace(initPatternWithRelease, replacement);
+    } else if (initPattern.test(content)) {
       content = content.replace(initPattern, replacement);
     }
-
-    content = content.replace(
-      /super\.init\(delegate:\s*delegate,\s*releaseLevel:\s*[^)]+\)/g,
-      'super.init(delegate: delegate)'
-    );
-    content = content.replace(/RCTReleaseLevel\.[A-Za-z]+/g, '');
-    content = content.replace(/releaseLevel:\s*RCTReleaseLevel\w*/g, '');
 
     fs.writeFileSync(swiftFilePath, content);
     console.log('  ExpoReactNativeFactory.swift patched');
