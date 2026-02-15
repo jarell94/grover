@@ -711,7 +711,6 @@ test_plan:
     - "Edit Post UI Feature"
     - "Edit Product UI Feature"
     - "Notification Filtering UI Feature"
-    - "Profile Screen Touchables Sweep"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
