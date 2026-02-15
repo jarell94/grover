@@ -10,6 +10,8 @@
 - Added app.config.js to enforce newArchEnabled and gradleProperties at build time.
 - Removed @types/jest from dependencies to stop EAS preinstall failures.
 - Removed .env ignores from .gitignore to allow Emergent deployment to include env files.
+- Aligned Expo SDK 54 dependencies via expo install --fix and updated dev tooling versions.
+- Added required Expo plugins (datetimepicker, expo-font, expo-web-browser) to app.config.js.
 
 ### Remaining Backlog
 **P0**
