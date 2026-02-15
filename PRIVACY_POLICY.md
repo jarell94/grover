@@ -2,6 +2,8 @@
 
 **Last Updated:** January 2025
 
+**Privacy Policy URL:** https://grover.app/privacy-policy
+
 ## 1. Introduction
 
 Welcome to Grover ("we," "our," or "us"). This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and related services (collectively, the "Service").
