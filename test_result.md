@@ -433,7 +433,7 @@ frontend:
     file: "/app/frontend/app/(tabs)/profile.tsx"
     stuck_count: 0
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
       - working: "NA"
         agent: "main"
@@ -444,6 +444,9 @@ frontend:
       - working: "NA"
         agent: "testing"
         comment: "Profile screen not tested due to requiring authentication. Implementation appears complete based on code review and previous testing."
+      - working: "NA"
+        agent: "main"
+        comment: "User requested sweep of all touchables with focus on Profile screen; needs re-testing."
 
   - task: "Socket.IO Service"
     implemented: true
@@ -705,12 +708,14 @@ test_plan:
     - "Edit Post UI Feature"
     - "Edit Product UI Feature"
     - "Notification Filtering UI Feature"
-    - "Profile Screen Navigation Fix"
+    - "Profile Screen Touchables Sweep"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
+  - agent: "main"
+    message: "Please run a comprehensive UI sweep of touchables with focus on the Profile screen interactions and report any issues."
   - agent: "main"
     message: "Implemented Optional Monetization Feature: Creators can now toggle monetization ON/OFF in their profile settings. When OFF (default), monetization features are disabled. When ON, creators can receive tips, create subscription tiers, and sell paid content. BACKEND CHANGES: 1) Added monetization_enabled field to User model (default: false), 2) Added monetization_enabled parameter to PUT /users/me endpoint, 3) Created check_monetization_enabled() helper function, 4) Added monetization check to POST /users/{user_id}/tip, POST /creators/{user_id}/subscription-tiers, POST /creators/{user_id}/subscribe/{tier_id}, POST /posts/{post_id}/set-paid, POST /streams/{stream_id}/super-chat. All endpoints now return 403 if creator has not enabled monetization. FRONTEND CHANGES: Added monetization toggle switch in profile Account section with subtext description. Please test the monetization toggle feature by: 1) Testing PUT /users/me with monetization_enabled=true/false, 2) Testing that tip endpoint returns 403 when creator has monetization disabled, 3) Testing that subscription tier creation returns 403 when monetization disabled."
   - agent: "testing"
