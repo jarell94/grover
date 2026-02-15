@@ -50,7 +50,6 @@ export default function ProfileScreen() {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
   // Auto-refresh on screen focus
   useFocusEffect(
     useCallback(() => {
@@ -122,7 +121,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleTogglePrivacy = async (value: boolean) => {
+  const handleTogglePrivacy = useCallback(async (value: boolean) => {
     const prev = isPrivate;
     setIsPrivate(value);
 
@@ -133,9 +132,9 @@ export default function ProfileScreen() {
       setIsPrivate(prev);
       Alert.alert("Error", "Failed to update privacy");
     }
-  };
+  }, [isPrivate, refreshUser]);
 
-  const handleToggleMonetization = async (value: boolean) => {
+  const handleToggleMonetization = useCallback(async (value: boolean) => {
     const prev = monetizationEnabled;
     setMonetizationEnabled(value);
 
@@ -152,7 +151,7 @@ export default function ProfileScreen() {
       setMonetizationEnabled(prev);
       Alert.alert("Error", "Failed to update monetization settings");
     }
-  };
+  }, [monetizationEnabled, refreshUser]);
 
   const handlePremiumSubscribe = async () => {
     if (subscribing) return;
@@ -169,7 +168,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
       { text: 'Cancel', style: 'cancel' },
       { 
@@ -181,107 +180,105 @@ export default function ProfileScreen() {
         style: 'destructive' 
       },
     ]);
-  };
-
-  if (!user) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
-    );
-  }
+  }, [logout, router]);
 
   // Profile Header Component (for FlatList ListHeaderComponent)
-  const ProfileHeader = useMemo(() => (
-    <>
-      <LinearGradient
-        colors={[Colors.gradient.start, Colors.gradient.middle]}
-        style={[styles.header, { paddingTop: 24 + insets.top }]}
-      >
-        <View style={styles.profileHeader}>
-          <Image
-            source={{ uri: user.picture || 'https://via.placeholder.com/100' }}
-            style={styles.profileImage}
-          />
-          {user.is_premium && (
-            <View style={styles.premiumBadge}>
-              <Ionicons name="star" size={16} color="#fff" />
-              <Text style={styles.premiumText}>Premium</Text>
+  const ProfileHeader = useMemo(() => {
+    if (!user) return null;
+
+    return (
+      <>
+        <LinearGradient
+          colors={[Colors.gradient.start, Colors.gradient.middle]}
+          style={[styles.header, { paddingTop: 24 + insets.top }]}
+        >
+          <View style={styles.profileHeader}>
+            <Image
+              source={{ uri: user.picture || 'https://via.placeholder.com/100' }}
+              style={styles.profileImage}
+            />
+            {user.is_premium && (
+              <View style={styles.premiumBadge}>
+                <Ionicons name="star" size={16} color="#fff" />
+                <Text style={styles.premiumText}>Premium</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.name}>{user.name}</Text>
+          <Text style={styles.email}>{user.email}</Text>
+          {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
+
+          {(user.website || user.twitter || user.instagram || user.linkedin) && (
+            <View style={styles.socialLinks}>
+              {user.website && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.website)}>
+                  <Ionicons name="globe-outline" size={20} color={Colors.accent} />
+                  <Text style={styles.socialLinkText} numberOfLines={1}>{user.website}</Text>
+                </TouchableOpacity>
+              )}
+              {user.twitter && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://twitter.com/${user.twitter}`)}>
+                  <Ionicons name="logo-twitter" size={20} color="#1DA1F2" />
+                  <Text style={styles.socialLinkText}>@{user.twitter}</Text>
+                </TouchableOpacity>
+              )}
+              {user.instagram && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://instagram.com/${user.instagram}`)}>
+                  <Ionicons name="logo-instagram" size={20} color="#E4405F" />
+                  <Text style={styles.socialLinkText}>@{user.instagram}</Text>
+                </TouchableOpacity>
+              )}
+              {user.linkedin && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.linkedin)}>
+                  <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
+                  <Text style={styles.socialLinkText}>{user.linkedin}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
-        </View>
-        <Text style={styles.name}>{user.name}</Text>
-        <Text style={styles.email}>{user.email}</Text>
-        {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
-        {(user.website || user.twitter || user.instagram || user.linkedin) && (
-          <View style={styles.socialLinks}>
-            {user.website && (
-              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.website)}>
-                <Ionicons name="globe-outline" size={20} color={Colors.accent} />
-                <Text style={styles.socialLinkText} numberOfLines={1}>{user.website}</Text>
-              </TouchableOpacity>
-            )}
-            {user.twitter && (
-              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://twitter.com/${user.twitter}`)}>
-                <Ionicons name="logo-twitter" size={20} color="#1DA1F2" />
-                <Text style={styles.socialLinkText}>@{user.twitter}</Text>
-              </TouchableOpacity>
-            )}
-            {user.instagram && (
-              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://instagram.com/${user.instagram}`)}>
-                <Ionicons name="logo-instagram" size={20} color="#E4405F" />
-                <Text style={styles.socialLinkText}>@{user.instagram}</Text>
-              </TouchableOpacity>
-            )}
-            {user.linkedin && (
-              <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.linkedin)}>
-                <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
-                <Text style={styles.socialLinkText}>{user.linkedin}</Text>
-              </TouchableOpacity>
-            )}
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{stats.posts}</Text>
+              <Text style={styles.statLabel}>Posts</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{stats.followers}</Text>
+              <Text style={styles.statLabel}>Followers</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{stats.following}</Text>
+              <Text style={styles.statLabel}>Following</Text>
+            </View>
           </View>
-        )}
 
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{stats.posts}</Text>
-            <Text style={styles.statLabel}>Posts</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{stats.followers}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{stats.following}</Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </View>
-        </View>
+          <TouchableOpacity
+            style={styles.editButton}
+            onPress={() => setEditModalVisible(true)}
+          >
+            <Text style={styles.editButtonText}>Edit Profile</Text>
+          </TouchableOpacity>
+        </LinearGradient>
 
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => setEditModalVisible(true)}
-        >
-          <Text style={styles.editButtonText}>Edit Profile</Text>
-        </TouchableOpacity>
-      </LinearGradient>
-
-      {/* Profile Content Tabs - scrollEnabled=false so parent FlatList handles scroll */}
-      <ProfileContentTabs
-        userId={user.user_id}
-        api={{
-          getUserPosts: api.getUserPosts,
-          getUserMedia: api.getUserMedia,
-        }}
-        scrollEnabled={false}
-      />
-    </>
-  ), [user, stats, insets.top]);
+        {/* Profile Content Tabs - scrollEnabled=false so parent FlatList handles scroll */}
+        <ProfileContentTabs
+          userId={user.user_id}
+          api={{
+            getUserPosts: api.getUserPosts,
+            getUserMedia: api.getUserMedia,
+          }}
+          scrollEnabled={false}
+        />
+      </>
+    );
+  }, [user, stats, insets.top]);
 
   // Profile Footer Component (Quick Actions + Account)
-  const ProfileFooter = useMemo(() => (
-    <>
+  const ProfileFooter = useMemo(() => {
+    if (!user) return null;
+
+    return (
+      <>
       {/* Quick Actions */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -381,8 +378,18 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
       </View>
-    </>
-  ), [user.is_premium, isPrivate, monetizationEnabled]);
+      </>
+    );
+  }, [user, isPrivate, monetizationEnabled, handleLogout, handleToggleMonetization, handleTogglePrivacy, router]);
+
+  if (!user) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

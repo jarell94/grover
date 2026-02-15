@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Pressable } from 'react-native';
 import { Audio, AVPlaybackStatus } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
 
@@ -34,8 +34,9 @@ async function dataUriToFile(dataUri: string) {
     mime.includes('mp4') || mime.includes('aac') ? 'm4a' :
     'mp3';
 
-  const path = `${FileSystem.cacheDirectory}audio_${Date.now()}.${ext}`;
-  await FileSystem.writeAsStringAsync(path, base64, { encoding: FileSystem.EncodingType.Base64 });
+  if (!cacheDirectory) return null;
+  const path = `${cacheDirectory}audio_${Date.now()}.${ext}`;
+  await writeAsStringAsync(path, base64, { encoding: EncodingType.Base64 });
   return path;
 }
 

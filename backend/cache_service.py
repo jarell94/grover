@@ -47,7 +47,7 @@ class CacheService:
     """
     
     def __init__(self):
-        self.redis: Optional[redis.Redis] = None
+        self.redis: Optional["redis.Redis"] = None
         self.connected = False
         self.connection_lock = asyncio.Lock()
         

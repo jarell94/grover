@@ -2,6 +2,7 @@
   "expo": {
     "name": "Grover",
     "slug": "grover",
+    "privacyPolicyUrl": "https://grover.app/privacy-policy",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

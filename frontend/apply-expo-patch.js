@@ -1,6 +1,20 @@
 const fs = require('fs');
 const path = require('path');
 
+// Regex to locate ExpoReactNativeFactory init that references RCTReleaseLevel and passes releaseLevel to super.init
+const INIT_SIGNATURE = '@objc public override init\\(delegate: any RCTReactNativeFactoryDelegate\\)';
+const RELEASE_LEVEL_INIT_PATTERN = new RegExp(
+  [
+    '^(\\s*)', // capture indentation to preserve formatting
+    INIT_SIGNATURE,
+    '\\s*\\{',
+    '[\\s\\S]*?RCTReleaseLevel', // match release level enum usage
+    '[\\s\\S]*?super\\.init\\(delegate:\\s*delegate,\\s*releaseLevel:[^)]+\\)', // match releaseLevel call
+    '[\\s\\S]*?\\n\\s*\\}', // end of init method
+  ].join(''),
+  'm'
+);
+
 console.log('Applying RCTReleaseLevel patches...');
 
 // Patch ExpoReactNativeFactory.swift to remove RCTReleaseLevel references
@@ -14,51 +28,27 @@ if (fs.existsSync(swiftFilePath)) {
   let content = fs.readFileSync(swiftFilePath, 'utf8');
   
   // Check if already patched
-  if (content.includes('// PATCHED: RCTReleaseLevel removed')) {
+  const patchMarker = '// PATCHED: RCTReleaseLevel removed for compatibility';
+  if (content.includes(patchMarker)) {
     console.log('  ExpoReactNativeFactory.swift already patched');
   } else {
-    // Remove the entire releaseLevel block and the super.init call with releaseLevel
-    const oldBlock = `  // TODO: Remove check when react-native-macos 0.81 is released
-  #if !os(macOS)
-  @objc public override init(delegate: any RCTReactNativeFactoryDelegate) {
-    let releaseLevel = (Bundle.main.object(forInfoDictionaryKey: "ReactNativeReleaseLevel") as? String)
-      .flatMap { [
-        "canary": RCTReleaseLevel.Canary,
-        "experimental": RCTReleaseLevel.Experimental,
-        "stable": RCTReleaseLevel.Stable
-      ][$0.lowercased()]
-      }
-    ?? RCTReleaseLevel.Stable
-
-    super.init(delegate: delegate, releaseLevel: releaseLevel)
-  }
-  #endif`;
-
-    const newBlock = `  // PATCHED: RCTReleaseLevel removed for compatibility
-  #if !os(macOS)
-  @objc public override init(delegate: any RCTReactNativeFactoryDelegate) {
-    super.init(delegate: delegate)
-  }
-  #endif`;
-
-    if (content.includes('let releaseLevel = (Bundle.main')) {
-      content = content.replace(oldBlock, newBlock);
-      
-      // If the exact block didn't match, try a more aggressive approach
-      if (content.includes('releaseLevel: releaseLevel')) {
-        // Replace the init method more aggressively
-        content = content.replace(
-          /@objc public override init\(delegate: any RCTReactNativeFactoryDelegate\) \{[\s\S]*?super\.init\(delegate: delegate, releaseLevel: releaseLevel\)[\s\S]*?\}/,
-          `@objc public override init(delegate: any RCTReactNativeFactoryDelegate) {
-    // PATCHED: RCTReleaseLevel removed for compatibility
-    super.init(delegate: delegate)
-  }`
-        );
-      }
+    // Match the ExpoReactNativeFactory init that:
+    // - Declares @objc public override init(delegate: any RCTReactNativeFactoryDelegate)
+    // - References RCTReleaseLevel in the body
+    // - Calls super.init(delegate: delegate, releaseLevel: ...)
+    const updatedContent = content.replace(RELEASE_LEVEL_INIT_PATTERN, (match, indent) => (
+      `${indent}@objc public override init(delegate: any RCTReactNativeFactoryDelegate) {\n` +
+      `${indent}  ${patchMarker}\n` +
+      `${indent}  super.init(delegate: delegate)\n` +
+      `${indent}}`
+    ));
+    if (updatedContent !== content) {
+      content = updatedContent;
+      fs.writeFileSync(swiftFilePath, content);
+      console.log('  ExpoReactNativeFactory.swift patched');
+    } else {
+      console.warn('  releaseLevel init not found in ExpoReactNativeFactory.swift; verify file if build errors persist');
     }
-    
-    fs.writeFileSync(swiftFilePath, content);
-    console.log('  ExpoReactNativeFactory.swift patched');
   }
 } else {
   console.log('  ExpoReactNativeFactory.swift not found');

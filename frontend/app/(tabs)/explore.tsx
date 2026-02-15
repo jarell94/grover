@@ -17,17 +17,45 @@ import { api } from "../../services/api";
 
 type ExploreTab = "foryou" | "trending" | "categories";
 
+interface ExplorePost {
+  post_id: string;
+  content?: string;
+  media_url?: string;
+  media_type?: string;
+  likes_count?: number;
+  liked?: boolean;
+}
+
+interface RisingCreator {
+  user_id: string;
+  username: string;
+  followers_count?: number;
+  engagement_rate?: number;
+}
+
+interface Category {
+  category_id: string;
+  emoji: string;
+  name: string;
+  post_count?: number;
+}
+
+interface TrendingData {
+  trending_posts: ExplorePost[];
+  rising_creators: RisingCreator[];
+}
+
 const PAGE_SIZE = 21; // 3 columns, so multiple of 3
 
 export default function ExploreScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ExploreTab>("foryou");
-  const [posts, setPosts] = useState<any[]>([]);
-  const [trendingData, setTrendingData] = useState<any>({
+  const [posts, setPosts] = useState<ExplorePost[]>([]);
+  const [trendingData, setTrendingData] = useState<TrendingData>({
     trending_posts: [],
     rising_creators: [],
   });
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -231,14 +259,14 @@ export default function ExploreScreen() {
     </View>
   );
 
-  const getImageSource = (item: any) => {
+  const getImageSource = (item?: ExplorePost) => {
     // supports base64 OR normal URL
     if (!item?.media_url) return null;
     if (item.media_url.startsWith("http")) return { uri: item.media_url };
     return { uri: `data:image/jpeg;base64,${item.media_url}` };
   };
 
-  const renderPost = ({ item }: { item: any }) => {
+  const renderPost = ({ item }: { item: ExplorePost }) => {
     const img = item?.media_type === "image" ? getImageSource(item) : null;
     const isVideo = item?.media_type === "video";
 

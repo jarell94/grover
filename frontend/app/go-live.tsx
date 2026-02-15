@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Audio } from 'expo-av';
-import * as Camera from 'expo-camera';
+import { Camera, CameraType } from 'expo-camera';
 
 import { api } from '../services/api';
 import { AGORA_AVAILABLE } from '../utils/agora';
@@ -35,11 +35,11 @@ const Colors = {
 
 async function ensureLivePermissions() {
   // Camera
-  const cam = await Camera.Camera.requestCameraPermissionsAsync();
+  const cam = await Camera.requestCameraPermissionsAsync();
   if (cam.status !== 'granted') throw new Error('Camera permission is required to go live.');
 
   // Mic
-  const mic = await Camera.Camera.requestMicrophonePermissionsAsync();
+  const mic = await Camera.requestMicrophonePermissionsAsync();
   if (mic.status !== 'granted') throw new Error('Microphone permission is required to go live.');
 
   // Audio mode so mic works properly
@@ -55,7 +55,7 @@ async function ensureLivePermissions() {
 }
 
 export default function GoLiveScreen() {
-  const cameraRef = useRef<Camera.Camera | null>(null);
+  const cameraRef = useRef<Camera | null>(null);
   const [streamTitle, setStreamTitle] = useState('');
   const [streamDescription, setStreamDescription] = useState('');
   const [enableSuperChat, setEnableSuperChat] = useState(false);
@@ -68,8 +68,8 @@ export default function GoLiveScreen() {
   useEffect(() => {
     if (Platform.OS === 'web') return;
     (async () => {
-      const cam = await Camera.Camera.getCameraPermissionsAsync();
-      const mic = await Camera.Camera.getMicrophonePermissionsAsync();
+      const cam = await Camera.getCameraPermissionsAsync();
+      const mic = await Camera.getMicrophonePermissionsAsync();
       setHasPerms(cam.status === 'granted' && mic.status === 'granted');
     })();
   }, []);
@@ -158,10 +158,10 @@ export default function GoLiveScreen() {
     // Native with permissions -> show live camera
     return (
       <View style={{ flex: 1 }}>
-        <Camera.Camera
+        <Camera
           ref={(r) => (cameraRef.current = r)}
           style={{ flex: 1 }}
-          type={facing === 'front' ? Camera.CameraType.front : Camera.CameraType.back}
+          type={facing === 'front' ? CameraType.front : CameraType.back}
           ratio="16:9"
         />
 

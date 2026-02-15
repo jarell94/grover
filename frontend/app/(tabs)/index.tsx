@@ -24,6 +24,7 @@ import { buildPostFormData } from '../../utils/formData';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import MediaDisplay from '../../components/MediaDisplay';
+import ErrorBoundaryView from '../../components/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -59,6 +60,13 @@ interface Post {
 // Estimated item heights for FlashList
 const ESTIMATED_POST_HEIGHT = 400;
 const ESTIMATED_POST_WITH_MEDIA_HEIGHT = 550;
+
+const PostErrorFallback = () => (
+  <View style={styles.postError}>
+    <Ionicons name="alert-circle-outline" size={24} color={Colors.textSecondary} />
+    <Text style={styles.postErrorText}>Post unavailable</Text>
+  </View>
+);
 
 // Memoized Post Component for optimal performance
 const PostCard = memo(({ 
@@ -247,6 +255,8 @@ const PostCard = memo(({
   );
 });
 
+PostCard.displayName = 'PostCard';
+
 // Memoized Story Item
 const StoryItem = memo(({ userStory, index, stories, isCreateButton }: any) => {
   if (isCreateButton) {
@@ -290,6 +300,8 @@ const StoryItem = memo(({ userStory, index, stories, isCreateButton }: any) => {
     </TouchableOpacity>
   );
 });
+
+StoryItem.displayName = 'StoryItem';
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -575,18 +587,20 @@ export default function HomeScreen() {
 
   // Memoized render item
   const renderItem = useCallback(({ item }: { item: Post }) => (
-    <PostCard
-      item={item}
-      isVisible={visiblePostsSet.has(item.post_id)}
-      onLike={handleLike}
-      onDislike={handleDislike}
-      onSave={handleSave}
-      onShare={handleShare}
-      onComment={handleOpenComment}
-      onRepost={handleOpenRepost}
-      onVotePoll={handleVotePoll}
-      nextVideoUri={getNextVideoUri(item.post_id)}
-    />
+    <ErrorBoundaryView fallback={<PostErrorFallback />} resetKey={item.post_id}>
+      <PostCard
+        item={item}
+        isVisible={visiblePostsSet.has(item.post_id)}
+        onLike={handleLike}
+        onDislike={handleDislike}
+        onSave={handleSave}
+        onShare={handleShare}
+        onComment={handleOpenComment}
+        onRepost={handleOpenRepost}
+        onVotePoll={handleVotePoll}
+        nextVideoUri={getNextVideoUri(item.post_id)}
+      />
+    </ErrorBoundaryView>
   ), [visiblePostsSet, handleLike, handleDislike, handleSave, handleShare, handleOpenComment, handleOpenRepost, handleVotePoll, getNextVideoUri]);
 
   const keyExtractor = useCallback((item: Post) => item.post_id, []);
@@ -1114,6 +1128,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  postError: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  postErrorText: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
   },
   postHeader: {
     flexDirection: 'row',
