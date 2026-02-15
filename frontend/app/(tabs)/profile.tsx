@@ -43,18 +43,7 @@ export default function ProfileScreen() {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const safeUser = useMemo(() => (user ?? {
-    user_id: '',
-    name: '',
-    email: '',
-    picture: '',
-    is_premium: false,
-    bio: '',
-    website: '',
-    twitter: '',
-    instagram: '',
-    linkedin: '',
-  }), [user]);
+  const safeUser = user;
   const openUrl = useCallback(async (url: string) => {
     const u = url.startsWith("http") ? url : `https://${url}`;
     const ok = await Linking.canOpenURL(u);
@@ -196,6 +185,8 @@ export default function ProfileScreen() {
 
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => {
+    if (!safeUser) return null;
+
     return (
       <>
         <LinearGradient
@@ -285,6 +276,8 @@ export default function ProfileScreen() {
 
   // Profile Footer Component (Quick Actions + Account)
   const ProfileFooter = useMemo(() => {
+    if (!safeUser) return null;
+
     return (
       <>
       {/* Quick Actions */}
@@ -388,7 +381,7 @@ export default function ProfileScreen() {
       </View>
       </>
     );
-  }, [safeUser.is_premium, isPrivate, monetizationEnabled, handleLogout, handleToggleMonetization, handleTogglePrivacy, router]);
+  }, [safeUser, isPrivate, monetizationEnabled, handleLogout, handleToggleMonetization, handleTogglePrivacy, router]);
 
   if (!user) {
     return (
