@@ -43,7 +43,6 @@ export default function ProfileScreen() {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const safeUser = user;
   const openUrl = useCallback(async (url: string) => {
     const u = url.startsWith("http") ? url : `https://${url}`;
     const ok = await Linking.canOpenURL(u);
@@ -185,7 +184,7 @@ export default function ProfileScreen() {
 
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => {
-    if (!safeUser) return null;
+    if (!user) return null;
 
     return (
       <>
@@ -195,44 +194,44 @@ export default function ProfileScreen() {
         >
           <View style={styles.profileHeader}>
             <Image
-              source={{ uri: safeUser.picture || 'https://via.placeholder.com/100' }}
+              source={{ uri: user.picture || 'https://via.placeholder.com/100' }}
               style={styles.profileImage}
             />
-            {safeUser.is_premium && (
+            {user.is_premium && (
               <View style={styles.premiumBadge}>
                 <Ionicons name="star" size={16} color="#fff" />
                 <Text style={styles.premiumText}>Premium</Text>
               </View>
             )}
           </View>
-          <Text style={styles.name}>{safeUser.name}</Text>
-          <Text style={styles.email}>{safeUser.email}</Text>
-          {safeUser.bio && <Text style={styles.bio}>{safeUser.bio}</Text>}
+          <Text style={styles.name}>{user.name}</Text>
+          <Text style={styles.email}>{user.email}</Text>
+          {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
-          {(safeUser.website || safeUser.twitter || safeUser.instagram || safeUser.linkedin) && (
+          {(user.website || user.twitter || user.instagram || user.linkedin) && (
             <View style={styles.socialLinks}>
-              {safeUser.website && (
-                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(safeUser.website)}>
+              {user.website && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.website)}>
                   <Ionicons name="globe-outline" size={20} color={Colors.accent} />
-                  <Text style={styles.socialLinkText} numberOfLines={1}>{safeUser.website}</Text>
+                  <Text style={styles.socialLinkText} numberOfLines={1}>{user.website}</Text>
                 </TouchableOpacity>
               )}
-              {safeUser.twitter && (
-                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://twitter.com/${safeUser.twitter}`)}>
+              {user.twitter && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://twitter.com/${user.twitter}`)}>
                   <Ionicons name="logo-twitter" size={20} color="#1DA1F2" />
-                  <Text style={styles.socialLinkText}>@{safeUser.twitter}</Text>
+                  <Text style={styles.socialLinkText}>@{user.twitter}</Text>
                 </TouchableOpacity>
               )}
-              {safeUser.instagram && (
-                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://instagram.com/${safeUser.instagram}`)}>
+              {user.instagram && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(`https://instagram.com/${user.instagram}`)}>
                   <Ionicons name="logo-instagram" size={20} color="#E4405F" />
-                  <Text style={styles.socialLinkText}>@{safeUser.instagram}</Text>
+                  <Text style={styles.socialLinkText}>@{user.instagram}</Text>
                 </TouchableOpacity>
               )}
-              {safeUser.linkedin && (
-                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(safeUser.linkedin)}>
+              {user.linkedin && (
+                <TouchableOpacity style={styles.socialLink} onPress={() => openUrl(user.linkedin)}>
                   <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
-                  <Text style={styles.socialLinkText}>{safeUser.linkedin}</Text>
+                  <Text style={styles.socialLinkText}>{user.linkedin}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -263,7 +262,7 @@ export default function ProfileScreen() {
 
         {/* Profile Content Tabs - scrollEnabled=false so parent FlatList handles scroll */}
         <ProfileContentTabs
-          userId={safeUser.user_id}
+          userId={user.user_id}
           api={{
             getUserPosts: api.getUserPosts,
             getUserMedia: api.getUserMedia,
@@ -272,11 +271,11 @@ export default function ProfileScreen() {
         />
       </>
     );
-  }, [safeUser, stats, insets.top, openUrl]);
+  }, [user, stats, insets.top, openUrl]);
 
   // Profile Footer Component (Quick Actions + Account)
   const ProfileFooter = useMemo(() => {
-    if (!safeUser) return null;
+    if (!user) return null;
 
     return (
       <>
@@ -326,7 +325,7 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Account</Text>
 
-        {!safeUser.is_premium && (
+        {!user.is_premium && (
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => setShowPremiumModal(true)}
@@ -381,7 +380,7 @@ export default function ProfileScreen() {
       </View>
       </>
     );
-  }, [safeUser, isPrivate, monetizationEnabled, handleLogout, handleToggleMonetization, handleTogglePrivacy, router]);
+  }, [user, isPrivate, monetizationEnabled, handleLogout, handleToggleMonetization, handleTogglePrivacy, router]);
 
   if (!user) {
     return (
