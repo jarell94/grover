@@ -11,186 +11,184 @@
       "test": "Health Check",
       "status": "PASS",
       "details": "Status: healthy, Services: ['mongodb', 'cloudinary', 'agora', 'paypal', 'redis']",
-      "timestamp": "2026-02-10T05:38:32.010126",
+      "timestamp": "2026-02-15T07:32:39.323867",
       "response_data": null
     },
     {
       "test": "Readiness Check",
       "status": "PASS",
       "details": "Service is ready",
-      "timestamp": "2026-02-10T05:38:32.020333",
+      "timestamp": "2026-02-15T07:32:39.380261",
       "response_data": null
     },
     {
       "test": "Media Service Status",
       "status": "PASS",
       "details": "Cloudinary configured: False",
-      "timestamp": "2026-02-10T05:38:32.069564",
+      "timestamp": "2026-02-15T07:32:39.433177",
       "response_data": null
     },
     {
       "test": "Authentication Flow",
       "status": "FAIL",
       "details": "Unexpected status: 520",
-      "timestamp": "2026-02-10T05:38:32.293576",
-      "response_data": {
-        "detail": "400: Invalid session ID"
-      }
+      "timestamp": "2026-02-15T07:32:39.813712",
+      "response_data": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n\n\n<title>build-rescue-8.cluster-0.preview.emergentcf.cloud | 520: Web server is returning an unknown error</title>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />\n<meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\" />\n<meta name=\"robots\" content=\"noindex, nofollow\" />\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />\n<link rel=\"stylesheet\" id=\"cf_styles-css\" href=\"/cdn-cgi/styles/main.css\" />\n\n\n</head>\n<body>\n<div id=\"cf-wrapper\">\n    <div id=\"cf-error-details\" class=\"p-0\">\n        <header class=\"mx-auto pt-10 lg:pt-6 lg:px-8 w-240 lg:w-full mb-8\">\n            <h1 class=\"inline-block sm:block sm:mb-2 font-light text-60 lg:text-4xl text-black-dark leading-tight mr-2\">\n              <span class=\"inline-block\">Web server is returning an unknown error</span>\n              <span class=\"code-label\">Error code 520</span>\n            </h1>\n            <div>\n               Visit <a href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_520&utm_campaign=build-rescue-8.cluster-0.preview.emergentcf.cloud\" target=\"_blank\" rel=\"noopener noreferrer\">cloudflare.com</a> for more information.\n            </div>\n            <div class=\"mt-3\">2026-02-15 07:32:39 UTC</div>\n        </header>\n        <div class=\"my-8 bg-gradient-gray\">\n            <div class=\"w-240 lg:w-full mx-auto\">\n                <div class=\"clearfix md:px-8\">\n                  \n<div id=\"cf-browser-status\" class=\" relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center\">\n  <div class=\"relative mb-10 md:m-0\">\n    \n    <span class=\"cf-icon-browser block md:hidden h-20 bg-center bg-no-repeat\"></span>\n    <span class=\"cf-icon-ok w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4\"></span>\n    \n  </div>\n  <span class=\"md:block w-full truncate\">You</span>\n  <h3 class=\"md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3\">\n    \n    Browser\n    \n  </h3>\n  <span class=\"leading-1.3 text-2xl text-green-success\">Working</span>\n</div>\n\n<div id=\"cf-cloudflare-status\" class=\" relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center\">\n  <div class=\"relative mb-10 md:m-0\">\n    <a href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_520&utm_campaign=build-rescue-8.cluster-0.preview.emergentcf.cloud\" target=\"_blank\" rel=\"noopener noreferrer\">\n    <span class=\"cf-icon-cloud block md:hidden h-20 bg-center bg-no-repeat\"></span>\n    <span class=\"cf-icon-ok w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4\"></span>\n    </a>\n  </div>\n  <span class=\"md:block w-full truncate\">Chicago</span>\n  <h3 class=\"md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3\">\n    <a href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_520&utm_campaign=build-rescue-8.cluster-0.preview.emergentcf.cloud\" target=\"_blank\" rel=\"noopener noreferrer\">\n    Cloudflare\n    </a>\n  </h3>\n  <span class=\"leading-1.3 text-2xl text-green-success\">Working</span>\n</div>\n\n<div id=\"cf-host-status\" class=\"cf-error-source relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center\">\n  <div class=\"relative mb-10 md:m-0\">\n    \n    <span class=\"cf-icon-server block md:hidden h-20 bg-center bg-no-repeat\"></span>\n    <span class=\"cf-icon-error w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4\"></span>\n    \n  </div>\n  <span class=\"md:block w-full truncate\">build-rescue-8.cluster-0.preview.emergentcf.cloud</span>\n  <h3 class=\"md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3\">\n    \n    Host\n    \n  </h3>\n  <span class=\"leading-1.3 text-2xl text-red-error\">Error</span>\n</div>\n\n                </div>\n            </div>\n        </div>\n\n        <div class=\"w-240 lg:w-full mx-auto mb-8 lg:px-8\">\n            <div class=\"clearfix\">\n                <div class=\"w-1/2 md:w-full float-left pr-6 md:pb-10 md:pr-0 leading-relaxed\">\n                    <h2 class=\"text-3xl font-normal leading-1.3 mb-4\">What happened?</h2>\n                    <p>There is an unknown connection issue between Cloudflare and the origin web server. As a result, the web page can not be displayed.</p>\n                </div>\n                <div class=\"w-1/2 md:w-full float-left leading-relaxed\">\n                    <h2 class=\"text-3xl font-normal leading-1.3 mb-4\">What can I do?</h2>\n                          <h3 class=\"text-15 font-semibold mb-2\">If you are a visitor of this website:</h3>\n      <p class=\"mb-6\">Please try again in a few minutes.</p>\n\n      <h3 class=\"text-15 font-semibold mb-2\">If you are the owner of this website:</h3>\n      <p><span>There is an issue between Cloudflare's cache and your origin web server. Cloudflare monitors for these errors and automatically investigates the cause. To help support the investigation, you can pull the corresponding error log from your web server and submit it our support team.  Please include the Ray ID (which is at the bottom of this error page).</span> <a rel=\"noopener noreferrer\" href=\"https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-520/\">Additional troubleshooting resources</a>.</p>\n                </div>\n            </div>\n        </div>\n\n        <div class=\"cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300\">\n  <p class=\"text-13\">\n    <span class=\"cf-footer-item sm:block sm:mb-1\">Cloudflare Ray ID: <strong class=\"font-semibold\">9ce31cd283f2eaef</strong></span>\n    <span class=\"cf-footer-separator sm:hidden\">&bull;</span>\n    <span id=\"cf-footer-item-ip\" class=\"cf-footer-item hidden sm:block sm:mb-1\">\n      Your IP:\n      <button type=\"button\" id=\"cf-footer-ip-reveal\" class=\"cf-footer-ip-reveal-btn\">Click to reveal</button>\n      <span class=\"hidden\" id=\"cf-footer-ip\">104.198.214.223</span>\n      <span class=\"cf-footer-separator sm:hidden\">&bull;</span>\n    </span>\n    <span class=\"cf-footer-item sm:block sm:mb-1\"><span>Performance &amp; security by</span> <a rel=\"noopener noreferrer\" href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_520&utm_campaign=build-rescue-8.cluster-0.preview.emergentcf.cloud\" id=\"brand_link\" target=\"_blank\">Cloudflare</a></span>\n    \n  </p>\n  <script>(function(){function d(){var b=a.getElementById(\"cf-footer-item-ip\"),c=a.getElementById(\"cf-footer-ip-reveal\");b&&\"classList\"in b&&(b.classList.remove(\"hidden\"),c.addEventListener(\"click\",function(){c.classList.add(\"hidden\");a.getElementById(\"cf-footer-ip\").classList.remove(\"hidden\")}))}var a=document;document.addEventListener&&a.addEventListener(\"DOMContentLoaded\",d)})();</script>\n</div><!-- /.error-footer -->\n\n\n    </div>\n</div>\n</body>\n</html>\n"
     },
     {
       "test": "Auth Protection",
       "status": "PASS",
       "details": "All 4 endpoints properly protected",
-      "timestamp": "2026-02-10T05:38:32.349229",
+      "timestamp": "2026-02-15T07:32:40.012769",
       "response_data": null
     },
     {
       "test": "Session Validation",
       "status": "PASS",
       "details": "Rejects overly long session ID",
-      "timestamp": "2026-02-10T05:38:32.358273",
+      "timestamp": "2026-02-15T07:32:40.069072",
       "response_data": null
     },
     {
       "test": "Posts Auth Protection",
       "status": "PASS",
       "details": "All posts endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.394790",
+      "timestamp": "2026-02-15T07:32:40.266459",
       "response_data": null
     },
     {
       "test": "User Auth Protection",
       "status": "PASS",
       "details": "All user endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.430510",
+      "timestamp": "2026-02-15T07:32:40.463410",
       "response_data": null
     },
     {
       "test": "Comments Auth Protection",
       "status": "PASS",
       "details": "All comments endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.502227",
+      "timestamp": "2026-02-15T07:32:40.673494",
       "response_data": null
     },
     {
       "test": "Notifications Auth Protection",
       "status": "FAIL",
       "details": "Some notifications endpoints not protected",
-      "timestamp": "2026-02-10T05:38:32.557596",
+      "timestamp": "2026-02-15T07:32:40.766969",
       "response_data": null
     },
     {
       "test": "File Upload Security",
       "status": "PASS",
       "details": "Media upload requires authentication",
-      "timestamp": "2026-02-10T05:38:32.568609",
+      "timestamp": "2026-02-15T07:32:40.812422",
       "response_data": null
     },
     {
       "test": "Pagination Limits",
       "status": "PASS",
       "details": "Pagination endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.576250",
+      "timestamp": "2026-02-15T07:32:40.856838",
       "response_data": null
     },
     {
       "test": "Payment Security",
       "status": "PASS",
       "details": "Payment endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.623567",
+      "timestamp": "2026-02-15T07:32:40.906148",
       "response_data": null
     },
     {
       "test": "Streaming Security",
       "status": "PASS",
       "details": "All streaming endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.655129",
+      "timestamp": "2026-02-15T07:32:41.257262",
       "response_data": null
     },
     {
       "test": "Stories Security",
       "status": "PASS",
       "details": "All stories endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.729323",
+      "timestamp": "2026-02-15T07:32:42.480071",
       "response_data": null
     },
     {
       "test": "Products Security",
       "status": "PASS",
       "details": "All products endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.801257",
+      "timestamp": "2026-02-15T07:32:42.697179",
       "response_data": null
     },
     {
       "test": "Discounts Security",
       "status": "PASS",
       "details": "All discount endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.871286",
+      "timestamp": "2026-02-15T07:32:42.901335",
       "response_data": null
     },
     {
       "test": "Analytics Security",
       "status": "PASS",
       "details": "All analytics endpoints require authentication",
-      "timestamp": "2026-02-10T05:38:32.885670",
+      "timestamp": "2026-02-15T07:32:43.071803",
       "response_data": null
     },
     {
       "test": "404 Error Handling",
       "status": "PASS",
       "details": "Invalid endpoints return 404",
-      "timestamp": "2026-02-10T05:38:33.000021",
+      "timestamp": "2026-02-15T07:32:43.275945",
       "response_data": null
     },
     {
       "test": "Malformed JSON",
       "status": "PASS",
       "details": "Properly handles malformed JSON (status: 401)",
-      "timestamp": "2026-02-10T05:38:33.008245",
+      "timestamp": "2026-02-15T07:32:43.321829",
       "response_data": null
     },
     {
       "test": "SQL Injection Prevention",
       "status": "PASS",
       "details": "No server errors from injection attempts",
-      "timestamp": "2026-02-10T05:38:33.079771",
+      "timestamp": "2026-02-15T07:32:43.514872",
       "response_data": null
     },
     {
       "test": "XSS Prevention",
       "status": "PASS",
       "details": "No server errors from XSS attempts",
-      "timestamp": "2026-02-10T05:38:33.245306",
+      "timestamp": "2026-02-15T07:32:43.835388",
       "response_data": null
     },
     {
       "test": "Empty Request Handling",
       "status": "PASS",
       "details": "Properly handles empty requests (status: 401)",
-      "timestamp": "2026-02-10T05:38:33.294476",
+      "timestamp": "2026-02-15T07:32:43.884274",
       "response_data": null
     },
     {
       "test": "Oversized Request Handling",
       "status": "PASS",
       "details": "Properly handles large requests (status: 401)",
-      "timestamp": "2026-02-10T05:38:33.303382",
+      "timestamp": "2026-02-15T07:32:43.978660",
       "response_data": null
     },
     {
       "test": "Rate Limiting",
       "status": "INFO",
       "details": "No rate limiting detected (may be configured differently)",
-      "timestamp": "2026-02-10T05:38:33.502394",
+      "timestamp": "2026-02-15T07:32:44.630490",
       "response_data": null
     },
     {
       "test": "CORS Headers",
       "status": "WARN",
       "details": "CORS headers not detected",
-      "timestamp": "2026-02-10T05:38:33.509213",
+      "timestamp": "2026-02-15T07:32:44.649257",
       "response_data": null
     }
   ],
-  "timestamp": "2026-02-10T05:38:33.509394"
+  "timestamp": "2026-02-15T07:32:44.649447"
 }
