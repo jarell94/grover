@@ -23,13 +23,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../services/api';
 import ProfileContentTabs from '../../components/ProfileContentTabs';
 
-const openUrl = async (url: string) => {
-  const u = url.startsWith("http") ? url : `https://${url}`;
-  const ok = await Linking.canOpenURL(u);
-  if (ok) Linking.openURL(u);
-  else Alert.alert("Invalid link", "This link can't be opened.");
-};
-
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 export default function ProfileScreen() {
@@ -50,6 +43,12 @@ export default function ProfileScreen() {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const openUrl = useCallback(async (url: string) => {
+    const u = url.startsWith("http") ? url : `https://${url}`;
+    const ok = await Linking.canOpenURL(u);
+    if (ok) Linking.openURL(u);
+    else Alert.alert("Invalid link", "This link can't be opened.");
+  }, []);
 
   // Auto-refresh on screen focus
   useFocusEffect(
@@ -122,7 +121,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleTogglePrivacy = async (value: boolean) => {
+  const handleTogglePrivacy = useCallback(async (value: boolean) => {
     const prev = isPrivate;
     setIsPrivate(value);
 
@@ -133,9 +132,9 @@ export default function ProfileScreen() {
       setIsPrivate(prev);
       Alert.alert("Error", "Failed to update privacy");
     }
-  };
+  }, [isPrivate, refreshUser]);
 
-  const handleToggleMonetization = async (value: boolean) => {
+  const handleToggleMonetization = useCallback(async (value: boolean) => {
     const prev = monetizationEnabled;
     setMonetizationEnabled(value);
 
@@ -152,7 +151,7 @@ export default function ProfileScreen() {
       setMonetizationEnabled(prev);
       Alert.alert("Error", "Failed to update monetization settings");
     }
-  };
+  }, [monetizationEnabled, refreshUser]);
 
   const handlePremiumSubscribe = async () => {
     if (subscribing) return;
@@ -169,7 +168,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
       { text: 'Cancel', style: 'cancel' },
       { 
@@ -181,7 +180,7 @@ export default function ProfileScreen() {
         style: 'destructive' 
       },
     ]);
-  };
+  }, [logout, router]);
 
   // Profile Header Component (for FlatList ListHeaderComponent)
   const ProfileHeader = useMemo(() => {
