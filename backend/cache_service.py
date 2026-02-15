@@ -24,7 +24,6 @@ try:
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
-    redis = None
 
 logger = logging.getLogger(__name__)
 
