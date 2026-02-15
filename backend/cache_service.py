@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Redis Caching Service for Grover Backend
 
@@ -24,6 +26,7 @@ try:
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
+    redis = None
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +50,7 @@ class CacheService:
     """
     
     def __init__(self):
-        self.redis: Optional[redis.Redis] = None
+        self.redis: Optional["redis.Redis"] = None
         self.connected = False
         self.connection_lock = asyncio.Lock()
         
