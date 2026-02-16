@@ -43,10 +43,16 @@ export const initSentry = () => {
     
     // Filter out known non-critical errors
     beforeSend(event, hint) {
-      // Filter out network errors that are expected
       const error = hint.originalException as Error;
+      
+      // Filter out generic network errors, but keep auth-related network errors
       if (error?.message?.includes('Network request failed')) {
-        // Don't send network errors - they're usually connectivity issues
+        // Keep network errors that happen during authentication or critical operations
+        if (event.breadcrumbs?.some(b => b.category === 'auth')) {
+          // Keep this error - it's an auth-related network failure
+          return event;
+        }
+        // Don't send generic network errors - they're usually connectivity issues
         return null;
       }
       
