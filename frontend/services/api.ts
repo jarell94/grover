@@ -434,6 +434,7 @@ export const api = {
   getContentPerformance: () => apiRequest('/analytics/content-performance'),
   getRevenueAnalytics: () => apiRequest('/analytics/revenue'),
   getEngagementAnalytics: () => apiRequest('/analytics/engagement'),
+  getAudienceDemographics: () => apiRequest('/analytics/audience-demographics'),
 
   // Push Notifications
   registerPushToken: (token: string, platform: string) => 
@@ -468,6 +469,23 @@ export const api = {
   schedulePost: (formData: FormData) => apiRequest('/posts/schedule', { method: 'POST', body: formData }),
   getScheduledPosts: () => apiRequest('/posts/scheduled'),
   deleteScheduledPost: (scheduledPostId: string) => apiRequest(`/posts/scheduled/${scheduledPostId}`, { method: 'DELETE' }),
+
+  // AI Content Assistant
+  generateCaption: (content: string, imageDescription?: string, tone?: string) => {
+    const formData = new FormData();
+    formData.append('content', content);
+    if (imageDescription) formData.append('image_description', imageDescription);
+    if (tone) formData.append('tone', tone);
+    return apiRequest('/ai/generate-caption', { method: 'POST', body: formData });
+  },
+  suggestHashtags: (content: string, maxHashtags?: number) => {
+    const formData = new FormData();
+    formData.append('content', content);
+    if (maxHashtags) formData.append('max_hashtags', maxHashtags.toString());
+    return apiRequest('/ai/suggest-hashtags', { method: 'POST', body: formData });
+  },
+  getPostingTimeRecommendation: () => apiRequest('/ai/posting-time-recommendation'),
+  getContentIdeas: () => apiRequest('/ai/content-ideas'),
 
   // Communities
   createCommunity: (formData: FormData) => apiRequest('/communities/create', { method: 'POST', body: formData }),

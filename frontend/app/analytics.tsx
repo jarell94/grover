@@ -249,6 +249,7 @@ export default function AnalyticsScreen() {
   const [contentPerformance, setContentPerformance] = useState<any[]>([]);
   const [revenueData, setRevenueData] = useState({ total: 0, tips: 0, sales: 0 });
   const [engagementData, setEngagementData] = useState<any>(null);
+  const [demographics, setDemographics] = useState<any>(null);
 
   const formatNumber = useCallback((n: any) => {
     const num = Number(n);
@@ -262,11 +263,12 @@ export default function AnalyticsScreen() {
     if (showLoader) setLoading(true);
     
     try {
-      const [overviewRes, performanceRes, revenueRes, engagementRes] = await Promise.allSettled([
+      const [overviewRes, performanceRes, revenueRes, engagementRes, demographicsRes] = await Promise.allSettled([
         api.getAnalyticsOverview(),
         api.getContentPerformance(),
         api.getRevenueAnalytics(),
         api.getEngagementAnalytics(),
+        api.getAudienceDemographics(),
       ]);
       
       if (overviewRes.status === 'fulfilled') {
@@ -288,6 +290,10 @@ export default function AnalyticsScreen() {
       
       if (engagementRes.status === 'fulfilled') {
         setEngagementData(engagementRes.value);
+      }
+      
+      if (demographicsRes.status === 'fulfilled') {
+        setDemographics(demographicsRes.value);
       }
     } catch (error) {
       console.error('Analytics load error:', error);
@@ -450,6 +456,75 @@ export default function AnalyticsScreen() {
             ))
           )}
         </View>
+
+        {/* Audience Demographics */}
+        {demographics && demographics.total_followers > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Audience Demographics</Text>
+            
+            {/* Age Groups */}
+            <View style={styles.demographicsCard}>
+              <Text style={styles.demographicsSubtitle}>Age Distribution</Text>
+              <View style={styles.ageGroups}>
+                {Object.entries(demographics.age_groups || {}).map(([ageRange, count]: [string, any]) => {
+                  const percentage = demographics.total_followers > 0 
+                    ? ((count / demographics.total_followers) * 100).toFixed(0)
+                    : 0;
+                  return (
+                    <View key={ageRange} style={styles.ageGroupItem}>
+                      <Text style={styles.ageGroupLabel}>{ageRange}</Text>
+                      <View style={styles.ageGroupBar}>
+                        <View 
+                          style={[
+                            styles.ageGroupFill, 
+                            { width: `${percentage}%`, backgroundColor: Colors.primary }
+                          ]} 
+                        />
+                      </View>
+                      <Text style={styles.ageGroupValue}>{percentage}%</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Top Locations */}
+            {demographics.top_locations && demographics.top_locations.length > 0 && (
+              <View style={styles.demographicsCard}>
+                <Text style={styles.demographicsSubtitle}>Top Locations</Text>
+                {demographics.top_locations.slice(0, 5).map((location: any, index: number) => (
+                  <View key={index} style={styles.locationItem}>
+                    <Ionicons name="location" size={16} color={Colors.primary} />
+                    <Text style={styles.locationName}>{location.location}</Text>
+                    <Text style={styles.locationPercentage}>{location.percentage}%</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Gender Distribution */}
+            {demographics.gender_distribution && (
+              <View style={styles.demographicsCard}>
+                <Text style={styles.demographicsSubtitle}>Gender Distribution</Text>
+                <View style={styles.genderGrid}>
+                  {Object.entries(demographics.gender_distribution).map(([gender, count]: [string, any]) => {
+                    const percentage = demographics.total_followers > 0
+                      ? ((count / demographics.total_followers) * 100).toFixed(0)
+                      : 0;
+                    return (
+                      <View key={gender} style={styles.genderItem}>
+                        <Text style={styles.genderPercentage}>{percentage}%</Text>
+                        <Text style={styles.genderLabel}>
+                          {gender.charAt(0).toUpperCase() + gender.slice(1)}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Insights */}
         <View style={styles.section}>
@@ -859,6 +934,88 @@ const styles = StyleSheet.create({
   },
   topPostScoreLabel: {
     fontSize: 10,
+    color: Colors.textSecondary,
+  },
+  
+  // Demographics
+  demographicsCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+  },
+  demographicsSubtitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 16,
+  },
+  ageGroups: {
+    gap: 12,
+  },
+  ageGroupItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  ageGroupLabel: {
+    fontSize: 13,
+    color: Colors.text,
+    width: 60,
+  },
+  ageGroupBar: {
+    flex: 1,
+    height: 8,
+    backgroundColor: Colors.background,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  ageGroupFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  ageGroupValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text,
+    width: 40,
+    textAlign: 'right',
+  },
+  locationItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  locationName: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.text,
+  },
+  locationPercentage: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  genderGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  genderItem: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  genderPercentage: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.primary,
+    marginBottom: 4,
+  },
+  genderLabel: {
+    fontSize: 12,
     color: Colors.textSecondary,
   },
   
