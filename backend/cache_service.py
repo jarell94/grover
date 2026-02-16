@@ -38,6 +38,7 @@ CACHE_TTL = {
     "explore": 60,                # 1 minute
     "notifications_count": 30,    # 30 seconds
     "conversation_list": 30,      # 30 seconds
+    "analytics": 60,              # 1 minute
 }
 
 class CacheService:
@@ -278,6 +279,23 @@ class CacheService:
     async def invalidate_notifications(self, user_id: str) -> bool:
         """Invalidate notifications cache."""
         return await self.delete(f"notif_count:{user_id}")
+
+    def _analytics_key(self, user_id: str, metric: str) -> str:
+        """Build analytics cache key format: analytics:{metric}:{user_id}."""
+        safe_metric = metric.replace(":", "_")
+        return f"analytics:{safe_metric}:{user_id}"
+
+    async def get_analytics(self, user_id: str, metric: str) -> Optional[Any]:
+        """Get cached analytics payload."""
+        return await self.get(self._analytics_key(user_id, metric))
+
+    async def set_analytics(self, user_id: str, metric: str, payload: Any, ttl: int = None) -> bool:
+        """Cache analytics payload."""
+        return await self.set(
+            self._analytics_key(user_id, metric),
+            payload,
+            ttl or CACHE_TTL["analytics"]
+        )
 
 
 # Global cache instance

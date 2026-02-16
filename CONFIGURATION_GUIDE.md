@@ -156,6 +156,12 @@ ALLOWED_ORIGINS=https://grover.app,https://www.grover.app
 
 # Redis (optional but recommended)
 REDIS_URL=redis://your-redis-url:6379
+
+# Asset CDN (optional)
+ASSET_CDN_URL=https://cdn.grover.app/assets
+
+# Frontend asset CDN (Expo public env)
+EXPO_PUBLIC_ASSET_CDN_URL=https://cdn.grover.app/assets
 ```
 
 ## Assets to Create

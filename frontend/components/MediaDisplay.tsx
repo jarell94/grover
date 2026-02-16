@@ -5,7 +5,7 @@ import VideoPlayer from './VideoPlayer';
 import AudioPlayer from './AudioPlayer';
 import FeedVideoPlayer from './FeedVideoPlayer';
 import { Colors } from '../constants/Colors';
-import { normalizeRemoteUrl } from '../utils/normalizeRemoteUrl';
+import { normalizeImageUrl, normalizeRemoteUrl } from '../utils/normalizeRemoteUrl';
 
 interface MediaDisplayProps {
   mediaUrl?: string; // Cloudinary secure_url
@@ -21,8 +21,10 @@ interface MediaDisplayProps {
 /**
  * Resolve media URI with normalization and legacy base64 fallback
  */
-function resolveUri(mediaUrl: string, mediaType: string): string {
-  const u = normalizeRemoteUrl(mediaUrl);
+function resolveUri(mediaUrl: string, mediaType: string, width?: number): string {
+  const u = mediaType === 'image'
+    ? normalizeImageUrl(mediaUrl, width)
+    : normalizeRemoteUrl(mediaUrl);
 
   // If it's any valid URI-like thing, use it
   if (
@@ -66,7 +68,7 @@ export default function MediaDisplay({
   if (!mediaUrl || !mediaType) return null;
 
   if (mediaType === 'image') {
-    const safe = resolveUri(mediaUrl, 'image');
+    const safe = resolveUri(mediaUrl, 'image', 900);
 
     if (error) {
       return (

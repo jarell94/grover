@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Colors } from "../constants/Colors";
 import MediaViewer from "./MediaViewer";
-import { normalizeRemoteUrl } from "../utils/normalizeRemoteUrl";
+import { getCloudinaryVideoThumbnail, normalizeImageUrl, normalizeRemoteUrl } from "../utils/normalizeRemoteUrl";
 
 type TabKey = "posts" | "photos" | "videos" | "audio";
 
@@ -59,11 +59,8 @@ function cloudinaryVideoPoster(url?: string): string {
   if (!url) return "";
   const u = normalizeRemoteUrl(url);
 
-  // If this is a Cloudinary "video/upload", transform into a jpg thumbnail
-  if (u.includes("/video/upload/")) {
-    return u.replace("/video/upload/", "/video/upload/so_0/f_jpg/q_auto/w_400/");
-  }
-  return u; // fallback
+  const poster = getCloudinaryVideoThumbnail(u);
+  return poster ? normalizeImageUrl(poster, 400) : u;
 }
 
 export default function ProfileContentTabs({ userId, api, stickyHeader, scrollEnabled = true, onRefresh: parentRefresh, refreshing: parentRefreshing }: Props) {
@@ -203,7 +200,9 @@ export default function ProfileContentTabs({ userId, api, stickyHeader, scrollEn
       .filter((item) => item.media_url)
       .map((item) => ({
         id: item.post_id,
-        uri: normalizeRemoteUrl(item.media_url!),
+        uri: active === "photos"
+          ? normalizeImageUrl(item.media_url!, 1200)
+          : normalizeRemoteUrl(item.media_url!),
         type: (active === "videos" ? "video" : active === "audio" ? "audio" : "image") as "image" | "video" | "audio",
         caption: item.content,
         title: item.content,
@@ -240,7 +239,9 @@ export default function ProfileContentTabs({ userId, api, stickyHeader, scrollEn
     const isAudio = item.media_type === "audio";
 
     // Normalize the media URL
-    const mediaUrl = item.media_url ? normalizeRemoteUrl(item.media_url) : undefined;
+    const mediaUrl = item.media_url
+      ? (isImage ? normalizeImageUrl(item.media_url, 400) : normalizeRemoteUrl(item.media_url))
+      : undefined;
 
     // For photos/videos/audio tabs, open media viewer; for posts, open post detail
     const handlePress = () => {
