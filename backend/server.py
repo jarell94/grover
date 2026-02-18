@@ -671,37 +671,61 @@ class AppleSessionRequest(BaseModel):
 async def create_apple_session(request: AppleSessionRequest):
     """Exchange Apple Sign In identity token for user data and create session"""
     try:
-        # Decode the Apple identity token (JWT) without full verification
-        # In production, you should verify the token signature using Apple's public keys
-        decoded = jwt.decode(
-            request.identityToken,
-            options={"verify_signature": False},
-            algorithms=["RS256"]
-        )
+        # Fetch Apple's public keys for JWT verification
+        async with httpx.AsyncClient() as client:
+            keys_response = await client.get("https://appleid.apple.com/auth/keys")
+            if keys_response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch Apple public keys")
+            apple_keys = keys_response.json()
 
-        # Validate issuer and audience
-        if decoded.get("iss") != "https://appleid.apple.com":
-            raise HTTPException(status_code=400, detail="Invalid token issuer")
+        # Get the key ID from the token header
+        unverified_header = jwt.get_unverified_header(request.identityToken)
+        kid = unverified_header.get("kid")
+        if not kid:
+            raise HTTPException(status_code=400, detail="Invalid Apple identity token: missing kid")
+
+        # Find the matching public key
+        matching_key = None
+        for key in apple_keys.get("keys", []):
+            if key.get("kid") == kid:
+                matching_key = key
+                break
+
+        if not matching_key:
+            raise HTTPException(status_code=400, detail="Invalid Apple identity token: key not found")
+
+        # Construct the public key and verify the token
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(matching_key)
 
         apple_bundle_id = os.environ.get("APPLE_BUNDLE_ID", "com.grover.app")
-        if decoded.get("aud") != apple_bundle_id:
-            raise HTTPException(status_code=400, detail="Invalid token audience")
+        decoded = jwt.decode(
+            request.identityToken,
+            key=public_key,
+            algorithms=["RS256"],
+            audience=apple_bundle_id,
+            issuer="https://appleid.apple.com"
+        )
 
         apple_user_id = decoded.get("sub")
-        email = request.email or decoded.get("email") or f"{apple_user_id}@privaterelay.appleid.com"
+        email = request.email or decoded.get("email")
         name = request.fullName or "Apple User"
 
         if not apple_user_id:
             raise HTTPException(status_code=400, detail="Invalid Apple identity token")
 
         # Check if user exists by apple_user_id or email
+        query_conditions = [{"apple_user_id": apple_user_id}]
+        if email:
+            query_conditions.append({"email": email})
         existing_user = await db.users.find_one(
-            {"$or": [{"apple_user_id": apple_user_id}, {"email": email}]},
+            {"$or": query_conditions},
             {"_id": 0}
         )
 
         if not existing_user:
-            # Create new user
+            # Create new user - use a generated email if Apple didn't provide one
+            if not email:
+                email = f"apple_{apple_user_id[:12]}@grover.app"
             user_id = f"user_{uuid.uuid4().hex[:12]}"
             await db.users.insert_one({
                 "user_id": user_id,

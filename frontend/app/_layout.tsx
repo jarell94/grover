@@ -7,18 +7,18 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import { initSentry } from '../utils/sentry';
 import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 
-// Request tracking permission before initializing Sentry on iOS
-const initializeApp = async () => {
-  if (Platform.OS === 'ios') {
-    await requestTrackingPermissionsAsync();
-  }
-  initSentry();
-};
-
-initializeApp();
-
 export default function RootLayout() {
   const pathname = usePathname();
+
+  useEffect(() => {
+    const initializeApp = async () => {
+      if (Platform.OS === 'ios') {
+        await requestTrackingPermissionsAsync();
+      }
+      initSentry();
+    };
+    initializeApp();
+  }, []);
   
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
