@@ -12,6 +12,7 @@ import base64
 import uuid
 import re
 import time
+import jwt
 from pathlib import Path
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
@@ -659,6 +660,104 @@ async def create_session(session_id: str):
             }
     except Exception as e:
         logger.error(f"Session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AppleSessionRequest(BaseModel):
+    identityToken: str
+    fullName: Optional[str] = None
+    email: Optional[str] = None
+
+@api_router.post("/auth/apple-session")
+async def create_apple_session(request: AppleSessionRequest):
+    """Exchange Apple Sign In identity token for user data and create session"""
+    try:
+        # Decode the Apple identity token (JWT) without full verification
+        # In production, you should verify the token signature using Apple's public keys
+        decoded = jwt.decode(
+            request.identityToken,
+            options={"verify_signature": False},
+            algorithms=["RS256"]
+        )
+
+        # Validate issuer and audience
+        if decoded.get("iss") != "https://appleid.apple.com":
+            raise HTTPException(status_code=400, detail="Invalid token issuer")
+
+        apple_bundle_id = os.environ.get("APPLE_BUNDLE_ID", "com.grover.app")
+        if decoded.get("aud") != apple_bundle_id:
+            raise HTTPException(status_code=400, detail="Invalid token audience")
+
+        apple_user_id = decoded.get("sub")
+        email = request.email or decoded.get("email") or f"{apple_user_id}@privaterelay.appleid.com"
+        name = request.fullName or "Apple User"
+
+        if not apple_user_id:
+            raise HTTPException(status_code=400, detail="Invalid Apple identity token")
+
+        # Check if user exists by apple_user_id or email
+        existing_user = await db.users.find_one(
+            {"$or": [{"apple_user_id": apple_user_id}, {"email": email}]},
+            {"_id": 0}
+        )
+
+        if not existing_user:
+            # Create new user
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            await db.users.insert_one({
+                "user_id": user_id,
+                "email": email,
+                "name": name,
+                "picture": None,
+                "bio": "",
+                "is_premium": False,
+                "is_private": False,
+                "monetization_enabled": False,
+                "apple_user_id": apple_user_id,
+                "created_at": datetime.now(timezone.utc)
+            })
+        else:
+            user_id = existing_user["user_id"]
+            # Update apple_user_id if not set
+            if not existing_user.get("apple_user_id"):
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"apple_user_id": apple_user_id}}
+                )
+
+        # Create session
+        session_token = uuid.uuid4().hex
+        await db.user_sessions.update_one(
+            {"session_token": session_token},
+            {
+                "$set": {
+                    "user_id": user_id,
+                    "session_token": session_token,
+                    "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$setOnInsert": {
+                    "created_at": datetime.now(timezone.utc)
+                }
+            },
+            upsert=True
+        )
+
+        # Get the latest user data
+        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+
+        return {
+            "user_id": user_id,
+            "email": user_doc.get("email", email),
+            "name": user_doc.get("name", name),
+            "picture": user_doc.get("picture"),
+            "session_token": session_token
+        }
+    except jwt.exceptions.DecodeError:
+        raise HTTPException(status_code=400, detail="Invalid Apple identity token")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Apple session error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/auth/me")

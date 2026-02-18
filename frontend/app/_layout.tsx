@@ -1,12 +1,21 @@
 import React, { useEffect } from 'react';
 import { Stack, usePathname } from 'expo-router';
+import { Platform } from 'react-native';
 import { AuthProvider } from '../contexts/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { initSentry } from '../utils/sentry';
+import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 
-// Initialize Sentry as early as possible
-initSentry();
+// Request tracking permission before initializing Sentry on iOS
+const initializeApp = async () => {
+  if (Platform.OS === 'ios') {
+    await requestTrackingPermissionsAsync();
+  }
+  initSentry();
+};
+
+initializeApp();
 
 export default function RootLayout() {
   const pathname = usePathname();

@@ -1,13 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Index() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, loginWithApple } = useAuth();
   const router = useRouter();
   const [loggingIn, setLoggingIn] = React.useState(false);
   const hasNavigated = useRef(false);
@@ -43,6 +44,20 @@ export default function Index() {
       console.log('Signin completed');
     } catch (error) {
       console.error('Signin failed:', error);
+      Alert.alert('Sign in failed', 'Please try again.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      setLoggingIn(true);
+      console.log('Starting Apple Sign In...');
+      await loginWithApple();
+      console.log('Apple Sign In completed');
+    } catch (error) {
+      console.error('Apple Sign In failed:', error);
       Alert.alert('Sign in failed', 'Please try again.');
     } finally {
       setLoggingIn(false);
@@ -117,6 +132,16 @@ export default function Index() {
                 </>
               )}
             </TouchableOpacity>
+
+            {Platform.OS === 'ios' && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                cornerRadius={50}
+                style={styles.appleButton}
+                onPress={handleAppleSignIn}
+              />
+            )}
           </View>
 
           <Text style={styles.infoText}>
@@ -212,6 +237,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#fff',
+  },
+  appleButton: {
+    width: '100%',
+    maxWidth: 400,
+    height: 56,
   },
   infoText: {
     fontSize: 14,
