@@ -38,6 +38,7 @@ interface AuthContextType {
   loading: boolean;
   login: (args?: LoginArgs) => Promise<void>;
   loginWithApple: () => Promise<void>;
+  loginWithDemo: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -269,6 +270,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithDemo = async () => {
+    try {
+      console.log('Starting demo login...');
+      const response = await api.createDemoSession();
+      const { session_token, ...userData } = response;
+
+      await AsyncStorage.setItem('session_token', session_token);
+      setAuthToken(session_token);
+      setUser(userData);
+
+      setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
+      addBreadcrumb('User logged in with demo account', 'auth', { userId: userData.user_id });
+
+      try {
+        await socketService.connect(userData.user_id);
+      } catch (error) {
+        console.error('Socket connection failed:', error);
+      }
+    } catch (error) {
+      console.error('Demo login error:', error);
+      throw error;
+    }
+  };
+
   // Handle app state changes - check for auth when app comes to foreground
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -360,7 +385,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithApple, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithApple, loginWithDemo, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

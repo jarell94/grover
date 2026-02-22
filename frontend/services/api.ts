@@ -214,6 +214,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  createDemoSession: () => apiRequest('/auth/demo-session', { method: 'POST' }),
   getMe: () => apiRequest('/auth/me'),
   logout: () => apiRequest('/auth/logout', { method: 'POST' }),
 

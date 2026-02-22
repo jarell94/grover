@@ -8,7 +8,7 @@ import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Index() {
-  const { user, loading, login, loginWithApple } = useAuth();
+  const { user, loading, login, loginWithApple, loginWithDemo } = useAuth();
   const router = useRouter();
   const [loggingIn, setLoggingIn] = React.useState(false);
   const hasNavigated = useRef(false);
@@ -59,6 +59,20 @@ export default function Index() {
     } catch (error) {
       console.error('Apple Sign In failed:', error);
       Alert.alert('Sign in failed', 'Please try again.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    try {
+      setLoggingIn(true);
+      console.log('Starting demo login...');
+      await loginWithDemo();
+      console.log('Demo login completed');
+    } catch (error) {
+      console.error('Demo login failed:', error);
+      Alert.alert('Demo login failed', 'Please try again.');
     } finally {
       setLoggingIn(false);
     }
@@ -142,6 +156,21 @@ export default function Index() {
                 onPress={handleAppleSignIn}
               />
             )}
+
+            <TouchableOpacity
+              style={[styles.loginButton, styles.demoButton, loggingIn && styles.loginButtonDisabled]}
+              onPress={handleDemoLogin}
+              disabled={loggingIn}
+            >
+              {loggingIn ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="eye-outline" size={24} color="#fff" />
+                  <Text style={styles.demoButtonText}>Try Demo Account</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
 
           <Text style={styles.infoText}>
@@ -242,6 +271,16 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     height: 56,
+  },
+  demoButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  demoButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
   },
   infoText: {
     fontSize: 14,

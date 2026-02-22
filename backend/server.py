@@ -784,6 +784,68 @@ async def create_apple_session(request: AppleSessionRequest):
         logger.error(f"Apple session error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.post("/auth/demo-session")
+async def create_demo_session():
+    """Create or retrieve a demo account session for App Review purposes"""
+    demo_email = "demo@grover.app"
+    demo_user_id = "user_demo_account"
+    demo_name = "Demo User"
+
+    try:
+        # Check if demo user exists
+        existing_user = await db.users.find_one(
+            {"email": demo_email},
+            {"_id": 0}
+        )
+
+        if not existing_user:
+            # Create demo user
+            await db.users.insert_one({
+                "user_id": demo_user_id,
+                "email": demo_email,
+                "name": demo_name,
+                "picture": None,
+                "bio": "This is a demo account for exploring Grover.",
+                "is_premium": False,
+                "is_private": False,
+                "monetization_enabled": False,
+                "created_at": datetime.now(timezone.utc)
+            })
+        else:
+            demo_user_id = existing_user["user_id"]
+
+        # Create session
+        session_token = uuid.uuid4().hex
+        await db.user_sessions.update_one(
+            {"session_token": session_token},
+            {
+                "$set": {
+                    "user_id": demo_user_id,
+                    "session_token": session_token,
+                    "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$setOnInsert": {
+                    "created_at": datetime.now(timezone.utc)
+                }
+            },
+            upsert=True
+        )
+
+        # Get the latest user data
+        user_doc = await db.users.find_one({"user_id": demo_user_id}, {"_id": 0})
+
+        return {
+            "user_id": demo_user_id,
+            "email": user_doc.get("email", demo_email),
+            "name": user_doc.get("name", demo_name),
+            "picture": user_doc.get("picture"),
+            "session_token": session_token
+        }
+    except Exception as e:
+        logger.error(f"Demo session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/auth/me")
 async def get_me(current_user: User = Depends(require_auth)):
     return current_user

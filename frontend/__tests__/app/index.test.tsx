@@ -10,12 +10,14 @@ jest.mock('expo-router', () => ({
 // Mock the AuthContext
 const mockLogin = jest.fn();
 const mockLoginWithApple = jest.fn();
+const mockLoginWithDemo = jest.fn();
 jest.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: null,
     loading: false,
     login: mockLogin,
     loginWithApple: mockLoginWithApple,
+    loginWithDemo: mockLoginWithDemo,
     logout: jest.fn(),
     refreshUser: jest.fn(),
   }),
@@ -75,6 +77,20 @@ describe('Index (Login) Screen', () => {
     fireEvent.press(getByText('Sign in with Google'));
     await waitFor(() => {
       expect(mockLogin).toHaveBeenCalledWith({ mode: 'signin' });
+    });
+  });
+
+  it('should render Try Demo Account button', () => {
+    const { getByText } = render(<IndexScreen />);
+    expect(getByText('Try Demo Account')).toBeTruthy();
+  });
+
+  it('should call loginWithDemo when Demo button is pressed', async () => {
+    mockLoginWithDemo.mockResolvedValue(undefined);
+    const { getByText } = render(<IndexScreen />);
+    fireEvent.press(getByText('Try Demo Account'));
+    await waitFor(() => {
+      expect(mockLoginWithDemo).toHaveBeenCalled();
     });
   });
 });
