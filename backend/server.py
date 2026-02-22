@@ -12,6 +12,7 @@ import base64
 import uuid
 import re
 import time
+import jwt
 from pathlib import Path
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
@@ -659,6 +660,190 @@ async def create_session(session_id: str):
             }
     except Exception as e:
         logger.error(f"Session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AppleSessionRequest(BaseModel):
+    identityToken: str
+    fullName: Optional[str] = None
+    email: Optional[str] = None
+
+@api_router.post("/auth/apple-session")
+async def create_apple_session(request: AppleSessionRequest):
+    """Exchange Apple Sign In identity token for user data and create session"""
+    try:
+        # Fetch Apple's public keys for JWT verification
+        async with httpx.AsyncClient() as client:
+            keys_response = await client.get("https://appleid.apple.com/auth/keys")
+            if keys_response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch Apple public keys")
+            apple_keys = keys_response.json()
+
+        # Get the key ID from the token header
+        unverified_header = jwt.get_unverified_header(request.identityToken)
+        kid = unverified_header.get("kid")
+        if not kid:
+            raise HTTPException(status_code=400, detail="Invalid Apple identity token: missing kid")
+
+        # Find the matching public key
+        matching_key = None
+        for key in apple_keys.get("keys", []):
+            if key.get("kid") == kid:
+                matching_key = key
+                break
+
+        if not matching_key:
+            raise HTTPException(status_code=400, detail="Invalid Apple identity token: key not found")
+
+        # Construct the public key and verify the token
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(matching_key)
+
+        apple_bundle_id = os.environ.get("APPLE_BUNDLE_ID", "com.grover.app")
+        decoded = jwt.decode(
+            request.identityToken,
+            key=public_key,
+            algorithms=["RS256"],
+            audience=apple_bundle_id,
+            issuer="https://appleid.apple.com"
+        )
+
+        apple_user_id = decoded.get("sub")
+        email = request.email or decoded.get("email")
+        name = request.fullName or "Apple User"
+
+        if not apple_user_id:
+            raise HTTPException(status_code=400, detail="Invalid Apple identity token")
+
+        # Check if user exists by apple_user_id or email
+        query_conditions = [{"apple_user_id": apple_user_id}]
+        if email:
+            query_conditions.append({"email": email})
+        existing_user = await db.users.find_one(
+            {"$or": query_conditions},
+            {"_id": 0}
+        )
+
+        if not existing_user:
+            # Create new user - use a generated email if Apple didn't provide one
+            if not email:
+                email = f"apple_{apple_user_id[:12]}@grover.app"
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            await db.users.insert_one({
+                "user_id": user_id,
+                "email": email,
+                "name": name,
+                "picture": None,
+                "bio": "",
+                "is_premium": False,
+                "is_private": False,
+                "monetization_enabled": False,
+                "apple_user_id": apple_user_id,
+                "created_at": datetime.now(timezone.utc)
+            })
+        else:
+            user_id = existing_user["user_id"]
+            # Update apple_user_id if not set
+            if not existing_user.get("apple_user_id"):
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"apple_user_id": apple_user_id}}
+                )
+
+        # Create session
+        session_token = uuid.uuid4().hex
+        await db.user_sessions.update_one(
+            {"session_token": session_token},
+            {
+                "$set": {
+                    "user_id": user_id,
+                    "session_token": session_token,
+                    "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$setOnInsert": {
+                    "created_at": datetime.now(timezone.utc)
+                }
+            },
+            upsert=True
+        )
+
+        # Get the latest user data
+        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+
+        return {
+            "user_id": user_id,
+            "email": user_doc.get("email", email),
+            "name": user_doc.get("name", name),
+            "picture": user_doc.get("picture"),
+            "session_token": session_token
+        }
+    except jwt.exceptions.DecodeError:
+        raise HTTPException(status_code=400, detail="Invalid Apple identity token")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Apple session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/auth/demo-session")
+async def create_demo_session():
+    """Create or retrieve a demo account session for App Review purposes"""
+    demo_email = "demo@grover.app"
+    demo_user_id = "user_demo_account"
+    demo_name = "Demo User"
+
+    try:
+        # Check if demo user exists
+        existing_user = await db.users.find_one(
+            {"email": demo_email},
+            {"_id": 0}
+        )
+
+        if not existing_user:
+            # Create demo user
+            await db.users.insert_one({
+                "user_id": demo_user_id,
+                "email": demo_email,
+                "name": demo_name,
+                "picture": None,
+                "bio": "This is a demo account for exploring Grover.",
+                "is_premium": False,
+                "is_private": False,
+                "monetization_enabled": False,
+                "created_at": datetime.now(timezone.utc)
+            })
+        else:
+            demo_user_id = existing_user["user_id"]
+
+        # Create session
+        session_token = uuid.uuid4().hex
+        await db.user_sessions.update_one(
+            {"session_token": session_token},
+            {
+                "$set": {
+                    "user_id": demo_user_id,
+                    "session_token": session_token,
+                    "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$setOnInsert": {
+                    "created_at": datetime.now(timezone.utc)
+                }
+            },
+            upsert=True
+        )
+
+        # Get the latest user data
+        user_doc = await db.users.find_one({"user_id": demo_user_id}, {"_id": 0})
+
+        return {
+            "user_id": demo_user_id,
+            "email": user_doc.get("email", demo_email),
+            "name": user_doc.get("name", demo_name),
+            "picture": user_doc.get("picture"),
+            "session_token": session_token
+        }
+    except Exception as e:
+        logger.error(f"Demo session error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/auth/me")

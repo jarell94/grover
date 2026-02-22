@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { makeRedirectUri } from 'expo-auth-session';
 import { Platform, AppState } from 'react-native';
 import { api, setAuthToken } from '../services/api';
@@ -36,6 +37,8 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (args?: LoginArgs) => Promise<void>;
+  loginWithApple: () => Promise<void>;
+  loginWithDemo: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -188,8 +191,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       console.log('Login - Platform:', Platform.OS, 'Mode:', mode, 'Redirect URL:', redirectUrl);
-      // Include mode in auth URL for Emergent Auth to differentiate sign up vs sign in
-      const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}&mode=${mode}`;
+      // Always use mode=signin for the external auth provider since our backend
+      // auto-creates users on first login. Using mode=signup was causing the auth
+      // provider to not complete the OAuth flow properly on some devices.
+      const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}&mode=signin`;
       console.log('Login - Auth URL:', authUrl);
 
       if (Platform.OS === 'web') {
@@ -218,6 +223,73 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error) {
       console.error('Login error:', error);
+      throw error;
+    }
+  };
+
+  const loginWithApple = async () => {
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (credential.identityToken) {
+        console.log('Apple Sign In success, exchanging token...');
+        const response = await api.createAppleSession({
+          identityToken: credential.identityToken,
+          fullName: credential.fullName
+            ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
+            : undefined,
+          email: credential.email || undefined,
+        });
+        const { session_token, ...userData } = response;
+
+        await AsyncStorage.setItem('session_token', session_token);
+        setAuthToken(session_token);
+        setUser(userData);
+
+        setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
+        addBreadcrumb('User logged in with Apple', 'auth', { userId: userData.user_id });
+
+        try {
+          await socketService.connect(userData.user_id);
+        } catch (error) {
+          console.error('Socket connection failed:', error);
+        }
+      }
+    } catch (error: any) {
+      if (error.code === 'ERR_REQUEST_CANCELED') {
+        console.log('Apple Sign In cancelled by user');
+        return;
+      }
+      console.error('Apple Sign In error:', error);
+      throw error;
+    }
+  };
+
+  const loginWithDemo = async () => {
+    try {
+      console.log('Starting demo login...');
+      const response = await api.createDemoSession();
+      const { session_token, ...userData } = response;
+
+      await AsyncStorage.setItem('session_token', session_token);
+      setAuthToken(session_token);
+      setUser(userData);
+
+      setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
+      addBreadcrumb('User logged in with demo account', 'auth', { userId: userData.user_id });
+
+      try {
+        await socketService.connect(userData.user_id);
+      } catch (error) {
+        console.error('Socket connection failed:', error);
+      }
+    } catch (error) {
+      console.error('Demo login error:', error);
       throw error;
     }
   };
@@ -313,7 +385,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithApple, loginWithDemo, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,15 +1,24 @@
 import React, { useEffect } from 'react';
 import { Stack, usePathname } from 'expo-router';
+import { Platform } from 'react-native';
 import { AuthProvider } from '../contexts/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { initSentry } from '../utils/sentry';
-
-// Initialize Sentry as early as possible
-initSentry();
+import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 
 export default function RootLayout() {
   const pathname = usePathname();
+
+  useEffect(() => {
+    const initializeApp = async () => {
+      if (Platform.OS === 'ios') {
+        await requestTrackingPermissionsAsync();
+      }
+      initSentry();
+    };
+    initializeApp();
+  }, []);
   
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -209,6 +209,12 @@ const apiFormRequest = async (endpoint: string, formData: FormData) => {
 export const api = {
   // Auth
   createSession: (sessionId: string) => apiRequest(`/auth/session?session_id=${sessionId}`),
+  createAppleSession: (data: { identityToken: string; fullName?: string; email?: string }) =>
+    apiRequest('/auth/apple-session', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  createDemoSession: () => apiRequest('/auth/demo-session', { method: 'POST' }),
   getMe: () => apiRequest('/auth/me'),
   logout: () => apiRequest('/auth/logout', { method: 'POST' }),
 

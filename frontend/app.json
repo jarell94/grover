@@ -19,6 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.grover.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "CFBundleURLTypes": [
           {
@@ -26,7 +27,8 @@
               "grover"
             ]
           }
-        ]
+        ],
+        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized content to you."
       }
     },
     "android": {
@@ -47,6 +49,8 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
+      "expo-tracking-transparency",
       [
         "expo-splash-screen",
         {
