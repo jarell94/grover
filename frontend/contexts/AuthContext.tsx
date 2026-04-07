@@ -37,6 +37,7 @@ interface AuthContextType {
   loading: boolean;
   login: (args?: LoginArgs) => Promise<void>;
   loginWithApple: () => Promise<void>;
+  loginWithDemo: (demoToken: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -352,6 +353,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithDemo = async (demoToken: string) => {
+    const response = await api.demoLogin(demoToken);
+    const { session_token, ...userData } = response;
+
+    await AsyncStorage.setItem('session_token', session_token);
+    setAuthToken(session_token);
+    setUser(userData);
+
+    setSentryUser({ id: userData.user_id, email: userData.email, username: userData.name });
+    addBreadcrumb('User logged in with demo token', 'auth', { userId: userData.user_id });
+
+    try {
+      await socketService.connect(userData.user_id);
+    } catch (error) {
+      console.error('Socket connection failed:', error);
+    }
+  };
+
   const logout = async () => {
     try {
       await api.logout();
@@ -379,7 +398,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithApple, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithApple, loginWithDemo, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

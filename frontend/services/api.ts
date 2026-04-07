@@ -214,6 +214,11 @@ export const api = {
       method: 'POST',
       body: { identity_token: identityToken, full_name: fullName ?? null },
     }),
+  demoLogin: (demoToken: string) =>
+    apiRequest('/auth/demo', {
+      method: 'POST',
+      body: { demo_token: demoToken },
+    }),
   getMe: () => apiRequest('/auth/me'),
   logout: () => apiRequest('/auth/logout', { method: 'POST' }),
 

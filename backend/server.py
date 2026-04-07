@@ -797,6 +797,84 @@ async def apple_sign_in(payload: AppleSignInRequest):
         raise HTTPException(status_code=500, detail="Apple sign-in failed")
 
 
+class DemoLoginRequest(BaseModel):
+    demo_token: str
+
+
+# Read at startup so the value is consistent for the lifetime of the process.
+DEMO_LOGIN_TOKEN = os.getenv("DEMO_LOGIN_TOKEN", "")
+DEMO_USER_EMAIL = "appreviewer@grover.demo"
+DEMO_USER_NAME = "App Reviewer"
+DEMO_USER_ID = "user_demo_reviewer"
+
+
+@api_router.post("/auth/demo")
+async def demo_login(payload: DemoLoginRequest):
+    """
+    Demo login for App Store / Play Store reviewers.
+
+    Accepts a pre-shared token (set via the DEMO_LOGIN_TOKEN environment
+    variable) and returns a session for a stable demo account.  The account is
+    created on first use and updated on subsequent calls so the reviewer always
+    gets a fresh session.
+
+    This endpoint is intentionally simple – it requires no OAuth redirect and
+    lets reviewers access the app using the token as the "authentication code"
+    they provide in App Store Connect.
+    """
+    if not DEMO_LOGIN_TOKEN:
+        raise HTTPException(status_code=503, detail="Demo login is not configured")
+
+    # Constant-time comparison to resist timing attacks
+    import hmac
+    provided = payload.demo_token.encode()
+    expected = DEMO_LOGIN_TOKEN.encode()
+    if not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid demo token")
+
+    # Ensure the demo user exists
+    existing = await db.users.find_one({"user_id": DEMO_USER_ID}, {"_id": 0})
+    if not existing:
+        await db.users.insert_one({
+            "user_id": DEMO_USER_ID,
+            "email": DEMO_USER_EMAIL,
+            "name": DEMO_USER_NAME,
+            "picture": None,
+            "bio": "Demo account for App Store review.",
+            "is_premium": False,
+            "is_private": False,
+            "monetization_enabled": False,
+            "created_at": datetime.now(timezone.utc),
+        })
+
+    session_token = uuid.uuid4().hex
+    await db.user_sessions.update_one(
+        {"session_token": session_token},
+        {
+            "$set": {
+                "user_id": DEMO_USER_ID,
+                "session_token": session_token,
+                "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                "updated_at": datetime.now(timezone.utc),
+            },
+            "$setOnInsert": {
+                "created_at": datetime.now(timezone.utc),
+            },
+        },
+        upsert=True,
+    )
+
+    return {
+        "user_id": DEMO_USER_ID,
+        "email": DEMO_USER_EMAIL,
+        "name": DEMO_USER_NAME,
+        "picture": existing.get("picture") if existing else None,
+        "is_premium": False,
+        "is_private": False,
+        "session_token": session_token,
+    }
+
+
 @api_router.get("/auth/me")
 async def get_me(current_user: User = Depends(require_auth)):
     return current_user

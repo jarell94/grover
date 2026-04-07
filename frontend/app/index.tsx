@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -8,9 +8,13 @@ import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Index() {
-  const { user, loading, login, loginWithApple } = useAuth();
+  const { user, loading, login, loginWithApple, loginWithDemo } = useAuth();
   const router = useRouter();
   const [loggingIn, setLoggingIn] = React.useState(false);
+  const [logoTapCount, setLogoTapCount] = React.useState(0);
+  const [demoModalVisible, setDemoModalVisible] = React.useState(false);
+  const [demoToken, setDemoToken] = React.useState('');
+  const logoTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasNavigated = useRef(false);
 
   useEffect(() => {
@@ -62,6 +66,36 @@ export default function Index() {
     }
   };
 
+  const handleLogoTap = () => {
+    const next = logoTapCount + 1;
+    setLogoTapCount(next);
+
+    if (logoTapTimer.current) {
+      clearTimeout(logoTapTimer.current);
+    }
+    if (next >= 5) {
+      setLogoTapCount(0);
+      setDemoModalVisible(true);
+    } else {
+      logoTapTimer.current = setTimeout(() => setLogoTapCount(0), 2000);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    if (!demoToken.trim()) return;
+    setDemoModalVisible(false);
+    try {
+      setLoggingIn(true);
+      await loginWithDemo(demoToken.trim());
+    } catch (error) {
+      console.error('Demo login failed:', error);
+      Alert.alert('Access denied', 'The authentication code is incorrect. Please try again.');
+    } finally {
+      setDemoToken('');
+      setLoggingIn(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -79,11 +113,11 @@ export default function Index() {
         end={{ x: 1, y: 1 }}
       >
         <View style={styles.content}>
-          <View style={styles.logoContainer}>
+          <TouchableOpacity activeOpacity={1} onPress={handleLogoTap} style={styles.logoContainer}>
             <Ionicons name="sparkles" size={80} color="#fff" />
             <Text style={styles.title}>Grover</Text>
             <Text style={styles.subtitle}>Create. Share. Connect.</Text>
-          </View>
+          </TouchableOpacity>
 
           <View style={styles.featuresContainer}>
             <View style={styles.featureItem}>
@@ -147,6 +181,40 @@ export default function Index() {
           </Text>
         </View>
       </LinearGradient>
+
+      <Modal
+        visible={demoModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setDemoModalVisible(false); setDemoToken(''); }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Reviewer Access</Text>
+            <Text style={styles.modalSubtitle}>Enter the authentication code provided to you.</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Authentication code"
+              placeholderTextColor="#aaa"
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={demoToken}
+              onChangeText={setDemoToken}
+              onSubmitEditing={handleDemoLogin}
+            />
+            <TouchableOpacity style={styles.modalButton} onPress={handleDemoLogin}>
+              <Text style={styles.modalButtonText}>Continue</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalCancelButton}
+              onPress={() => { setDemoModalVisible(false); setDemoToken(''); }}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -247,5 +315,67 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.8,
     marginTop: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 28,
+    width: '100%',
+    maxWidth: 360,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+  modalButton: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 14,
+    borderRadius: 50,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalCancelButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  modalCancelText: {
+    color: '#999',
+    fontSize: 15,
   },
 });
