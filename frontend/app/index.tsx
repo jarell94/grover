@@ -1,13 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Index() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, loginWithApple } = useAuth();
   const router = useRouter();
   const [loggingIn, setLoggingIn] = React.useState(false);
   const hasNavigated = useRef(false);
@@ -20,6 +21,18 @@ export default function Index() {
       router.replace('/(tabs)');
     }
   }, [user, loading, router]);
+
+  const handleAppleSignIn = async () => {
+    try {
+      setLoggingIn(true);
+      await loginWithApple();
+    } catch (error) {
+      console.error('Apple sign-in failed:', error);
+      Alert.alert('Sign in failed', 'Apple sign-in failed. Please try again.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
 
   const handleGoogleSignUp = async () => {
     try {
@@ -88,6 +101,16 @@ export default function Index() {
           </View>
 
           <View style={styles.authButtonsContainer}>
+            {Platform.OS === 'ios' && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={50}
+                style={styles.appleButton}
+                onPress={handleAppleSignIn}
+              />
+            )}
+
             <TouchableOpacity
               style={[styles.loginButton, styles.signUpButton, loggingIn && styles.loginButtonDisabled]}
               onPress={handleGoogleSignUp}
@@ -174,6 +197,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     fontWeight: '600',
+  },
+  appleButton: {
+    width: '100%',
+    maxWidth: 400,
+    height: 56,
   },
   loginButton: {
     flexDirection: 'row',

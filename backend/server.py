@@ -9,10 +9,12 @@ import os
 import logging
 import httpx
 import base64
+import json as _json
 import uuid
 import re
 import time
 from pathlib import Path
+from jose import jwt as jose_jwt, jwk, JWTError
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
@@ -660,6 +662,140 @@ async def create_session(session_id: str):
     except Exception as e:
         logger.error(f"Session error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+class AppleSignInRequest(BaseModel):
+    identity_token: str
+    full_name: Optional[str] = None
+
+
+# Bundle ID used as the JWT audience when verifying Apple identity tokens.
+# Must match the iOS bundle identifier in app.json / Apple Developer portal.
+APPLE_BUNDLE_ID = "com.grover.app"
+
+
+@api_router.post("/auth/apple")
+async def apple_sign_in(payload: AppleSignInRequest):
+    """Sign in with Apple – verify identity token, create/find user, return session."""
+
+    identity_token = payload.identity_token.strip()
+    if not identity_token or len(identity_token) > 4096:
+        raise HTTPException(status_code=400, detail="Invalid identity token")
+
+    try:
+        # Fetch Apple's public keys
+        async with httpx.AsyncClient() as client:
+            keys_response = await client.get("https://appleid.apple.com/auth/keys")
+            if keys_response.status_code != 200:
+                raise HTTPException(status_code=502, detail="Could not fetch Apple public keys")
+            apple_keys = keys_response.json().get("keys", [])
+
+        # Decode token header to find the right key
+        header_part = identity_token.split(".")[0]
+        # Add padding if needed
+        header_part += "=" * (4 - len(header_part) % 4)
+        header = _json.loads(base64.urlsafe_b64decode(header_part))
+        kid = header.get("kid")
+
+        # Find the matching Apple public key
+        apple_key = next((k for k in apple_keys if k.get("kid") == kid), None)
+        if not apple_key:
+            raise HTTPException(status_code=401, detail="Apple public key not found")
+
+        # Verify and decode the JWT
+        public_key = jwk.construct(apple_key)
+        claims = jose_jwt.decode(
+            identity_token,
+            public_key.to_pem().decode(),
+            algorithms=["RS256"],
+            audience=APPLE_BUNDLE_ID,
+            issuer="https://appleid.apple.com",
+        )
+
+        apple_user_id = claims.get("sub")
+        email = claims.get("email")
+        email_verified = claims.get("email_verified")
+
+        if not apple_user_id:
+            raise HTTPException(status_code=401, detail="Invalid Apple identity token")
+
+        # Apple may relay a private email address for privacy; that is fine –
+        # we only store what Apple provides.
+        if not email:
+            # If the user hid their email Apple still gives a relay address via
+            # the identity token for the first sign-in.  If it's missing fall
+            # back to a synthetic address derived from the stable sub.
+            email = f"{apple_user_id}@privaterelay.appleid.com"
+
+        # Determine display name: use what was sent from the device (only
+        # provided on the very first authorisation) or fall back to the email
+        # local part so the profile is never blank.
+        name = payload.full_name or email.split("@")[0]
+
+        # Find or create the user, keyed on the Apple user ID
+        existing_user = await db.users.find_one(
+            {"apple_user_id": apple_user_id},
+            {"_id": 0}
+        )
+
+        if not existing_user:
+            # Also check by email in case user previously signed up another way
+            existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+
+        if not existing_user:
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            await db.users.insert_one({
+                "user_id": user_id,
+                "apple_user_id": apple_user_id,
+                "email": email,
+                "name": name,
+                "picture": None,
+                "bio": "",
+                "is_premium": False,
+                "is_private": False,
+                "monetization_enabled": False,
+                "created_at": datetime.now(timezone.utc)
+            })
+        else:
+            user_id = existing_user["user_id"]
+            # Store the Apple user ID if not already linked
+            if not existing_user.get("apple_user_id"):
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"apple_user_id": apple_user_id}}
+                )
+
+        # Create a session
+        session_token = uuid.uuid4().hex
+        await db.user_sessions.update_one(
+            {"session_token": session_token},
+            {
+                "$set": {
+                    "user_id": user_id,
+                    "session_token": session_token,
+                    "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$setOnInsert": {
+                    "created_at": datetime.now(timezone.utc)
+                }
+            },
+            upsert=True
+        )
+
+        return {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": existing_user.get("picture") if existing_user else None,
+            "session_token": session_token
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Apple sign-in error: {e}")
+        raise HTTPException(status_code=500, detail="Apple sign-in failed")
+
 
 @api_router.get("/auth/me")
 async def get_me(current_user: User = Depends(require_auth)):
