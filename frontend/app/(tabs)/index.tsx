@@ -295,6 +295,7 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -359,6 +360,7 @@ export default function HomeScreen() {
         isRefresh ? api.getStories().catch(() => []) : Promise.resolve(null),
       ]);
 
+      setFeedError(null);
       const newPosts = feedData as Post[];
       
       if (isRefresh) {
@@ -377,8 +379,11 @@ export default function HomeScreen() {
       
       setHasMore(newPosts.length === pageSize);
       if (isRefresh && storiesData) setStories(storiesData);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Feed load error:', error);
+      if (isRefresh || skipRef.current === 0) {
+        setFeedError(error?.message || 'Failed to load feed');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -736,6 +741,18 @@ export default function HomeScreen() {
     );
   }
 
+  if (feedError && posts.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="cloud-offline-outline" size={64} color={Colors.textSecondary} />
+        <Text style={styles.errorText}>{feedError}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -1067,6 +1084,24 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 16,
+  },
+  errorText: {
+    color: Colors.textSecondary,
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  retryButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
   },
   header: {
     overflow: 'hidden',

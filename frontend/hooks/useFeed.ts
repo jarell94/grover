@@ -42,6 +42,7 @@ export function useFeed(options: UseFeedOptions = {}) {
   
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -59,11 +60,15 @@ export function useFeed(options: UseFeedOptions = {}) {
       const data = await fetchFn(pageSize, skip);
       const newPosts = Array.isArray(data) ? data : [];
       
+      setError(null);
       setPosts((prev) => isRefresh ? newPosts : [...prev, ...newPosts]);
       skipRef.current = isRefresh ? pageSize : skipRef.current + pageSize;
       setHasMore(newPosts.length === pageSize);
-    } catch (error) {
-      if (__DEV__) console.error('Feed load error:', error);
+    } catch (err: any) {
+      if (__DEV__) console.error('Feed load error:', err);
+      if (isRefresh || skipRef.current === 0) {
+        setError(err?.message || 'Failed to load feed');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -97,6 +102,7 @@ export function useFeed(options: UseFeedOptions = {}) {
     skipRef.current = 0;
     setHasMore(true);
     setLoading(true);
+    setError(null);
   }, []);
 
   // ==================== Optimistic Update Helpers ====================
@@ -251,6 +257,7 @@ export function useFeed(options: UseFeedOptions = {}) {
     // State
     posts,
     loading,
+    error,
     refreshing,
     loadingMore,
     hasMore,

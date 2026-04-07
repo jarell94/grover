@@ -9,7 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 export default function Index() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
-  const [loggingIn, setLoggingIn] = React.useState(false);
+  const [signingUp, setSigningUp] = React.useState(false);
+  const [signingIn, setSigningIn] = React.useState(false);
   const hasNavigated = useRef(false);
 
   useEffect(() => {
@@ -23,7 +24,7 @@ export default function Index() {
 
   const handleGoogleSignUp = async () => {
     try {
-      setLoggingIn(true);
+      setSigningUp(true);
       console.log('Starting signup...');
       await login({ mode: 'signup' });
       console.log('Signup completed');
@@ -31,13 +32,13 @@ export default function Index() {
       console.error('Signup failed:', error);
       Alert.alert('Sign up failed', 'Please try again.');
     } finally {
-      setLoggingIn(false);
+      setSigningUp(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
     try {
-      setLoggingIn(true);
+      setSigningIn(true);
       console.log('Starting signin...');
       await login({ mode: 'signin' });
       console.log('Signin completed');
@@ -45,7 +46,7 @@ export default function Index() {
       console.error('Signin failed:', error);
       Alert.alert('Sign in failed', 'Please try again.');
     } finally {
-      setLoggingIn(false);
+      setSigningIn(false);
     }
   };
 
@@ -89,11 +90,11 @@ export default function Index() {
 
           <View style={styles.authButtonsContainer}>
             <TouchableOpacity
-              style={[styles.loginButton, styles.signUpButton, loggingIn && styles.loginButtonDisabled]}
+              style={[styles.loginButton, styles.signUpButton, signingUp && styles.loginButtonDisabled]}
               onPress={handleGoogleSignUp}
-              disabled={loggingIn}
+              disabled={signingUp || signingIn}
             >
-              {loggingIn ? (
+              {signingUp ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
@@ -104,11 +105,11 @@ export default function Index() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.loginButton, loggingIn && styles.loginButtonDisabled]}
+              style={[styles.loginButton, signingIn && styles.loginButtonDisabled]}
               onPress={handleGoogleSignIn}
-              disabled={loggingIn}
+              disabled={signingUp || signingIn}
             >
-              {loggingIn ? (
+              {signingIn ? (
                 <ActivityIndicator color={Colors.primary} />
               ) : (
                 <>

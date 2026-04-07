@@ -398,6 +398,17 @@ async def create_notification(user_id: str, notification_type: str, content: str
     
     # Check if user has this notification type enabled (default to True)
     if user.get(pref_field, True):
+        # Deduplicate: skip if an identical notification was created within the last 30 seconds
+        if related_id:
+            existing = await db.notifications.find_one({
+                "user_id": user_id,
+                "type": notification_type,
+                "related_id": related_id,
+                "created_at": {"$gte": datetime.now(timezone.utc) - timedelta(seconds=30)},
+            })
+            if existing:
+                return
+
         notification_data = {
             "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
             "user_id": user_id,
@@ -4921,25 +4932,30 @@ async def get_active_stories(current_user: User = Depends(require_auth)):
         {"_id": 0}
     ).sort("created_at", -1).to_list(500)
     
+    # Batch-fetch all users referenced by the stories (eliminates N+1 queries)
+    unique_user_ids = list(set(s["user_id"] for s in stories))
+    users_map = await batch_fetch_users(db, unique_user_ids)
+
+    # Batch-fetch all story views for the current user in one query
+    story_ids = [s["story_id"] for s in stories]
+    viewed_docs = await db.story_views.find(
+        {"story_id": {"$in": story_ids}, "user_id": current_user.user_id},
+        {"_id": 0, "story_id": 1}
+    ).to_list(len(story_ids))
+    viewed_ids = {v["story_id"] for v in viewed_docs}
+
     # Group by user and add user data
-    stories_by_user = {}
+    stories_by_user: dict = {}
     for story in stories:
         user_id = story["user_id"]
         if user_id not in stories_by_user:
-            user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
             stories_by_user[user_id] = {
-                "user": user,
+                "user": users_map.get(user_id),
                 "stories": []
             }
-        
-        # Check if current user viewed this story
-        viewed = await db.story_views.find_one({
-            "story_id": story["story_id"],
-            "user_id": current_user.user_id
-        })
-        story["viewed"] = viewed is not None
+        story["viewed"] = story["story_id"] in viewed_ids
         stories_by_user[user_id]["stories"].append(story)
-    
+
     return list(stories_by_user.values())
 
 @api_router.get("/stories/me")
@@ -5350,7 +5366,7 @@ async def start_stream(
         "enable_shopping": enable_shopping,
         "status": "live",
         "viewers_count": 0,
-        "started_at": datetime.utcnow().isoformat(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
         "channel_name": channel_name,
         "host_uid": host_uid,
         "camera_facing": camera_facing,
