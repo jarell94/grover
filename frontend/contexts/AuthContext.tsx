@@ -7,6 +7,7 @@ import { Platform, AppState } from 'react-native';
 import { api, setAuthToken } from '../services/api';
 import socketService from '../services/socket';
 import { setUser as setSentryUser, addBreadcrumb } from '../utils/sentry';
+import { getStoredPushToken } from '../services/pushNotifications';
 
 // Ensure any incomplete auth sessions are dismissed
 WebBrowser.maybeCompleteAuthSession();
@@ -288,6 +289,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
+      // Unregister push token before logging out so notifications stop
+      const pushToken = await getStoredPushToken();
+      if (pushToken) {
+        await api.unregisterPushToken(pushToken).catch(() => {});
+        await AsyncStorage.removeItem('expoPushToken');
+      }
       await api.logout();
     } catch (error) {
       console.error('Logout API error:', error);

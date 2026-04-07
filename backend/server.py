@@ -376,7 +376,7 @@ async def readiness_check():
 
 # ============ HELPER FUNCTIONS ============
 
-async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None):
+async def create_notification(user_id: str, notification_type: str, content: str, related_id: str = None, from_user_id: str = None):
     """Create a notification only if user has that type enabled"""
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
@@ -419,6 +419,8 @@ async def create_notification(user_id: str, notification_type: str, content: str
         }
         if related_id:
             notification_data["related_id"] = related_id
+        if from_user_id:
+            notification_data["from_user_id"] = from_user_id
         
         await db.notifications.insert_one(notification_data)
 
@@ -875,7 +877,8 @@ async def follow_user(user_id: str, current_user: User = Depends(require_auth)):
         await create_notification(
             user_id,
             "follow",
-            f"{current_user.name} started following you"
+            f"{current_user.name} started following you",
+            from_user_id=current_user.user_id
         )
         
         return {"message": "Followed", "following": True}
@@ -1234,7 +1237,8 @@ async def create_post(
                 tagged_user_id,
                 "mention",
                 f"{current_user.name} tagged you in a post",
-                post_id
+                post_id,
+                from_user_id=current_user.user_id
             )
     
     return {"post_id": post_id, "message": "Post created"}
@@ -1328,7 +1332,8 @@ async def react_to_post(
                 post["user_id"],
                 "reaction",
                 f"{current_user.name} reacted {reaction_emoji} to your post",
-                post_id
+                post_id,
+                from_user_id=current_user.user_id
             )
         
         return {"reacted": True, "reaction_type": reaction_type, "reaction_counts": reaction_counts}
@@ -1445,7 +1450,8 @@ async def share_post(post_id: str, current_user: User = Depends(require_auth)):
             post["user_id"],
             "share",
             f"{current_user.name} shared your post",
-            post_id
+            post_id,
+            from_user_id=current_user.user_id
         )
     
     return {"message": "Post shared", "shares_count": post.get("shares_count", 0) + 1}
@@ -1508,7 +1514,8 @@ async def repost_post(
             original_post["user_id"],
             "repost",
             f"{current_user.name} reposted your post",
-            repost_id
+            post_id,
+            from_user_id=current_user.user_id
         )
     
     return {
@@ -1879,7 +1886,8 @@ async def create_comment(
             post["user_id"],
             "comment",
             f"{current_user.name} commented on your post",
-            comment_id
+            post_id,
+            from_user_id=current_user.user_id
         )
     
     # If it's a reply, notify the parent comment owner
@@ -1890,7 +1898,8 @@ async def create_comment(
                 parent_comment["user_id"],
                 "comment",
                 f"{current_user.name} replied to your comment",
-                comment_id
+                post_id,
+                from_user_id=current_user.user_id
             )
     
     return {"comment_id": comment_id, "message": "Comment created"}
@@ -2914,9 +2923,11 @@ async def get_community_posts(community_id: str, current_user: User = Depends(re
         {"_id": 0}
     ).sort("created_at", -1).limit(50).to_list(50)
     
+    # Batch-fetch all post authors in one query to avoid N+1
+    user_ids = list(set(p["user_id"] for p in posts))
+    users_map = await batch_fetch_users(db, user_ids)
     for post in posts:
-        user = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0})
-        post["user"] = user
+        post["user"] = users_map.get(post["user_id"])
     
     return posts
 
