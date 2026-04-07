@@ -4945,7 +4945,7 @@ async def get_active_stories(current_user: User = Depends(require_auth)):
     viewed_ids = {v["story_id"] for v in viewed_docs}
 
     # Group by user and add user data
-    stories_by_user: dict = {}
+    stories_by_user: dict[str, dict] = {}
     for story in stories:
         user_id = story["user_id"]
         if user_id not in stories_by_user:

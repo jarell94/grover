@@ -381,7 +381,8 @@ export default function HomeScreen() {
       if (isRefresh && storiesData) setStories(storiesData);
     } catch (error: any) {
       console.error('Feed load error:', error);
-      if (isRefresh || skipRef.current === 0) {
+      const isInitialLoad = isRefresh || skipRef.current === 0;
+      if (isInitialLoad) {
         setFeedError(error?.message || 'Failed to load feed');
       }
     } finally {
