@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { makeRedirectUri } from 'expo-auth-session';
 import { Platform, AppState } from 'react-native';
 import { api, setAuthToken } from '../services/api';
 import socketService from '../services/socket';
@@ -48,6 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const isProcessingAuth = useRef(false);
+  const pendingDeepLinkUrl = useRef<string | null>(null);
   const appState = useRef(AppState.currentState);
 
   // Process redirect URL to extract session and authenticate
@@ -199,6 +199,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           window.location.href = authUrl;
         }
       } else {
+        // Clear any URL from a previous auth attempt before starting
+        pendingDeepLinkUrl.current = null;
+
         // Use WebBrowser.openAuthSessionAsync for mobile
         const result = await WebBrowser.openAuthSessionAsync(
           authUrl, 
@@ -214,8 +217,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('Auth success - processing URL:', result.url);
           await processRedirectUrl(result.url);
         } else if (result.type === 'dismiss' || result.type === 'cancel') {
-          console.log('Auth dismissed/cancelled by user');
-          // User cancelled, don't do anything
+          // On iPad, ASWebAuthenticationSession presents as a popover and may return
+          // 'dismiss' even after a successful redirect (the URL is delivered via the
+          // system deep-link handler instead). Wait briefly for the Linking listener
+          // to capture and store the URL, then process it if present.
+          await new Promise<void>(resolve => setTimeout(resolve, 600));
+          const deepLinkUrl = pendingDeepLinkUrl.current;
+          if (deepLinkUrl) {
+            console.log('Auth completed via deep link after dismiss, processing...');
+            await processRedirectUrl(deepLinkUrl);
+            pendingDeepLinkUrl.current = null;
+          } else {
+            console.log('Auth dismissed/cancelled by user');
+          }
         }
       }
     } catch (error) {
@@ -231,10 +245,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleAppStateChange = async (nextAppState: string) => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         console.log('App came to foreground, checking for pending auth...');
-        // Check if we have a pending auth URL
-        const url = await Linking.getInitialURL();
+        // Use the URL captured by the deep link listener (getInitialURL only returns
+        // the URL that originally launched the app, not dynamically received links).
+        const url = pendingDeepLinkUrl.current;
         if (url && url.includes('session_id') && !user) {
           console.log('Found pending auth URL on foreground:', url);
+          pendingDeepLinkUrl.current = null;
           await processRedirectUrl(url);
         }
       }
@@ -268,6 +284,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('Deep link received:', event.url);
       // Check for session_id in the URL (could be in query params or hash)
       if (event.url.includes('session_id') || event.url.includes('auth-callback')) {
+        // Store the URL so the login() function can access it if openAuthSessionAsync
+        // returned 'dismiss' (common on iPad where ASWebAuthenticationSession is a popover).
+        pendingDeepLinkUrl.current = event.url;
         await processRedirectUrl(event.url);
       }
     };
