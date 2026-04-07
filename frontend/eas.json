@@ -13,6 +13,10 @@
       },
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "http://localhost:8001",
+        "EXPO_PUBLIC_ENVIRONMENT": "development"
       }
     },
     "preview": {
