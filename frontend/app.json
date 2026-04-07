@@ -2,6 +2,7 @@
   "expo": {
     "name": "Grover",
     "slug": "grover",
+    "owner": "your-expo-username",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -12,9 +13,10 @@
       "policy": "sdkVersion"
     },
     "updates": {
-      "enabled": false,
+      "enabled": true,
       "fallbackToCacheTimeout": 0,
-      "checkAutomatically": "NEVER"
+      "checkAutomatically": "ON_LOAD",
+      "url": "https://u.expo.dev/your-project-id"
     },
     "ios": {
       "supportsTablet": true,
@@ -101,6 +103,9 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "your-project-id"
       }
     }
   }
