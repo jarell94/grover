@@ -26,7 +26,12 @@
               "grover"
             ]
           }
-        ]
+        ],
+        "NSCameraUsageDescription": "Grover uses your camera to let you go live, record videos, and capture photos for posts and stories.",
+        "NSMicrophoneUsageDescription": "Grover uses your microphone to capture audio during live streams and video recordings.",
+        "NSPhotoLibraryUsageDescription": "Grover accesses your photo library so you can share photos and videos in posts, stories, and the marketplace.",
+        "NSPhotoLibraryAddUsageDescription": "Grover saves photos and videos to your photo library.",
+        "NSUserNotificationsUsageDescription": "Grover sends you notifications for new messages, likes, comments, and follower activity."
       }
     },
     "android": {
@@ -38,7 +43,16 @@
       "edgeToEdgeEnabled": true,
       "gradleProperties": {
         "newArchEnabled": "true"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -54,6 +68,30 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#000000"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Grover uses your camera to let you go live, record videos, and capture photos for posts and stories.",
+          "microphonePermission": "Grover uses your microphone to capture audio during live streams and video recordings.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Grover accesses your photo library so you can share photos and videos in posts, stories, and the marketplace.",
+          "cameraPermission": "Grover uses your camera to capture photos and videos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#8B5CF6",
+          "defaultChannel": "default",
+          "sounds": []
         }
       ]
     ],
