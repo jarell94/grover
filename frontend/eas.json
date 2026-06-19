@@ -45,7 +45,7 @@
         "appleId": "jarellchaffin89@gmail.com",
         "ascAppId": "6758971551",
         "appleTeamId": "9XD5A6WH89",
-        "sku": "grover-app-001"
+        "sku": "app_emergent_grover-social-183b567f2"
       },
       "android": {
         "serviceAccountKeyPath": "./google-play-service-account.json",
