@@ -16,7 +16,7 @@
       "enabled": true,
       "fallbackToCacheTimeout": 0,
       "checkAutomatically": "ON_LOAD",
-      "url": "https://u.expo.dev/your-project-id"
+      "url": "https://u.expo.dev/app_emergent_grover-social-183b567f2"
     },
     "ios": {
       "supportsTablet": true,
@@ -106,7 +106,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "app_emergent_grover-social-183b567f2"
       }
     }
   }
